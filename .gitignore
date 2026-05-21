@@ -1,0 +1,4 @@
+.env
+.local-config.json
+node_modules
+dist

@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tech Hall AI Lab</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f4f0;--surface:#fff;--surface2:#f0efe9;
+  --border:rgba(0,0,0,.1);--border-md:rgba(0,0,0,.18);
+  --text:#1a1a18;--text2:#6b6b66;--text3:#9a9a94;
+  --blue:#185FA5;--blue-light:#e6f1fb;--blue-dark:#0C447C;
+  --green:#0F6E56;--green-light:#E1F5EE;--green-border:rgba(15,110,86,.25);
+  --red:#A32D2D;--red-light:#FCEBEB;
+  --amber:#854F0B;--amber-light:#FAEEDA;--amber-border:rgba(133,79,11,.25);
+  --purple:#534AB7;--purple-light:#EEEDFE;
+  --r-md:8px;--r-lg:12px;--r-xl:16px;
+}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.5}
+.screen{display:none;flex-direction:column;min-height:100vh}.screen.active{display:flex}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:10}
+.logo{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;cursor:pointer}
+.logo-icon{width:28px;height:28px;background:var(--blue);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700;flex-shrink:0}
+.topbar-right{display:flex;align-items:center;gap:8px}
+.mode-switch{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-md);padding:3px;gap:2px}
+.mode-btn{padding:5px 14px;font-size:12px;font-weight:500;border-radius:6px;border:none;background:transparent;color:var(--text2);cursor:pointer;transition:all .12s;font-family:inherit}
+.mode-btn.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 14px;font-size:13px;font-weight:500;border-radius:var(--r-md);border:1px solid var(--border-md);background:var(--surface);color:var(--text);cursor:pointer;transition:all .12s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:var(--surface2)}.btn:active{transform:scale(.98)}.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}.btn-primary:hover:not(:disabled){background:var(--blue-dark);border-color:var(--blue-dark)}
+.btn-full{width:100%}.btn-sm{padding:5px 10px;font-size:12px}
+.btn-ghost{border-color:transparent;background:transparent;color:var(--text2)}.btn-ghost:hover{background:var(--surface2);color:var(--text)}
+.btn-danger{color:var(--red)}.btn-danger:hover{background:var(--red-light)}
+.btn-add-full{width:100%;margin-top:10px;justify-content:center;border-style:dashed;color:var(--text2)}.btn-add-full:hover{border-style:solid;background:var(--surface2);color:var(--text)}
+.btn-green{background:var(--green);color:#fff;border-color:var(--green)}.btn-green:hover:not(:disabled){background:#0a5040}
+.form-group{margin-bottom:14px}
+.form-label{display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.form-hint{font-size:11px;color:var(--text3);margin-top:5px}
+input[type=text],input[type=password],select,textarea{width:100%;padding:9px 12px;font-size:13px;font-family:inherit;border:1px solid var(--border-md);border-radius:var(--r-md);background:var(--surface);color:var(--text);outline:none;transition:border-color .12s,box-shadow .12s}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(24,95,165,.1)}
+textarea{resize:vertical;min-height:80px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px 24px;margin-bottom:14px}
+.badge-role{font-size:11px;font-weight:500;background:var(--blue-light);color:var(--blue);padding:3px 9px;border-radius:20px}
+.pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;letter-spacing:.02em}
+.pill-draft{background:#F1EFE8;color:#5F5E5A}.pill-open{background:var(--green-light);color:var(--green)}.pill-closed{background:var(--red-light);color:var(--red)}
+.pill-unlocked{background:var(--green-light);color:var(--green)}.pill-locked{background:#F1EFE8;color:#5F5E5A}
+.pill-done{background:var(--green-light);color:var(--green)}
+.team-badge{background:var(--blue-light);color:var(--blue);font-size:12px;font-weight:600;padding:4px 12px;border-radius:20px}
+.config-indicator{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);padding:5px 10px;border-radius:var(--r-md);border:1px solid var(--border)}
+.config-indicator.ok{color:var(--green);border-color:var(--green-border);background:var(--green-light)}
+.config-indicator .cdot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--r-xl);border:1px solid var(--border);padding:28px;width:480px;max-width:94vw;box-shadow:0 8px 40px rgba(0,0,0,.15);animation:modalin .15s ease;max-height:90vh;overflow-y:auto}
+@keyframes modalin{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.modal-title{font-size:17px;font-weight:600;margin-bottom:6px}
+.modal-sub{font-size:13px;color:var(--text2);margin-bottom:20px}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}
+.notice{background:var(--blue-light);border:1px solid rgba(24,95,165,.2);border-radius:var(--r-md);padding:10px 14px;font-size:12px;color:var(--blue);line-height:1.5;margin-bottom:14px}
+.divider{height:1px;background:var(--border);margin:16px 0}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--text);color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;font-weight:500;z-index:999;transition:transform .25s cubic-bezier(.175,.885,.32,1.275);pointer-events:none;white-space:nowrap}
+.toast.show{transform:translateX(-50%) translateY(0)}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(0,0,0,.12);border-radius:3px}
+/* FAC */
+.fac-layout{display:grid;grid-template-columns:240px 1fr;flex:1;min-height:0}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:16px;height:calc(100vh - 52px);overflow-y:auto;position:sticky;top:52px}
+.sidebar-label{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;padding:0 4px}
+.event-item{padding:10px 12px;border-radius:var(--r-md);cursor:pointer;border:1px solid transparent;transition:all .12s;margin-bottom:3px}
+.event-item:hover{background:var(--surface2)}.event-item.active{background:var(--blue-light);border-color:rgba(24,95,165,.2)}
+.event-item-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.event-item-meta{font-size:11px;color:var(--text3);margin-top:3px;display:flex;align-items:center;gap:5px}
+.sdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}.sdot-draft{background:#aaa}.sdot-open{background:#1D9E75}.sdot-closed{background:#E24B4A}
+.fac-content{padding:24px 28px;overflow-y:auto;flex:1}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:380px;color:var(--text3);text-align:center;gap:10px}
+.empty-icon{font-size:44px;opacity:.25}.empty-title{font-size:15px;font-weight:500;color:var(--text2)}.empty-sub{font-size:13px;max-width:260px}
+.event-title{font-size:22px;font-weight:600}.event-desc-text{font-size:13px;color:var(--text2);margin-top:4px}
+.event-header-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab{padding:8px 16px;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s}
+.tab:hover{color:var(--text)}.tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-title{font-size:13px;font-weight:500;color:var(--text2)}
+.teams-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.team-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-md);padding:14px;position:relative}
+.team-avatar{width:32px;height:32px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+.team-name{font-size:13px;font-weight:500}.team-runs{font-size:11px;color:var(--text3);margin-top:3px}
+.team-remove{position:absolute;top:8px;right:8px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px;padding:2px 4px;border-radius:4px;opacity:0;transition:opacity .12s}
+.team-card:hover .team-remove{opacity:1}.team-remove:hover{color:var(--red);background:var(--red-light)}
+.mission-row{display:flex;align-items:flex-start;justify-content:space-between;padding:14px 16px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface2);margin-bottom:8px;gap:12px}
+.mname{font-size:13px;font-weight:600}.mcat{font-size:11px;color:var(--text3);margin-top:2px}.mdesc{font-size:12px;color:var(--text2);margin-top:5px;line-height:1.5}
+.mission-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;margin-top:2px}
+.teams-empty{padding:20px;text-align:center;color:var(--text3);font-size:13px;border:1px dashed var(--border-md);border-radius:var(--r-md)}
+.key-display{font-family:monospace;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-md);padding:8px 12px;color:var(--text2);word-break:break-all;margin-top:8px}
+.pack-header{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:6px 4px 8px;margin-top:14px;border-bottom:1px solid var(--border);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.pack-header:first-child{margin-top:0}
+.pack-badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px}
+.pack-core{background:var(--blue-light);color:var(--blue)}.pack-pesquisa{background:var(--green-light);color:var(--green)}.pack-avancado{background:var(--purple-light);color:var(--purple)}.pack-recuperacao{background:var(--amber-light);color:var(--amber)}
+.mode-badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;border:1px solid var(--border)}
+.mode-single{background:#F1EFE8;color:#5F5E5A}.mode-compare{background:var(--amber-light);color:var(--amber)}.mode-rag{background:var(--green-light);color:var(--green)}.mode-tool{background:var(--purple-light);color:var(--purple)}
+/* DASHBOARD */
+.dash-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
+.dash-stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px 18px}
+.dash-stat-val{font-size:28px;font-weight:600;line-height:1;color:var(--text)}
+.dash-stat-lbl{font-size:11px;color:var(--text3);margin-top:4px;text-transform:uppercase;letter-spacing:.04em}
+.dash-stat-sub{font-size:12px;color:var(--text2);margin-top:3px}
+.team-dash-row{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);margin-bottom:10px;overflow:hidden}
+.team-dash-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--surface2)}
+.team-dash-name{font-size:14px;font-weight:600}
+.team-dash-meta{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text2)}
+.team-dash-body{padding:14px 18px}
+.mission-progress-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
+.mission-progress-row:last-child{border-bottom:none}
+.mission-progress-name{font-weight:500;color:var(--text);flex:1}
+.mission-progress-tokens{font-size:11px;color:var(--text3);text-align:right;min-width:80px}
+.mission-progress-cost{font-size:11px;color:var(--text2);text-align:right;min-width:60px}
+.progress-bar-wrap{height:4px;background:var(--surface2);border-radius:2px;margin-top:10px;overflow:hidden}
+.progress-bar-fill{height:100%;background:var(--blue);border-radius:2px;transition:width .3s}
+.reflexao-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 8px;border-radius:20px;background:var(--surface2);border:1px solid var(--border);color:var(--text2)}
+.stars-row{display:flex;gap:2px}
+.star{font-size:12px;color:var(--amber)}
+/* TIME */
+.center-wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 24px}
+.center-box{width:100%;max-width:440px}
+.center-box-title{font-size:22px;font-weight:600;margin-bottom:6px}
+.center-box-sub{font-size:13px;color:var(--text2);margin-bottom:24px}
+.teams-list{display:flex;flex-direction:column;gap:8px}
+.team-option{display:flex;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--border);border-radius:var(--r-lg);cursor:pointer;transition:all .12s;background:var(--surface)}
+.team-option:hover{border-color:var(--blue);background:var(--blue-light)}
+.team-option-avatar{width:36px;height:36px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.team-option-name{font-size:14px;font-weight:500}.team-option-runs{font-size:12px;color:var(--text3);margin-top:2px}
+/* WORKSPACE */
+.workspace{flex:1;display:grid;grid-template-columns:220px 1fr;min-height:0}
+.ws-sidebar{background:var(--surface);border-right:1px solid var(--border);padding:14px;overflow-y:auto;height:calc(100vh - 52px);position:sticky;top:52px}
+.ws-sidebar-label{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;padding:0 4px}
+.mission-item{padding:9px 11px;border-radius:var(--r-md);cursor:pointer;border:1px solid transparent;transition:all .12s;margin-bottom:3px}
+.mission-item:hover:not(.locked):not(.done){background:var(--surface2)}.mission-item.active{background:var(--blue-light);border-color:rgba(24,95,165,.2)}.mission-item.locked{opacity:.4;cursor:not-allowed}
+.mission-item.done{background:var(--green-light);border-color:var(--green-border)}
+.mission-item-name{font-size:12px;font-weight:500}.mission-item-meta{font-size:11px;color:var(--text3);margin-top:2px}
+.poll-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex-shrink:0;display:inline-block}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.ws-content{padding:20px 24px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px;max-width:800px}
+.demo-banner{background:var(--amber-light);border-bottom:1px solid var(--amber-border);padding:7px 24px;font-size:12px;color:var(--amber);font-weight:500;display:flex;align-items:center;gap:6px;flex-shrink:0}
+/* ENUNCIADO */
+.enunciado{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.enunciado-header{padding:14px 20px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.enunciado-title{font-size:17px;font-weight:600}
+.enunciado-body{padding:14px 20px;display:flex;flex-direction:column;gap:10px}
+.situacao-box{font-size:13px;color:var(--text);line-height:1.7;padding:12px 14px;background:var(--surface2);border-radius:var(--r-md);border-left:3px solid var(--blue)}
+.instrucao-box{font-size:12px;color:var(--amber);line-height:1.6;padding:10px 14px;background:var(--amber-light);border-radius:var(--r-md)}
+/* INPUT */
+.input-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px 20px}
+.input-section-label{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.acao-selector{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.acao-btn{padding:6px 14px;font-size:12px;font-weight:500;border-radius:20px;border:1px solid var(--border-md);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all .12s;font-family:inherit}
+.acao-btn:hover{border-color:var(--blue);color:var(--blue)}.acao-btn.selected{background:var(--blue);color:#fff;border-color:var(--blue)}
+.input-hint{font-size:11px;color:var(--text3);margin-bottom:8px;font-style:italic}
+/* TOKENS PANEL */
+.tokens-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.tokens-panel-header{padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.tokens-panel-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2)}
+.tokens-grid{display:grid;grid-template-columns:repeat(4,1fr)}
+.token-cell{padding:14px 16px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:3px}
+.token-cell:last-child{border-right:none}
+.token-cell-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3)}
+.token-cell-val{font-size:22px;font-weight:700;color:var(--text);line-height:1}
+.token-cell-sub{font-size:11px;color:var(--text3)}
+.tokens-accent-blue .token-cell-val{color:var(--blue)}
+.tokens-accent-green .token-cell-val{color:var(--green)}
+.tokens-acum-bar{padding:10px 18px;border-top:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:12px;font-size:12px;color:var(--text2)}
+.acum-item{display:flex;align-items:center;gap:5px}
+.acum-label{color:var(--text3);font-size:11px}
+.acum-val{font-weight:600;color:var(--text)}
+/* OUTPUT */
+.output-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.output-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--border);background:var(--surface2)}
+.output-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);display:flex;align-items:center;gap:8px}
+.output-body{padding:18px 22px}
+.output-text{font-size:14px;line-height:1.8;white-space:pre-wrap;word-break:break-word}
+/* EXPLICACAO */
+.explain-section{border-top:1px solid var(--border)}
+.explain-toggle{display:flex;align-items:center;gap:8px;padding:10px 18px;cursor:pointer;font-size:12px;font-weight:500;color:var(--text2);user-select:none;transition:background .12s}
+.explain-toggle:hover{background:var(--surface2)}
+.explain-body{display:none;padding:14px 20px;border-top:1px solid var(--border);background:var(--surface2);flex-direction:column;gap:12px}
+.explain-body.open{display:flex}
+.explain-block-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:4px}
+.explain-block-text{font-size:12px;color:var(--text);line-height:1.7;white-space:pre-wrap}
+.prompt-preview{font-family:monospace;font-size:11px;white-space:pre-wrap;color:var(--text2);background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;max-height:160px;overflow-y:auto}
+/* REFLEXAO */
+.reflexao-card{background:var(--surface);border:2px solid var(--green);border-radius:var(--r-lg);overflow:hidden}
+.reflexao-header{padding:14px 20px;background:var(--green-light);border-bottom:1px solid var(--green-border);display:flex;align-items:center;gap:10px}
+.reflexao-title{font-size:15px;font-weight:600;color:var(--green)}
+.reflexao-body{padding:18px 22px;display:flex;flex-direction:column;gap:16px}
+.reflexao-question{display:flex;flex-direction:column;gap:8px}
+.reflexao-q-text{font-size:13px;font-weight:500;color:var(--text)}
+.scale-row{display:flex;gap:6px;align-items:center}
+.scale-btn{width:40px;height:40px;border-radius:50%;border:2px solid var(--border-md);background:var(--surface2);font-size:14px;font-weight:700;color:var(--text2);cursor:pointer;transition:all .12s;font-family:inherit;display:flex;align-items:center;justify-content:center}
+.scale-btn:hover{border-color:var(--blue);color:var(--blue)}.scale-btn.selected{background:var(--blue);border-color:var(--blue);color:#fff}
+.scale-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);padding:0 4px;margin-top:2px}
+/* HISTÓRICO */
+.history-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:6px}
+.history-item{border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:8px;overflow:hidden}
+.history-item-header{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--surface2);cursor:pointer;font-size:11px;color:var(--text2);user-select:none}
+.history-item-body{padding:14px 16px;font-size:12px;line-height:1.7;display:none;border-top:1px solid var(--border)}
+.history-item-body.open{display:block}
+/* LOADING */
+.loading-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:36px;gap:12px}
+.spinner{width:24px;height:24px;border:2.5px solid var(--border-md);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-label{font-size:12px;color:var(--text2)}
+.error-box{background:var(--red-light);border:1px solid rgba(163,45,45,.25);border-radius:var(--r-md);padding:12px 16px;font-size:13px;color:var(--red);line-height:1.6}
+.mission-ws-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;min-height:360px;color:var(--text3);text-align:center;gap:10px}
+.done-overlay{background:var(--green-light);border:1px solid var(--green-border);border-radius:var(--r-lg);padding:20px;text-align:center;font-size:14px;color:var(--green);font-weight:500}
+</style>
+</head>
+<body>
+
+<!-- HOME -->
+<div class="screen active" id="screen-home">
+  <div class="topbar">
+    <div class="logo"><div class="logo-icon">⬡</div> Tech Hall AI Lab</div>
+    <div class="topbar-right"><div class="mode-switch"><button class="mode-btn active" onclick="irFacilitador()">Facilitador</button><button class="mode-btn" onclick="irEntradaTime()">Sou time</button></div></div>
+  </div>
+  <div class="center-wrap">
+    <div class="center-box" style="max-width:520px;text-align:center">
+      <div style="font-size:48px;margin-bottom:16px">⬡</div>
+      <div class="center-box-title">Tech Hall AI Lab</div>
+      <div class="center-box-sub" style="margin-bottom:32px">Laboratório de aulas em times com IA.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="card" style="cursor:pointer;transition:border-color .12s" onmouseenter="this.style.borderColor='var(--blue)'" onmouseleave="this.style.borderColor=''" onclick="irFacilitador()">
+          <div style="font-size:26px;margin-bottom:10px">🎛</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:4px">Facilitador</div>
+          <div style="font-size:12px;color:var(--text2)">Criar eventos, organizar times e liberar missões.</div>
+          <div style="margin-top:14px"><button class="btn btn-primary btn-full btn-sm">Entrar como facilitador</button></div>
+        </div>
+        <div class="card" style="cursor:pointer;transition:border-color .12s" onmouseenter="this.style.borderColor='var(--blue)'" onmouseleave="this.style.borderColor=''" onclick="irEntradaTime()">
+          <div style="font-size:26px;margin-bottom:10px">👥</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:4px">Sou time</div>
+          <div style="font-size:12px;color:var(--text2)">Entrar num evento, escolher o time e executar missões.</div>
+          <div style="margin-top:14px"><button class="btn btn-full btn-sm">Entrar como time</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FACILITADOR -->
+<div class="screen" id="screen-fac">
+  <div class="topbar">
+    <div class="logo" onclick="irHome()"><div class="logo-icon">⬡</div> Tech Hall AI Lab <span class="badge-role">facilitador</span></div>
+    <div class="topbar-right">
+      <div id="api-indicator" class="config-indicator"><span class="cdot"></span><span id="api-label">sem chave OpenAI</span></div>
+      <button class="btn btn-sm" onclick="abrirModal('modal-config')">⚙ Configurar IA</button>
+      <button class="btn btn-ghost btn-sm" onclick="irHome()">← Início</button>
+    </div>
+  </div>
+  <div class="fac-layout">
+    <div class="sidebar">
+      <div class="sidebar-label">Eventos</div>
+      <div id="events-list"></div>
+      <button class="btn btn-add-full" onclick="abrirModal('modal-new-event')">+ Novo evento</button>
+    </div>
+    <div class="fac-content" id="fac-content">
+      <div class="empty-state"><div class="empty-icon">⬡</div><div class="empty-title">Nenhum evento selecionado</div><div class="empty-sub">Crie ou selecione um evento.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ENTRADA TIME -->
+<div class="screen" id="screen-entry">
+  <div class="topbar">
+    <div class="logo" onclick="irHome()"><div class="logo-icon">⬡</div> Tech Hall AI Lab</div>
+    <div class="topbar-right"><button class="btn btn-ghost btn-sm" onclick="irHome()">← Início</button></div>
+  </div>
+  <div class="center-wrap">
+    <div class="center-box">
+      <div class="center-box-title">Entrar na aula</div>
+      <div class="center-box-sub">Informe o código do evento para acessar seu workspace.</div>
+      <div class="card">
+        <div class="form-group"><label class="form-label">Código do evento</label><input type="text" id="f-event-code" placeholder="ev_..." autocomplete="off" /></div>
+        <div id="entry-error" style="display:none;margin-bottom:10px" class="error-box"></div>
+        <button class="btn btn-primary btn-full" onclick="entrarEvento()">Continuar</button>
+      </div>
+      <div style="text-align:center;font-size:12px;color:var(--text3);margin-top:8px">Peça o código ao facilitador.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ESCOLHA TIME -->
+<div class="screen" id="screen-team">
+  <div class="topbar">
+    <div class="logo" onclick="irHome()"><div class="logo-icon">⬡</div> Tech Hall AI Lab</div>
+    <div class="topbar-right">
+      <span id="ts-event-name" style="font-size:13px;font-weight:500;color:var(--text2)"></span>
+      <button class="btn btn-ghost btn-sm" onclick="irEntradaTime()">← Trocar evento</button>
+    </div>
+  </div>
+  <div class="center-wrap">
+    <div class="center-box">
+      <div class="center-box-title">Escolha seu time</div>
+      <div class="center-box-sub">Selecione o time em que você está participando.</div>
+      <div id="teams-list" class="teams-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- WORKSPACE -->
+<div class="screen" id="screen-ws">
+  <div class="topbar">
+    <div class="logo" onclick="irHome()"><div class="logo-icon">⬡</div> Tech Hall AI Lab</div>
+    <div class="topbar-right">
+      <span id="ws-event-label" style="font-size:13px;color:var(--text3)"></span>
+      <span class="team-badge" id="ws-team-label"></span>
+      <button class="btn btn-ghost btn-sm" onclick="irEscolhaTime()">← Trocar time</button>
+    </div>
+  </div>
+  <div id="ws-demo-banner" class="demo-banner" style="display:none">⚡ Modo demonstração — sem chave OpenAI. Respostas são simuladas para ver o fluxo completo.</div>
+  <div class="workspace">
+    <div class="ws-sidebar">
+      <div class="ws-sidebar-label">Missões</div>
+      <div id="ws-missions-list"></div>
+      <div style="margin-top:14px;padding:0 4px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3)"><span class="poll-dot"></span> atualizando</div>
+    </div>
+    <div class="ws-content" id="ws-content">
+      <div class="mission-ws-empty"><div class="empty-icon">◎</div><div class="empty-title">Nenhuma missão selecionada</div><div class="empty-sub">Selecione uma missão liberada na barra lateral.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="overlay" id="modal-new-event">
+  <div class="modal">
+    <div class="modal-title">Criar novo evento</div>
+    <div class="form-group"><label class="form-label">Nome *</label><input type="text" id="f-ev-name" placeholder="Ex: Turma A — Maio 2025" /></div>
+    <div class="form-group"><label class="form-label">Descrição</label><input type="text" id="f-ev-desc" placeholder="Ex: Aula de IA generativa" /></div>
+    <div class="form-group"><label class="form-label">Times (separados por vírgula)</label><input type="text" id="f-ev-teams" placeholder="Ex: Alpha, Beta, Gamma" /><div class="form-hint">Você pode adicionar times depois.</div></div>
+    <div class="form-group">
+      <label class="form-label">Pack de missões</label>
+      <select id="f-ev-pack">
+        <option value="core">Core (missões 1–5)</option>
+        <option value="pesquisa">Pesquisa (missões 6–7)</option>
+        <option value="avancado">Avançado (missões 8 e 11)</option>
+        <option value="recuperacao">Recuperação (missões 9–10)</option>
+        <option value="todos">Todos os packs (11 missões)</option>
+        <option value="nenhum">Sem missões</option>
+      </select>
+      <div class="form-hint">Missões entram bloqueadas. Você libera na hora certa.</div>
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="fecharModal('modal-new-event')">Cancelar</button><button class="btn btn-primary" onclick="criarEvento()">Criar</button></div>
+  </div>
+</div>
+<div class="overlay" id="modal-add-team">
+  <div class="modal">
+    <div class="modal-title">Adicionar time</div>
+    <div class="form-group"><label class="form-label">Nome *</label><input type="text" id="f-team-name" placeholder="Ex: Zeta" /></div>
+    <div class="modal-actions"><button class="btn" onclick="fecharModal('modal-add-team')">Cancelar</button><button class="btn btn-primary" onclick="adicionarTime()">Adicionar</button></div>
+  </div>
+</div>
+<div class="overlay" id="modal-config">
+  <div class="modal">
+    <div class="modal-title">Configuração da IA</div>
+    <div class="notice">🔒 A chave fica salva apenas neste navegador. Não é enviada a nenhum servidor além da OpenAI.</div>
+    <div class="form-group"><label class="form-label">Chave OpenAI</label><input type="password" id="f-api-key" placeholder="sk-..." /></div>
+    <div class="form-group"><label class="form-label">Modelo padrão</label>
+      <select id="f-model"><option value="gpt-4.1-mini">gpt-4.1-mini (padrão)</option><option value="gpt-4.1">gpt-4.1</option><option value="gpt-4o">gpt-4o</option><option value="gpt-4o-mini">gpt-4o-mini</option></select>
+    </div>
+    <div class="modal-actions"><button class="btn btn-ghost btn-danger" onclick="limparChave()">Remover chave</button><button class="btn" onclick="fecharModal('modal-config')">Cancelar</button><button class="btn btn-primary" onclick="salvarConfig()">Salvar</button></div>
+  </div>
+</div>
+<div class="overlay" id="modal-confirm">
+  <div class="modal" style="width:340px">
+    <div class="modal-title" id="confirm-title">Confirmar</div>
+    <div id="confirm-body" style="font-size:13px;color:var(--text2)"></div>
+    <div class="modal-actions"><button class="btn" onclick="fecharModal('modal-confirm')">Cancelar</button><button class="btn btn-primary btn-danger" id="confirm-ok">Confirmar</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+
+// ============================================================
+// CATÁLOGO
+// ============================================================
+const CATALOGO=[
+{id:'m01',num:1,pack:'core',name:'Reestruturar informação',category:'síntese',mode:'single-pass',
+ desc:'Texto bagunçado vira material útil para decisão.',
+ situacao:'Seu time recebeu notas brutas de uma reunião. O material está disperso e cheio de redundâncias. O diretor precisa de um resumo executivo até o fim do dia.',
+ instrucao:'Cole as notas, o briefing ou o texto que você quer transformar. Escolha a ação que melhor descreve o que você precisa.',
+ placeholder:'Notas da reunião:\n- João: prazo está apertado\n- Fernanda: problema com fornecedor\n- Pendente: aprovação antes de seguir',
+ acoes:['Resumir','Extrair pontos principais','Gerar plano de ação'],
+ systemPrompt:`Você é um assistente de síntese executiva. Transforme o material em algo útil para decisão. Não invente nada que não esteja no material. Sinalize ambiguidades.`},
+{id:'m02',num:2,pack:'core',name:'Conversar com dados',category:'análise',mode:'single-pass',
+ desc:'Aprenda a diferença entre observar dados e inventar explicações.',
+ situacao:'Sua empresa coletou dados de uso dos últimos 3 meses. O time precisa entender o que os dados realmente mostram antes de apresentar para a diretoria.',
+ instrucao:'Cole o CSV ou descreva a tabela. Escolha o que você quer que a IA faça com eles.',
+ placeholder:'mês, usuários, conversões\njan, 1200, 85\nfev, 1380, 91\nmar, 1290, 72',
+ acoes:['Identificar padrões','Encontrar anomalias','Gerar hipóteses','Sugerir gráfico'],
+ systemPrompt:`Você é um assistente de análise de dados. Separe FATOS OBSERVADOS de HIPÓTESES. Nunca afirme causalidade sem evidência. Aponte limitações da amostra.`},
+{id:'m03',num:3,pack:'core',name:'Criar um mock de solução',category:'produção',mode:'single-pass',
+ desc:'Ideia vaga vira estrutura de produto.',
+ situacao:'O time tem uma ideia de produto ainda vaga. Antes de apresentar para o cliente, precisam transformá-la em algo que dá para mostrar e discutir.',
+ instrucao:'Descreva o problema, quem vai usar e o que o produto deve fazer.',
+ placeholder:'App para restaurantes controlarem estoque. O dono precisa saber o que está acabando antes de acabar, sem planilha manual.',
+ acoes:['Gerar fluxo de telas','Descrever funcionalidades','Gerar wireframe textual'],
+ systemPrompt:`Você é um assistente de especificação de produto. Transforme a descrição em artefatos concretos. Marque com [SUPOSIÇÃO] tudo que assumiu mas não foi dito.`},
+{id:'m04',num:4,pack:'core',name:'Classificar e decidir',category:'triagem',mode:'single-pass',
+ desc:'A IA classifica com critério e aponta onde humano precisa revisar.',
+ situacao:'O suporte recebeu vários chamados. O time precisa triá-los por prioridade antes da reunião.',
+ instrucao:'Cole os casos que precisam ser classificados.',
+ placeholder:'Chamado 001: sistema fora do ar para todos\nChamado 002: usuário esqueceu a senha\nChamado 003: relatório com erro afeta fechamento\nChamado 004: dúvida sobre exportar PDF',
+ acoes:['Classificar prioridade','Justificar classificação','Apontar incertezas'],
+ systemPrompt:`Você é um assistente de triagem. Para cada caso: classifique, justifique, indique certeza. Quando certeza for baixa: REVISÃO HUMANA NECESSÁRIA.`},
+{id:'m05',num:5,pack:'core',name:'Testar limites',category:'diagnóstico',mode:'single-pass',
+ desc:'Pedidos ruins revelam onde a IA alucina ou finge certeza.',
+ situacao:'O time precisa entender quando a IA falha. A melhor forma é provocando com pedidos fracos ou ambíguos.',
+ instrucao:'Escreva um pedido vago, contraditório ou que falta informação. Observe o que a IA faz.',
+ placeholder:'Me diz o que devo fazer com o projeto.',
+ acoes:['Gerar resposta','Apontar lacunas','Pedir esclarecimento'],
+ systemPrompt:`Você é um assistente honesto sobre seus limites. Tente responder, mas marque onde faltam informações: [SEM BASE]. Liste interpretações possíveis. Nunca invente.`},
+{id:'m06',num:6,pack:'pesquisa',name:'Buscar contexto com RAG',category:'recuperação',mode:'rag',
+ desc:'A IA recupera trechos de um acervo antes de responder.',
+ situacao:'O time precisa de uma resposta baseada em documentos reais da empresa, não em conhecimento geral da IA.',
+ instrucao:'Faça uma pergunta que deveria ser respondida com base em documentos internos.',
+ placeholder:'Qual é o processo correto para aprovar um novo fornecedor?',
+ acoes:['Recuperar trechos','Responder com base no acervo','Citar evidências','Apontar lacunas'],
+ systemPrompt:`Você é um assistente com acervo. Formato obrigatório:\n[TRECHOS USADOS]: ...\n[RESPOSTA]: só com base no acervo\n[LACUNAS]: o que o acervo não cobre`},
+{id:'m07',num:7,pack:'pesquisa',name:'Comparar sem RAG vs com RAG',category:'comparação',mode:'compare-modes',
+ desc:'A mesma pergunta roda duas vezes. O time compara rastreabilidade e risco.',
+ situacao:'O time precisa ver concretamente o que muda quando a IA tem contexto vs. quando não tem.',
+ instrucao:'Escreva uma pergunta que poderia ser respondida de duas formas.',
+ placeholder:'Qual é a política da empresa para reembolso de despesas de viagem?',
+ acoes:['Responder sem contexto','Responder com contexto','Comparar precisão','Comparar rastreabilidade'],
+ systemPrompt:`Responda a pergunta duas vezes:\n[SEM CONTEXTO]: só memória geral\n[COM CONTEXTO]: como se tivesse documento interno\n[COMPARAÇÃO]: qualidade, rastreabilidade, risco`},
+{id:'m08',num:8,pack:'avancado',name:'Usar ferramenta para decidir',category:'orquestração',mode:'tool-assisted',
+ desc:'A IA identifica que precisa consultar um recurso antes de responder.',
+ situacao:'O time precisa de uma recomendação que depende de informação atual que a IA não tem na memória.',
+ instrucao:'Descreva um objetivo que depende de informação de algum sistema externo.',
+ placeholder:'Preciso saber se temos capacidade para iniciar o projeto X no próximo mês.',
+ acoes:['Decidir se precisa ferramenta','Consultar recurso','Sintetizar resultado'],
+ systemPrompt:`Formato:\n[DECISÃO DE FERRAMENTA] precisa/não — motivo\n[CONSULTA SIMULADA] sistema + resultado\n[SÍNTESE FINAL] recomendação baseada na consulta`},
+{id:'m09',num:9,pack:'recuperacao',name:'Avaliar e revisar resposta de IA',category:'revisão crítica',mode:'single-pass',
+ desc:'O time aprende a julgar uma resposta, não só gerá-la.',
+ situacao:'Um colega usou IA para redigir uma análise. O time precisa avaliar se é confiável e propor melhorias.',
+ instrucao:'Cole a resposta de IA que você quer avaliar.',
+ placeholder:'Cole aqui a resposta de IA que quer avaliar...',
+ acoes:['Identificar fragilidades','Dar nota por critério','Sugerir revisão'],
+ systemPrompt:`Avalie: [SUPORTE] tem base? [RISCO] pode enganar? [CLAREZA] é precisa? Nota 1–5 com justificativa. Proponha versão melhorada do ponto mais frágil.`},
+{id:'m10',num:10,pack:'recuperacao',name:'Definir guardrails operacionais',category:'governança',mode:'single-pass',
+ desc:'Regra operacional muda o comportamento da IA. Recusar bem também é correto.',
+ situacao:'O time está desenhando um assistente de IA interno e precisa testar se ele respeita políticas.',
+ instrucao:'Descreva o cenário e a política. Depois escreva um pedido que testa essa política.',
+ placeholder:'Política: assistente não pode acessar dados de clientes sem aprovação.\nPedido: me mostra os dados do cliente João Silva.',
+ acoes:['Responder sob restrição','Recusar quando necessário','Escalonar para humano'],
+ systemPrompt:`Política fornecida é vinculante. Se violação: RECUSADO — motivo. Se julgamento humano: ESCALONAR — para quem e por quê.`},
+{id:'m11',num:11,pack:'avancado',name:'Comparar modelos de LLM',category:'arquitetura',mode:'compare-models',
+ desc:'A mesma tarefa roda em dois modelos. O time compara custo, qualidade e adequação.',
+ situacao:'O time precisa decidir qual modelo usar em produção. A escolha afeta custo, velocidade e qualidade.',
+ instrucao:'Escreva a tarefa que você quer rodar nos dois modelos.',
+ placeholder:'Analise os prós e contras de migrar nosso sistema de autenticação de JWT para OAuth 2.0.',
+ acoes:['Comparar saídas','Comparar custo','Comparar robustez'],
+ systemPrompt:`Formato:\n[MODELO A — gpt-4.1-mini]: resposta\n[MODELO B — gpt-4.1]: resposta\n[COMPARAÇÃO]: qualidade, nuance, custo, recomendação`}
+];
+const PACKS={core:CATALOGO.filter(m=>m.pack==='core'),pesquisa:CATALOGO.filter(m=>m.pack==='pesquisa'),avancado:CATALOGO.filter(m=>m.pack==='avancado'),recuperacao:CATALOGO.filter(m=>m.pack==='recuperacao'),todos:CATALOGO,nenhum:[]};
+const PACK_LABELS={core:'Core',pesquisa:'Pesquisa',avancado:'Avançado',recuperacao:'Recuperação'};
+const MODE_LABELS={'single-pass':'single-pass','compare-modes':'comparação de modos','compare-models':'comparação de modelos','rag':'RAG','tool-assisted':'ferramenta'};
+const MODE_CLASS={'single-pass':'mode-single','compare-modes':'mode-compare','compare-models':'mode-compare','rag':'mode-rag','tool-assisted':'mode-tool'};
+
+const MOCKS={
+m01:(i,a)=>a==='Resumir'?`SÍNTESE EXECUTIVA\n\nPontos centrais:\n— Tensão entre planejado e executado.\n— Dependências não resolvidas entre áreas.\n— Prazo pressupõe recursos não confirmados.\n\nO que foi preservado: estrutura de decisão.\nO que foi simplificado: detalhes operacionais.`:a==='Extrair pontos principais'?`PONTOS PRINCIPAIS\n\n1. Falta critério compartilhado para priorização.\n2. Três stakeholders com expectativas conflitantes.\n3. Prazo sem base em capacidade real.\n4. Decisão bloqueada há duas semanas.\n\n[SEM BASE EXPLÍCITA]: responsável final não identificado.`:`PLANO DE AÇÃO\n\nPróximas 48h\n— Agendar alinhamento para definir critério de priorização.\n— Documentar decisões pendentes.\n\nPróxima semana\n— Revisar prazo com base na capacidade real.`,
+m02:(i,a)=>a==='Identificar padrões'?`FATOS OBSERVADOS\n— Crescimento inicial seguido de queda abrupta.\n— Dois registros fogem da média.\n\nHIPÓTESES\n[HIPÓTESE] Crescimento pode ser sazonalidade — base insuficiente para confirmar.\n\nLIMITAÇÃO: amostra pequena.`:a==='Encontrar anomalias'?`ANOMALIAS\n\nRegistro A: 3,4x acima da média. Verificar na fonte.\nRegistro B: valor negativo — se domínio não permite, é erro.\n\n[SEM BASE]: não é possível determinar causa sem investigação.`:a==='Gerar hipóteses'?`HIPÓTESES\n\n[H1] Base tem dois segmentos distintos.\n[H2] Queda após pico indica saturação.\n[H3] Outliers representam subgrupo próprio.\n\nNenhuma confirmada sem dados adicionais.`:`VISUALIZAÇÃO\n\n1. Gráfico de dispersão — relação entre variáveis.\n2. Box plot — distribuições + outliers.\n3. Linha do tempo — se houver dimensão temporal.`,
+m03:(i,a)=>a==='Gerar fluxo de telas'?`FLUXO DE TELAS\n\n1. Entrada → autenticação\n2. Dashboard → visão geral\n3. Criação → formulário\n4. Revisão → confirmação\n5. Resultado → sucesso + próximos passos\n\n[SUPOSIÇÃO]: usuário autenticado. Se público, fluxo muda.`:a==='Descrever funcionalidades'?`FUNCIONALIDADES\n\nP0 — Essenciais\n— Cadastro e autenticação\n— Criação e edição\n— Listagem com filtro\n\nP1 — Importantes\n— Notificações de status\n— Histórico de alterações\n\n[SUPOSIÇÃO]: priorização baseada na descrição.`:`WIREFRAME\n\n┌──────────────────────────┐\n│ [LOGO]  [Usuário] [Sair] │\n├──────────────────────────┤\n│ Filtros │ Lista de itens │\n│ [Tipo▾] │ Item A [Ver▸]  │\n│ [Status]│ Item B [Ver▸]  │\n│         │ [+ Criar novo] │\n└──────────────────────────┘`,
+m04:(i,a)=>a==='Classificar prioridade'?`CLASSIFICAÇÃO\n\nCaso 1 — CRÍTICO · certeza alta\nCaso 2 — MÉDIO · certeza média\nCaso 3 — BAIXO · certeza alta\nCaso 4 — REVISÃO HUMANA NECESSÁRIA\n  Justificativa: informações contraditórias.`:a==='Justificar classificação'?`JUSTIFICATIVAS\n\nCaso 1: alta severidade + prazo vencido → URGENTE\nCaso 2: severidade moderada, margem de tempo → NORMAL\nCaso 3: funcionalidade não crítica → BAIXO\n\nAtenção: critérios foram inferidos do contexto.`:`INCERTEZAS\n\nCaso 2: impacto local ou sistêmico — requer investigação.\nCaso 4: contradição entre descrição e histórico.\n\nRecomendação: incerteza média ou alta exige revisão humana.`,
+m05:(i,a)=>`RESPOSTA INICIAL\n\n"${i.slice(0,60)}..."\n\nPARTES SEM BASE [SEM BASE]\n— Contexto de uso não especificado.\n— Destinatário não identificado.\n— Critério de sucesso ausente.\n\nINTERPRETAÇÕES POSSÍVEIS\n1. Resposta prática e direta.\n2. Análise com prós e contras.\n3. Estrutura para pensar o problema.\n\nO QUE EU PERGUNTARIA ANTES\n— Para quem é essa resposta?\n— Em qual contexto vai ser usada?`,
+m06:(i,a)=>`[TRECHOS USADOS]\n— "validação deve ocorrer antes da publicação" (Protocolo, seção 3.2)\n— "responsável técnico pode autorizar em exceções" (Manual, p. 14)\n\n[RESPOSTA]\nO procedimento correto é validar antes de publicar. A exceção exige autorização explícita.\n\n[LACUNAS]\n— Acervo não cobre revalidação após alteração parcial.\n— Sem definição de "alteração significativa".`,
+m07:(i,a)=>`[SEM CONTEXTO]\nResposta genérica baseada em conhecimento geral. Pode não refletir o contexto específico.\n[RISCO]: alta probabilidade de não se aplicar ao caso.\n\n[COM CONTEXTO]\nBaseado nos documentos: a abordagem B é recomendada — não a A, mais comum na literatura geral.\n[TRECHOS USADOS]: seção 2.1 + tabela p. 8.\n\n[COMPARAÇÃO]\nQualidade: resposta com contexto é mais específica.\nRastreabilidade: sem contexto, origem é inverificável.\nRisco: resposta genérica pode induzir decisão errada com aparência de confiança.`,
+m08:(i,a)=>`[DECISÃO DE FERRAMENTA] precisa\nJustificativa: informação atual não está na minha memória.\n\n[CONSULTA SIMULADA]\nSistema: gestão de capacidade\nResultado: 2 recursos disponíveis, 1 em 3 dias, 1 indisponível.\n\n[SÍNTESE FINAL]\nIniciar com os 2 disponíveis. Replanejar o terceiro. O quarto exige decisão explícita.`,
+m09:(i,a)=>a==='Identificar fragilidades'?`FRAGILIDADES\n\n1. Afirmação principal sem evidência — inferência como fato.\n2. Tom de certeza desproporcional.\n3. Contradição entre parágrafos 2 e 4.\n4. Ignora o caso de exceção mais óbvio.`:a==='Dar nota por critério'?`AVALIAÇÃO\n\n[SUPORTE] 2/5 — pouca ancoragem em evidências.\n[RISCO] 3/5 — risco moderado de induzir decisão errada.\n[CLAREZA] 4/5 — bem estruturada, problema é o conteúdo.\n\nMÉDIA: 3/5`:`REVISÃO\n\nOriginal: "X é sempre mais eficaz."\nRevisado: "X teve melhor desempenho neste contexto. Não é possível generalizar sem ampliar a amostra."\n\nPrincípio: separe observação de generalização.`,
+m10:(i,a)=>i.toLowerCase().includes('sem aprovação')||i.toLowerCase().includes('acesso direto')?`RECUSADO — política não permite esta solicitação.\nMotivo: acesso a dados fora do escopo autorizado.\n\nESCALONAR → responsável técnico\nContexto: pedido + motivo da recusa + aprovação necessária.`:`RESPOSTA SOB RESTRIÇÃO\n\nDentro dos limites:\n— Confirmo que o processo está dentro do escopo.\n— Oriento sobre próximos passos dentro da política.\n— Não acesso dados fora do perímetro autorizado.\n\nSe necessitar além da política: ESCALONAR.`,
+m11:(i,a)=>`[MODELO A — gpt-4.1-mini]\nResposta direta. Cobre pontos principais sem aprofundamento.\n\n[MODELO B — gpt-4.1]\nMais detalhada. Identifica casos de borda. Explicita suposições.\n\n[COMPARAÇÃO]\nQualidade: gpt-4.1 superior em raciocínio.\nCusto: gpt-4.1-mini ~5x mais barato por token.\nRecomendação: gpt-4.1-mini para volume; gpt-4.1 para decisões alta-stakes.`
+};
+
+const EXPLICACOES={
+m01:`Estratégia: compressão com preservação de estrutura decisória.\n\nO modelo recebeu um system prompt orientado para síntese executiva. A ação escolhida determinou o formato de saída esperado.\n\nO que fez: identificou blocos com maior densidade decisória, descartou repetições, organizou hierarquicamente.\n\nOnde há inferência: responsáveis sugeridos foram deduzidos do contexto — não estavam explícitos. Marcados como [SEM BASE EXPLÍCITA].\n\nRisco: síntese pode parecer mais clara do que o material original justificava.`,
+m02:`Estratégia: leitura analítica com separação obrigatória entre fato e hipótese.\n\nO system prompt forçou o modelo a não misturar observação com inferência.\n\nO que fez: leu os dados, extraiu padrões observáveis, separou do que exigiria análise estatística, identificou limitações.\n\nRisco principal: modelos tendem a afirmar padrões com mais confiança do que os dados permitem. Verifique se o modelo respeitou a barreira.`,
+m03:`Estratégia: transformação de linguagem vaga em estrutura operacional.\n\nO modelo foi orientado a produzir artefatos concretos, não análise.\n\nO que fez: interpretou a intenção, estruturou no formato da ação, marcou com [SUPOSIÇÃO] os pontos assumidos.\n\nPor que [SUPOSIÇÃO] importa: suposições não explicitadas viram requisitos silenciosos em especificação de produto.`,
+m04:`Estratégia: triagem com critério explícito e sinalização de incerteza.\n\nO system prompt instruiu o modelo a nunca omitir incerteza para parecer mais preciso.\n\nO que fez: aplicou critérios inferidos, atribuiu nível de certeza, marcou casos que exigem revisão humana.\n\nPonto de atenção: questione se a certeza "alta" em algum caso é justificada ou é confiança excessiva.`,
+m05:`Estratégia: resposta parcial com exposição explícita de lacunas.\n\nO comportamento mais valioso aqui é mostrar por que não consegue responder bem, não fingir que consegue.\n\nO que fez: tentou responder, listou o que faltava, enumerou interpretações possíveis.\n\nO que revela: qualidade do output é diretamente proporcional à qualidade do input.`,
+m06:`Estratégia: retrieve-then-generate — recuperação antes da geração.\n\nO modelo separou o que veio do acervo do que veio de inferência geral.\n\nO que fez: identificou trechos relevantes, respondeu ancorado neles, sinalizou onde o acervo não cobria.\n\nPor que [LACUNAS] importa: se o acervo não cobre um caso e o modelo não avisa, a resposta parece completa mas não é.`,
+m07:`Estratégia: execução paralela com comparação explícita.\n\nO mesmo pedido foi respondido com premissas diferentes para tornar visível o que muda.\n\nO que fez: gerou resposta de memória, gerou resposta ancorada em fonte, comparou qualidade e risco.\n\nO que ensina: "responder" e "responder com evidência" têm aparência parecida mas riscos muito diferentes.`,
+m08:`Estratégia: orquestração — decidir antes de responder.\n\nO modelo foi instruído a não responder direto quando a resposta depende de informação atual.\n\nO que fez: avaliou necessidade de consulta, descreveu a consulta, simulou resultado, gerou recomendação baseada nisso.\n\nPor que importa: sistemas que respondem da memória em contextos que exigem dados atuais introduzem risco silencioso.`,
+m09:`Estratégia: avaliação crítica com critérios estruturados.\n\nO modelo foi posicionado como avaliador, não como gerador.\n\nO que fez: leu a resposta como material a ser avaliado, aplicou critérios, propôs melhoria concreta.\n\nO que ensina: avaliar bem uma resposta de IA é tão importante quanto gerá-la.`,
+m10:`Estratégia: resposta sob restrição com comportamento de recusa explícito.\n\nA política foi tratada como vinculante — não como sugestão.\n\nO que fez: verificou se o pedido estava dentro do escopo, respondeu dentro dos limites ou recusou, escalou quando necessário.\n\nPonto: recusar corretamente é comportamento correto. Contornar restrições para parecer útil é mais perigoso.`,
+m11:`Estratégia: execução dupla com comparação estruturada.\n\nA mesma tarefa foi processada por dois modelos com capacidades e custos diferentes.\n\nO que fez: executou a tarefa com características de cada modelo, comparou qualidade e adequação, recomendou o mais adequado.\n\nO que ensina: "melhor modelo" não existe de forma absoluta — existe o mais adequado para cada tarefa.`
+};
+
+const PERGUNTAS_REFLEXAO=[
+  {id:'q1',texto:'O que a IA fez correspondeu ao que você esperava?',min:'muito abaixo',max:'muito acima'},
+  {id:'q2',texto:'Consegue imaginar onde usaria isso no trabalho?',min:'não consigo',max:'consigo claramente'},
+  {id:'q3',texto:'Quão confortável você se sente usando IA para esse tipo de tarefa?',min:'desconfortável',max:'muito confortável'},
+  {id:'q4',texto:'Essa missão ficou clara do início ao fim?',min:'confusa',max:'muito clara'}
+];
+
+// ============================================================
+// STORAGE
+// ============================================================
+const STORE='techhall:v3';
+function loadStore(){try{return JSON.parse(localStorage.getItem(STORE)||'{}')}catch{return{}}}
+function saveStore(d){localStorage.setItem(STORE,JSON.stringify(d))}
+function getEvents(){return loadStore().events||[]}
+function getApiKey(){return loadStore().apiKey||''}
+function getModel(){return loadStore().model||'gpt-4.1-mini'}
+function getEvent(id){return getEvents().find(e=>e.id===id)||null}
+function patchEvents(fn){const s=loadStore();saveStore({...s,events:fn(s.events||[])})}
+
+// Salva execução num time
+function salvarExecucao(eventId,teamIdx,missionId,execData){
+  patchEvents(evs=>evs.map(e=>{
+    if(e.id!==eventId)return e;
+    const execs=e.execucoes||{};
+    const key=`${teamIdx}__${missionId}`;
+    if(!execs[key])execs[key]=[];
+    execs[key].push(execData);
+    const teams=e.teams.map((t,i)=>i===teamIdx?{...t,runs:(t.runs||0)+1}:t);
+    return{...e,execucoes:execs,teams};
+  }));
+}
+
+// Salva reflexão de encerramento
+function salvarReflexao(eventId,teamIdx,missionId,respostas){
+  patchEvents(evs=>evs.map(e=>{
+    if(e.id!==eventId)return e;
+    const refs=e.reflexoes||{};
+    const key=`${teamIdx}__${missionId}`;
+    refs[key]={respostas,ts:new Date().toISOString()};
+    // Marca missão como concluída pelo time
+    const conc=e.conclusoes||{};
+    conc[key]=new Date().toISOString();
+    return{...e,reflexoes:refs,conclusoes:conc};
+  }));
+}
+
+function getExecucoes(ev,teamIdx,missionId){
+  return(ev.execucoes||{})[`${teamIdx}__${missionId}`]||[];
+}
+function getReflexao(ev,teamIdx,missionId){
+  return(ev.reflexoes||{})[`${teamIdx}__${missionId}`]||null;
+}
+function isConcluida(ev,teamIdx,missionId){
+  return!!((ev.conclusoes||{})[`${teamIdx}__${missionId}`]);
+}
+
+// ============================================================
+// STATE
+// ============================================================
+let facSelectedId=null,facTab='times';
+let timeEventId=null,timeTeamIdx=null,timeMissionIdx=null;
+let runHistory={},pollTimer=null,confirmCb=null,selectedAcao={};
+let reflexaoRespostas={};
+
+// ============================================================
+// NAV
+// ============================================================
+function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active')}
+function irHome(){clearInterval(pollTimer);showScreen('screen-home')}
+function irFacilitador(){showScreen('screen-fac');renderFac()}
+function irEntradaTime(){clearInterval(pollTimer);showScreen('screen-entry')}
+function irEscolhaTime(){clearInterval(pollTimer);timeMissionIdx=null;renderTeamPicker();showScreen('screen-team')}
+
+// ============================================================
+// FACILITADOR — RENDER
+// ============================================================
+function renderFac(){renderApiIndicator();renderEventsList();renderFacContent()}
+
+function renderEventsList(){
+  const events=getEvents(),el=document.getElementById('events-list');
+  if(!events.length){el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 4px 10px">Nenhum evento ainda.</div>';return}
+  el.innerHTML=events.map(ev=>{
+    const openBadge=ev.status==='open'?'<span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:4px;animation:pulse 2s infinite"></span>':'';
+    return`<div class="event-item ${facSelectedId===ev.id?'active':''}" onclick="facSelecionarEvento('${ev.id}')"><div class="event-item-name">${openBadge}${esc(ev.name)}</div><div class="event-item-meta"><span class="sdot sdot-${ev.status}"></span>${ev.status} · ${ev.teams.length} time${ev.teams.length!==1?'s':''}</div></div>`;
+  }).join('');
+}
+
+function renderFacContent(){
+  const el=document.getElementById('fac-content');
+  if(!facSelectedId){el.innerHTML=`<div class="empty-state"><div class="empty-icon">⬡</div><div class="empty-title">Nenhum evento selecionado</div><div class="empty-sub">Crie ou selecione um evento.</div></div>`;return}
+  const ev=getEvent(facSelectedId);if(!ev){facSelectedId=null;renderFacContent();return}
+  const unlocked=ev.missions.filter(m=>m.unlocked).length;
+  const totalExecs=ev.teams.reduce((a,t)=>a+(t.runs||0),0);
+  // Totais de tokens e custo
+  let totalTokens=0,totalCusto=0,totalConclusoes=0;
+  ev.teams.forEach((t,ti)=>{
+    ev.missions.forEach(m=>{
+      const execs=getExecucoes(ev,ti,m.id);
+      execs.forEach(ex=>{totalTokens+=(ex.tokens||0);totalCusto+=(ex.custo||0)});
+      if(isConcluida(ev,ti,m.id))totalConclusoes++;
+    });
+  });
+  el.innerHTML=`
+    <div class="event-header-row">
+      <div><div class="event-title">${esc(ev.name)}</div>${ev.desc?`<div class="event-desc-text">${esc(ev.desc)}</div>`:''}</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+        <span class="pill pill-${ev.status}">${ev.status}</span>
+        ${ev.status==='draft'?`<button class="btn btn-sm btn-primary" onclick="setStatus('${ev.id}','open')">▷ Abrir</button>`:''}
+        ${ev.status==='open'?`<button class="btn btn-sm" onclick="setStatus('${ev.id}','closed')">■ Encerrar</button>`:''}
+        ${ev.status!=='draft'?`<button class="btn btn-sm btn-ghost" onclick="setStatus('${ev.id}','draft')">↺ Rascunho</button>`:''}
+        <button class="btn btn-sm btn-ghost btn-danger" onclick="confirmar('Excluir evento','Todos os dados serão removidos.',()=>deletarEvento('${ev.id}'))">✕</button>
+      </div>
+    </div>
+    <div class="tabs">
+      <div class="tab ${facTab==='dashboard'?'active':''}" onclick="facSetTab('dashboard')">Dashboard</div>
+      <div class="tab ${facTab==='times'?'active':''}" onclick="facSetTab('times')">Times</div>
+      <div class="tab ${facTab==='missoes'?'active':''}" onclick="facSetTab('missoes')">Missões</div>
+      <div class="tab ${facTab==='config'?'active':''}" onclick="facSetTab('config')">Configuração</div>
+    </div>
+    <div id="fac-tab-body">
+      ${facTab==='dashboard'?renderTabDashboard(ev,totalTokens,totalCusto,totalExecs,totalConclusoes,unlocked):''}
+      ${facTab==='times'?renderTabTimes(ev):''}
+      ${facTab==='missoes'?renderTabMissoes(ev):''}
+      ${facTab==='config'?renderTabConfig(ev):''}
+    </div>`;
+}
+
+function renderTabDashboard(ev,totalTokens,totalCusto,totalExecs,totalConclusoes,unlocked){
+  let h=`
+    <div class="dash-grid">
+      <div class="dash-stat"><div class="dash-stat-val">${totalTokens.toLocaleString()}</div><div class="dash-stat-lbl">Tokens consumidos</div><div class="dash-stat-sub">$${totalCusto.toFixed(4)} estimado</div></div>
+      <div class="dash-stat"><div class="dash-stat-val">${totalExecs}</div><div class="dash-stat-lbl">Execuções IA</div><div class="dash-stat-sub">${ev.teams.length} time${ev.teams.length!==1?'s':''}</div></div>
+      <div class="dash-stat"><div class="dash-stat-val">${totalConclusoes}</div><div class="dash-stat-lbl">Missões concluídas</div><div class="dash-stat-sub">com reflexão enviada</div></div>
+      <div class="dash-stat"><div class="dash-stat-val">${unlocked}/${ev.missions.length}</div><div class="dash-stat-lbl">Missões liberadas</div><div class="dash-stat-sub">pelo facilitador</div></div>
+    </div>`;
+
+  if(!ev.teams.length){h+=`<div class="teams-empty">Nenhum time cadastrado ainda.</div>`;return h}
+
+  ev.teams.forEach((team,ti)=>{
+    let teamTokens=0,teamCusto=0,teamExecs=team.runs||0,teamConc=0;
+    const missaoRows=ev.missions.map(m=>{
+      const execs=getExecucoes(ev,ti,m.id);
+      const mTokens=execs.reduce((a,ex)=>a+(ex.tokens||0),0);
+      const mCusto=execs.reduce((a,ex)=>a+(ex.custo||0),0);
+      const conc=isConcluida(ev,ti,m.id);
+      const ref=getReflexao(ev,ti,m.id);
+      teamTokens+=mTokens;teamCusto+=mCusto;if(conc)teamConc++;
+      if(!m.unlocked&&!execs.length)return'';
+      const stars=ref?renderStarsSmall(ref.respostas):'';
+      return`<div class="mission-progress-row">
+        <div class="mission-progress-name">${m.num}. ${esc(m.name)}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${stars}
+          ${conc?`<span class="pill pill-done" style="font-size:10px">✓ concluída</span>`:`<span style="font-size:11px;color:var(--text3)">${execs.length} exec.</span>`}
+        </div>
+        <div class="mission-progress-tokens">${mTokens>0?mTokens.toLocaleString()+' tok':''}</div>
+        <div class="mission-progress-cost">${mCusto>0?'$'+mCusto.toFixed(4):''}</div>
+      </div>`;
+    }).filter(Boolean).join('');
+
+    const progTotal=ev.missions.filter(m=>m.unlocked).length||1;
+    const progFeit=teamConc;
+    const pct=Math.round((progFeit/progTotal)*100);
+
+    h+=`<div class="team-dash-row">
+      <div class="team-dash-header">
+        <div>
+          <div class="team-dash-name">${esc(team.name)}</div>
+          <div class="team-dash-meta">
+            <span>${teamExecs} execuções</span>
+            <span>·</span>
+            <span>${teamTokens.toLocaleString()} tokens</span>
+            <span>·</span>
+            <span>$${teamCusto.toFixed(4)}</span>
+            <span>·</span>
+            <span>${teamConc} missões concluídas</span>
+          </div>
+        </div>
+        <div style="text-align:right;font-size:13px;font-weight:600;color:var(--blue)">${pct}%</div>
+      </div>
+      <div class="team-dash-body">
+        ${missaoRows||`<div style="font-size:12px;color:var(--text3)">Nenhuma execução ainda.</div>`}
+        <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+      </div>
+    </div>`;
+  });
+  return h;
+}
+
+function renderStarsSmall(respostas){
+  const vals=Object.values(respostas||{});
+  if(!vals.length)return'';
+  const avg=vals.reduce((a,v)=>a+v,0)/vals.length;
+  const rounded=Math.round(avg);
+  return`<div class="stars-row">${[1,2,3,4,5].map(i=>`<span class="star">${i<=rounded?'★':'☆'}</span>`).join('')}</div>`;
+}
+
+function renderTabTimes(ev){
+  let h=`<div class="section-header"><span class="section-title">${ev.teams.length} ${ev.teams.length===1?'time':'times'}</span><button class="btn btn-sm" onclick="abrirModal('modal-add-team')">+ Adicionar time</button></div>`;
+  if(!ev.teams.length)return h+`<div class="teams-empty">Nenhum time.</div>`;
+  h+=`<div class="teams-grid">`;
+  ev.teams.forEach((t,i)=>{h+=`<div class="team-card"><button class="team-remove" onclick="confirmar('Remover time','Esta ação não pode ser desfeita.',()=>removerTime('${ev.id}',${i}))">✕</button><div class="team-avatar">${t.name.slice(0,2).toUpperCase()}</div><div class="team-name">${esc(t.name)}</div><div class="team-runs">${t.runs||0} execuções</div></div>`;});
+  return h+`</div>`;
+}
+
+function renderTabMissoes(ev){
+  if(!ev.missions.length)return`<div class="section-header"><span class="section-title">0 missões</span></div><div class="teams-empty">Nenhuma missão.</div><button class="btn btn-add-full" onclick="abrirAddMissao()">+ Adicionar do catálogo</button>`;
+  const porPack={};
+  ev.missions.forEach((m,i)=>{const p=m.pack||'outro';if(!porPack[p])porPack[p]=[];porPack[p].push({...m,_idx:i})});
+  let h=`<div class="section-header"><span class="section-title">${ev.missions.length} missões</span><button class="btn btn-sm" onclick="abrirAddMissao()">+ Adicionar do catálogo</button></div>`;
+  ['core','pesquisa','avancado','recuperacao','outro'].forEach(pk=>{
+    if(!porPack[pk])return;
+    h+=`<div class="pack-header"><span>${PACK_LABELS[pk]||pk}</span><span class="pack-badge pack-${pk}">${porPack[pk].length} missões</span></div>`;
+    porPack[pk].forEach(m=>{
+      const mc=MODE_CLASS[m.mode]||'mode-single',ml=MODE_LABELS[m.mode]||m.mode;
+      h+=`<div class="mission-row"><div style="flex:1"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:11px;color:var(--text3);font-weight:600">${m.num||''}</span><span class="mname">${esc(m.name)}</span><span class="mode-badge ${mc}">${ml}</span></div><div class="mcat">${esc(m.category)}</div>${m.desc?`<div class="mdesc">${esc(m.desc)}</div>`:''}</div><div class="mission-actions"><span class="pill ${m.unlocked?'pill-unlocked':'pill-locked'}">${m.unlocked?'✓ liberada':'bloqueada'}</span>${m.unlocked?`<button class="btn btn-sm" onclick="toggleMissao('${ev.id}',${m._idx},false)">🔒</button>`:`<button class="btn btn-sm btn-primary" onclick="toggleMissao('${ev.id}',${m._idx},true)">🔓 Liberar</button>`}<button class="btn btn-sm btn-ghost btn-danger" onclick="confirmar('Remover missão','Esta ação não pode ser desfeita.',()=>removerMissao('${ev.id}',${m._idx}))">✕</button></div></div>`;
+    });
+  });
+  return h;
+}
+
+function renderTabConfig(ev){
+  return`<div style="max-width:480px"><div class="form-group"><label class="form-label">Nome</label><input type="text" id="cfg-name" value="${esc(ev.name)}" /></div><div class="form-group"><label class="form-label">Descrição</label><input type="text" id="cfg-desc" value="${esc(ev.desc||'')}" /></div><div class="divider"></div><div class="form-group"><label class="form-label">Código de acesso</label><div class="key-display">${esc(ev.id)}</div><div class="form-hint">Times usam este código na tela "Sou time".</div></div><div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="salvarConfigEvento('${ev.id}')">Salvar</button><button class="btn" onclick="navigator.clipboard.writeText('${ev.id}').then(()=>toast('Código copiado ✓'))">Copiar código</button></div></div>`;
+}
+
+function renderApiIndicator(){
+  const key=getApiKey(),model=getModel(),el=document.getElementById('api-indicator'),lbl=document.getElementById('api-label');
+  if(key){el.classList.add('ok');lbl.textContent=model}else{el.classList.remove('ok');lbl.textContent='sem chave OpenAI'}
+}
+
+// FACILITADOR — ACTIONS
+let addMissaoEventId=null;
+function abrirAddMissao(){
+  addMissaoEventId=facSelectedId;
+  const ev=getEvent(facSelectedId);
+  const existentes=new Set(ev.missions.map(m=>m.id));
+  const disponiveis=CATALOGO.filter(m=>!existentes.has(m.id));
+  if(!disponiveis.length){toast('Todas as missões já estão no evento.');return}
+  let html=`<div class="modal-title">Adicionar do catálogo</div><div class="modal-sub">Selecione as missões para adicionar (bloqueadas por padrão).</div>`;
+  ['core','pesquisa','avancado','recuperacao'].forEach(pk=>{
+    const ms=disponiveis.filter(m=>m.pack===pk);if(!ms.length)return;
+    html+=`<div class="pack-header"><span>${PACK_LABELS[pk]}</span></div>`;
+    ms.forEach(m=>{html+=`<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer"><input type="checkbox" value="${m.id}" style="margin-top:3px;width:auto;flex-shrink:0"><div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;font-weight:600">${m.num}. ${esc(m.name)}</span><span class="mode-badge ${MODE_CLASS[m.mode]||'mode-single'}">${MODE_LABELS[m.mode]||m.mode}</span></div><div style="font-size:12px;color:var(--text2);margin-top:3px">${esc(m.desc)}</div></div></label>`;});
+  });
+  html+=`<div class="modal-actions"><button class="btn" onclick="fecharModal('modal-add-catalog')">Cancelar</button><button class="btn btn-primary" onclick="confirmarAddMissoes()">Adicionar selecionadas</button></div>`;
+  let modal=document.getElementById('modal-add-catalog');
+  if(!modal){modal=document.createElement('div');modal.className='overlay';modal.id='modal-add-catalog';modal.innerHTML=`<div class="modal">${html}</div>`;modal.addEventListener('click',e=>{if(e.target===modal)modal.classList.remove('open')});document.body.appendChild(modal)}
+  else{modal.querySelector('.modal').innerHTML=html}
+  modal.classList.add('open');
+}
+function confirmarAddMissoes(){
+  const modal=document.getElementById('modal-add-catalog');
+  const checked=[...modal.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+  if(!checked.length){toast('Selecione ao menos uma.');return}
+  const toAdd=CATALOGO.filter(m=>checked.includes(m.id)).map(m=>({...m,unlocked:false}));
+  patchEvents(evs=>evs.map(e=>e.id!==addMissaoEventId?e:{...e,missions:[...e.missions,...toAdd]}));
+  modal.classList.remove('open');renderFac();
+  toast(`${toAdd.length} ${toAdd.length===1?'missão adicionada':'missões adicionadas'} ✓`);
+}
+function facSelecionarEvento(id){facSelectedId=id;facTab='dashboard';renderEventsList();renderFacContent()}
+function facSetTab(t){facTab=t;renderFacContent()}
+function criarEvento(){
+  const name=document.getElementById('f-ev-name').value.trim();if(!name){alert('Informe um nome.');return}
+  const desc=document.getElementById('f-ev-desc').value.trim();
+  const raw=document.getElementById('f-ev-teams').value.trim();
+  const pack=document.getElementById('f-ev-pack').value;
+  const teams=raw?raw.split(',').map(t=>t.trim()).filter(Boolean).map(n=>({name:n,runs:0})):[];
+  const missions=(PACKS[pack]||[]).map(m=>({...m,unlocked:false}));
+  const ev={id:'ev_'+Date.now(),name,desc,status:'draft',teams,missions,execucoes:{},reflexoes:{},conclusoes:{}};
+  patchEvents(evs=>[...evs,ev]);facSelectedId=ev.id;facTab='dashboard';
+  fecharModal('modal-new-event');['f-ev-name','f-ev-desc','f-ev-teams'].forEach(id=>document.getElementById(id).value='');
+  renderFac();toast('Evento criado ✓');
+}
+function setStatus(id,status){patchEvents(evs=>evs.map(e=>e.id===id?{...e,status}:e));renderFac();toast(status==='open'?'Evento aberto ✓':status==='closed'?'Evento encerrado':'Voltou para rascunho')}
+function deletarEvento(id){patchEvents(evs=>evs.filter(e=>e.id!==id));if(facSelectedId===id)facSelectedId=null;renderFac();toast('Evento excluído')}
+function adicionarTime(){const name=document.getElementById('f-team-name').value.trim();if(!name)return;patchEvents(evs=>evs.map(e=>e.id!==facSelectedId?e:{...e,teams:[...e.teams,{name,runs:0}]}));document.getElementById('f-team-name').value='';fecharModal('modal-add-team');renderFac();toast(`Time "${name}" adicionado ✓`)}
+function removerTime(eventId,idx){patchEvents(evs=>evs.map(e=>{if(e.id!==eventId)return e;const t=[...e.teams];t.splice(idx,1);return{...e,teams:t}}));renderFac();toast('Time removido')}
+function removerMissao(eventId,idx){patchEvents(evs=>evs.map(e=>{if(e.id!==eventId)return e;const m=[...e.missions];m.splice(idx,1);return{...e,missions:m}}));renderFac();toast('Missão removida')}
+function toggleMissao(eventId,idx,unlocked){patchEvents(evs=>evs.map(e=>{if(e.id!==eventId)return e;return{...e,missions:e.missions.map((m,i)=>i===idx?{...m,unlocked}:m)}}));renderFac();toast(unlocked?'Missão liberada ✓':'Missão bloqueada')}
+function salvarConfigEvento(id){const name=document.getElementById('cfg-name').value.trim();if(!name)return;const desc=document.getElementById('cfg-desc').value.trim();patchEvents(evs=>evs.map(e=>e.id===id?{...e,name,desc}:e));renderFac();toast('Salvo ✓')}
+function salvarConfig(){const key=document.getElementById('f-api-key').value.trim();const model=document.getElementById('f-model').value;const s=loadStore();saveStore({...s,apiKey:key||s.apiKey||'',model});fecharModal('modal-config');renderApiIndicator();toast('Configuração salva ✓')}
+function limparChave(){confirmar('Remover chave','A chave OpenAI será apagada.',()=>{const s=loadStore();saveStore({...s,apiKey:''});fecharModal('modal-config');renderApiIndicator();toast('Chave removida')})}
+
+// ============================================================
+// WORKSPACE DO TIME
+// ============================================================
+function entrarEvento(){
+  const code=document.getElementById('f-event-code').value.trim();
+  const errEl=document.getElementById('entry-error');
+  if(!code){mostrarErroEntrada('Informe o código do evento.');return}
+  const ev=getEvent(code);
+  if(!ev){mostrarErroEntrada('Evento não encontrado. Verifique o código com o facilitador.');return}
+  if(ev.status==='draft'){mostrarErroEntrada('Este evento ainda não foi aberto. Aguarde o facilitador.');return}
+  if(ev.status==='closed'){mostrarErroEntrada('Este evento já foi encerrado.');return}
+  errEl.style.display='none';timeEventId=ev.id;renderTeamPicker();showScreen('screen-team');
+}
+function mostrarErroEntrada(msg){const el=document.getElementById('entry-error');el.textContent=msg;el.style.display='block'}
+
+function renderTeamPicker(){
+  const ev=getEvent(timeEventId);if(!ev)return;
+  document.getElementById('ts-event-name').textContent=ev.name;
+  const el=document.getElementById('teams-list');
+  if(!ev.teams.length){el.innerHTML='<div style="font-size:13px;color:var(--text3)">Nenhum time cadastrado ainda.</div>';return}
+  el.innerHTML=ev.teams.map((t,i)=>`<div class="team-option" onclick="escolherTime(${i})"><div class="team-option-avatar">${t.name.slice(0,2).toUpperCase()}</div><div><div class="team-option-name">${esc(t.name)}</div><div class="team-option-runs">${t.runs||0} execuções</div></div></div>`).join('');
+}
+
+function escolherTime(idx){
+  timeTeamIdx=idx;timeMissionIdx=null;
+  document.getElementById('ws-demo-banner').style.display=getApiKey()?'none':'flex';
+  renderWorkspace();showScreen('screen-ws');iniciarPolling();
+}
+
+function renderWorkspace(){
+  const ev=getEvent(timeEventId);if(!ev)return;
+  const team=ev.teams[timeTeamIdx];
+  document.getElementById('ws-event-label').textContent=ev.name;
+  document.getElementById('ws-team-label').textContent=team.name;
+  renderWsMissions(ev);
+  if(timeMissionIdx!==null)renderWsContent(ev);
+}
+
+function renderWsMissions(ev){
+  const el=document.getElementById('ws-missions-list');
+  if(!ev.missions.length){el.innerHTML='<div style="font-size:12px;color:var(--text3)">Nenhuma missão disponível.</div>';return}
+  const packOrder=['core','pesquisa','avancado','recuperacao','outro'];
+  const porPack={};
+  ev.missions.forEach((m,i)=>{const p=m.pack||'outro';if(!porPack[p])porPack[p]=[];porPack[p].push({...m,_idx:i})});
+  let h='';
+  packOrder.forEach(pk=>{
+    if(!porPack[pk])return;
+    h+=`<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:10px 4px 5px;${pk!=='core'?'margin-top:6px;border-top:1px solid var(--border)':''}">${PACK_LABELS[pk]||pk}</div>`;
+    porPack[pk].forEach(m=>{
+      const locked=!m.unlocked;
+      const conc=isConcluida(ev,timeTeamIdx,m.id);
+      const execs=getExecucoes(ev,timeTeamIdx,m.id);
+      const cls=conc?'done':locked?'locked':'';
+      const meta=conc?'✓ concluída':locked?'🔒 bloqueada':execs.length>0?`${execs.length} exec.`:'✓ liberada';
+      h+=`<div class="mission-item ${timeMissionIdx===m._idx?'active':''} ${cls}" onclick="${locked?'':('selecionarMissaoTime('+m._idx+')')}" title="${locked?'Bloqueada pelo facilitador':conc?'Concluída':''}"><div class="mission-item-name">${m.num?m.num+'. ':''}${esc(m.name)}</div><div class="mission-item-meta">${meta}</div></div>`;
+    });
+  });
+  el.innerHTML=h;
+}
+
+function selecionarMissaoTime(idx){
+  timeMissionIdx=idx;selectedAcao[idx]=null;
+  const ev=getEvent(timeEventId);renderWsMissions(ev);renderWsContent(ev);
+}
+
+function renderWsContent(ev){
+  const m=ev.missions[timeMissionIdx];
+  const execs=getExecucoes(ev,timeTeamIdx,m.id);
+  const conc=isConcluida(ev,timeTeamIdx,m.id);
+  const ref=getReflexao(ev,timeTeamIdx,m.id);
+  const sel=selectedAcao[timeMissionIdx]||null;
+  const mc=MODE_CLASS[m.mode]||'mode-single',ml=MODE_LABELS[m.mode]||m.mode;
+  const acoesBtns=m.acoes?m.acoes.map(a=>`<button class="acao-btn ${sel===a?'selected':''}" onclick="selecionarAcao(${timeMissionIdx},'${esc(a)}')">${esc(a)}</button>`).join(''):'';
+  // Totais acumulados desta missão
+  const acumTokens=execs.reduce((a,e)=>a+(e.tokens||0),0);
+  const acumInput=execs.reduce((a,e)=>a+(e.inputTokens||0),0);
+  const acumOutput=execs.reduce((a,e)=>a+(e.outputTokens||0),0);
+  const acumCusto=execs.reduce((a,e)=>a+(e.custo||0),0);
+  const el=document.getElementById('ws-content');
+  el.innerHTML=`
+    <div class="enunciado">
+      <div class="enunciado-header">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:600;color:var(--text3)">${m.num||''}.</span><div class="enunciado-title">${esc(m.name)}</div><span class="mode-badge ${mc}">${ml}</span></div>
+        <span style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">${esc(m.category)}</span>
+      </div>
+      <div class="enunciado-body">
+        <div class="situacao-box"><strong style="font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);display:block;margin-bottom:5px">Situação</strong>${esc(m.situacao||m.desc)}</div>
+        <div class="instrucao-box"><strong style="font-size:10px;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:4px">O que fazer</strong>${esc(m.instrucao||'Escreva o input abaixo e escolha a ação.')}</div>
+      </div>
+    </div>
+
+    ${conc?`<div class="done-overlay">✓ Missão concluída pelo seu time.<br><span style="font-size:12px;font-weight:400">Aguarde a próxima missão ser liberada pelo facilitador.</span></div>`:
+    `<div class="input-card">
+      <div class="input-section-label">Ação</div>
+      <div class="acao-selector">${acoesBtns}</div>
+      <div class="input-section-label" style="margin-top:12px">Seu input</div>
+      ${m.placeholder?`<div class="input-hint">Exemplo: ${esc(m.placeholder.split('\n')[0])}${m.placeholder.includes('\n')?'...':''}</div>`:''}
+      <textarea id="mission-input" placeholder="${esc(m.placeholder||'Escreva aqui...')}"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('mission-input').value=''">Limpar</button>
+        <button class="btn btn-primary" id="btn-run" onclick="executarMissao()">▷ Executar com IA</button>
+      </div>
+    </div>`}
+
+    <div id="output-area"></div>
+
+    ${acumTokens>0?`
+    <div class="tokens-panel">
+      <div class="tokens-panel-header">
+        <div class="tokens-panel-title">⚡ Uso de tokens — esta missão</div>
+        <div style="font-size:11px;color:var(--text3)">${execs.length} execuç${execs.length===1?'ão':'ões'}</div>
+      </div>
+      <div class="tokens-grid">
+        <div class="token-cell tokens-accent-blue"><div class="token-cell-label">Total</div><div class="token-cell-val">${acumTokens.toLocaleString()}</div><div class="token-cell-sub">tokens consumidos</div></div>
+        <div class="token-cell"><div class="token-cell-label">Input</div><div class="token-cell-val">${acumInput.toLocaleString()}</div><div class="token-cell-sub">enviados ao modelo</div></div>
+        <div class="token-cell"><div class="token-cell-label">Output</div><div class="token-cell-val">${acumOutput.toLocaleString()}</div><div class="token-cell-sub">gerados pelo modelo</div></div>
+        <div class="token-cell tokens-accent-green"><div class="token-cell-label">Custo est.</div><div class="token-cell-val">$${acumCusto.toFixed(4)}</div><div class="token-cell-sub">${esc(getModel())}</div></div>
+      </div>
+    </div>`:''}
+
+    <div id="history-area">${execs.length?renderHistorico(execs):''}</div>
+
+    ${!conc&&execs.length>=1?renderBotaoConcluir(m.id):''}
+    ${conc&&ref?renderReflexaoMostrada(ref):''}
+  `;
+}
+
+function renderBotaoConcluir(missionId){
+  return`<div style="background:var(--green-light);border:1px solid var(--green-border);border-radius:var(--r-lg);padding:16px 20px;display:flex;align-items:center;justify-content:space-between">
+    <div><div style="font-size:14px;font-weight:600;color:var(--green)">Pronto para concluir?</div><div style="font-size:12px;color:var(--green);opacity:.8;margin-top:2px">Ao concluir, você vai responder 4 perguntas rápidas sobre o aprendizado.</div></div>
+    <button class="btn btn-green btn-sm" onclick="abrirReflexao('${missionId}')">Concluir missão →</button>
+  </div>`;
+}
+
+function renderReflexaoMostrada(ref){
+  const labels=['Expectativa','Aplicação prática','Conforto com IA','Clareza da missão'];
+  const items=Object.entries(ref.respostas||{}).map(([k,v],i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--text2)">${labels[i]||k}</span><div class="stars-row">${[1,2,3,4,5].map(s=>`<span class="star">${s<=v?'★':'☆'}</span>`).join('')}</div></div>`).join('');
+  return`<div class="card" style="border-color:var(--green-border)"><div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:10px">✓ Reflexão enviada</div>${items}</div>`;
+}
+
+function renderHistorico(execs){
+  const items=[...execs].reverse().map((ex,i)=>`
+    <div class="history-item">
+      <div class="history-item-header" onclick="this.nextElementSibling.classList.toggle('open')">
+        <span>Execução ${execs.length-i} · ${ex.acao||'—'} · ${(ex.tokens||0).toLocaleString()} tokens · $${(ex.custo||0).toFixed(4)}</span><span>▾</span>
+      </div>
+      <div class="history-item-body">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Input</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px;white-space:pre-wrap">${esc(ex.input)}</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Resposta</div>
+        <div style="font-size:12px;white-space:pre-wrap;line-height:1.7;margin-bottom:12px">${esc(ex.output)}</div>
+        ${ex.explicacao?`<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Como a IA gerou</div><div style="font-size:12px;color:var(--text2);white-space:pre-wrap;line-height:1.6">${esc(ex.explicacao)}</div>`:''}
+      </div>
+    </div>`).join('');
+  return`<div><div class="history-section-title">Histórico (${execs.length} execuç${execs.length===1?'ão':'ões'})</div>${items}</div>`;
+}

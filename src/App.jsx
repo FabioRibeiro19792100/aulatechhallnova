@@ -232,6 +232,20 @@ const PERGUNTAS_REFLEXAO = [
   { id: "q4", texto: "Essa missao ficou clara do inicio ao fim?", min: "confusa", max: "muito clara" },
 ];
 
+const REFLECTION_TOPIC_LABELS = {
+  q1: "Expectativa atendida",
+  q2: "Aplicacao no trabalho",
+  q3: "Conforto com IA",
+  q4: "Clareza da missao",
+};
+
+const REFLECTION_TOPIC_SHORT_LABELS = {
+  q1: "Expectativa",
+  q2: "Aplicacao",
+  q3: "Conforto",
+  q4: "Clareza",
+};
+
 const MOCKS = {
   m01: (input, acao) =>
     acao === "Resumir"
@@ -526,6 +540,14 @@ function formatDateTime(value) {
   } catch {
     return value;
   }
+}
+
+function getReflectionTopicLabel(questionId) {
+  return REFLECTION_TOPIC_LABELS[questionId] || questionId.toUpperCase();
+}
+
+function getReflectionTopicShortLabel(questionId) {
+  return REFLECTION_TOPIC_SHORT_LABELS[questionId] || getReflectionTopicLabel(questionId);
 }
 
 async function fetchLiveKitToken({ roomName, identity, name, canPublish }) {
@@ -1965,52 +1987,18 @@ function App() {
           </div>
         </div>
 
-        <div className="help-board">
-          <div className="section-header">
-            <span className="section-title">Pedidos de ajuda abertos</span>
-            <span className="muted-mini">{openHelpRequests.length ? `${openHelpRequests.length} pendente(s)` : "Nenhum pedido aberto"}</span>
-          </div>
-          {openHelpRequests.length ? (
-            <div className="help-list">
-              {openHelpRequests.map((request) => {
-                const requestMission = evento.missions.find((mission) => mission.id === request.missionId);
-                const requestTeam = evento.teams[request.teamIdx];
-                return (
-                  <div className="help-item" key={request.id}>
-                    <div className="help-item-header">
-                      <div>
-                        <div className="help-item-title">{requestTeam?.name || `Time ${request.teamIdx + 1}`}</div>
-                        <div className="help-item-meta">
-                          {requestMission?.name || request.missionId} · {formatDateTime(request.createdAt)}
-                        </div>
-                      </div>
-                      <span className="team-inline-pill is-alert">aberto</span>
-                    </div>
-                    <div className="help-item-body">{request.message}</div>
-                    <div className="help-item-actions">
-                      <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
-                        Resolver ajuda
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="help-empty muted-body">Quando um time pedir ajuda, a mensagem completa aparece aqui.</div>
-          )}
-        </div>
-
         {!evento.teams.length && <div className="teams-empty">Nenhum time cadastrado ainda.</div>}
 
-        <div className="section-header">
-          <span className="section-title">Times no evento</span>
-          <button className="btn btn-sm" onClick={() => setAddTeamOpen(true)}>
-            + Adicionar time
-          </button>
-        </div>
+        <div className="dashboard-layout">
+          <div className="dashboard-main">
+            <div className="section-header">
+              <span className="section-title">Times no evento</span>
+              <button className="btn btn-sm" onClick={() => setAddTeamOpen(true)}>
+                + Adicionar time
+              </button>
+            </div>
 
-        <div className="team-admin-grid">
+            <div className="team-admin-grid">
         {evento.teams.map((teamItem, teamIdx) => {
           let teamTokens = 0;
           let teamCusto = 0;
@@ -2033,12 +2021,26 @@ function App() {
 
           const unlockedCount = evento.missions.filter((mission) => mission.unlocked).length || 1;
           const progress = Math.round((teamConc / unlockedCount) * 100);
-          const teamHelpOpen = openHelpRequests.filter((request) => request.teamIdx === teamIdx).length;
+          const teamHelpOpenRequests = openHelpRequests.filter((request) => request.teamIdx === teamIdx);
+          const teamHelpOpen = teamHelpOpenRequests.length;
           const activeMissionCount = evento.missions.filter((mission) => getExecucoes(evento, teamIdx, mission.id).length > 0).length;
           const latestReflection = getLatestTeamReflection(evento, teamIdx);
+          const missionProgressItems = evento.missions
+            .filter((mission) => mission.unlocked)
+            .map((mission) => {
+              const execs = getExecucoes(evento, teamIdx, mission.id);
+              const reflection = (evento.reflexoes || {})[`${teamIdx}__${mission.id}`];
+              return {
+                id: mission.id,
+                name: mission.name,
+                runs: execs.length,
+                concluded: Boolean(reflection),
+                lastRunAt: execs.length ? execs[execs.length - 1].ts : null,
+              };
+            });
 
           return (
-            <div className="team-admin-card" key={teamItem.name}>
+            <div className={`team-admin-card${teamHelpOpen ? " has-open-help" : ""}`} key={teamItem.name}>
               <div className="team-admin-head">
                 <div className="team-admin-id">
                   <div className="team-avatar">{initials(teamItem.name)}</div>
@@ -2098,6 +2100,27 @@ function App() {
                 <div className="progress-bar-wrap">
                   <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
                 </div>
+                {missionProgressItems.length ? (
+                  <div className="team-mission-list">
+                    {missionProgressItems.map((missionItem) => (
+                      <div className="team-mission-row" key={missionItem.id}>
+                        <div className="team-mission-copy">
+                          <div className="team-mission-name">{missionItem.name}</div>
+                          <div className="team-mission-meta">
+                            {missionItem.concluded
+                              ? "concluida"
+                              : missionItem.runs
+                                ? `${missionItem.runs} execucao${missionItem.runs > 1 ? "oes" : ""}`
+                                : "sem atividade"}
+                          </div>
+                        </div>
+                        <span className={`team-inline-pill${missionItem.concluded ? "" : " is-muted"}`}>
+                          {missionItem.concluded ? "feito" : "em aberto"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {latestReflection ? (
                   <div className="team-admin-feedback">
                     <div className="team-admin-feedback-head">
@@ -2105,10 +2128,17 @@ function App() {
                       <span className="muted-mini">{formatDateTime(latestReflection.submittedAt || latestReflection.ts)}</span>
                     </div>
                     <div className="team-admin-feedback-title">{latestReflection.missionName || latestReflection.missionId}</div>
-                    <div className="team-admin-feedback-scores">
-                      {Object.entries(latestReflection.respostas || {}).map(([key, value], index) => (
-                        <span className="team-admin-feedback-chip" key={key}>
-                          P{index + 1}: {value}/5
+                    <div className="team-admin-feedback-scores is-inline">
+                      {Object.entries(latestReflection.respostas || {}).map(([key, value]) => (
+                        <span className="mission-feedback-chip is-rating" key={key}>
+                          <strong>{getReflectionTopicShortLabel(key)}</strong>
+                          <span className="mission-feedback-stars" aria-label={`${value} de 5`}>
+                            {[1, 2, 3, 4, 5].map((score) => (
+                              <span className="star" key={score}>
+                                {score <= value ? "★" : "☆"}
+                              </span>
+                            ))}
+                          </span>
                         </span>
                       ))}
                     </div>
@@ -2121,6 +2151,46 @@ function App() {
             </div>
           );
         })}
+            </div>
+          </div>
+
+          <aside className="dashboard-side">
+            <div className="help-queue">
+              <div className="section-header">
+                <span className="section-title">Fila de ajuda</span>
+                <span className="muted-mini">{openHelpRequests.length ? `${openHelpRequests.length} na fila` : "Sem fila agora"}</span>
+              </div>
+              {openHelpRequests.length ? (
+                <div className="help-list">
+                  {openHelpRequests.map((request) => {
+                    const requestMission = evento.missions.find((mission) => mission.id === request.missionId);
+                    const requestTeam = evento.teams[request.teamIdx];
+                    return (
+                      <div className="help-item" key={request.id}>
+                        <div className="help-item-header">
+                          <div>
+                            <div className="help-item-title">{requestTeam?.name || `Time ${request.teamIdx + 1}`}</div>
+                            <div className="help-item-meta">
+                              {requestMission?.name || request.missionId} · {formatDateTime(request.createdAt)}
+                            </div>
+                          </div>
+                          <span className="team-inline-pill is-alert">aberto</span>
+                        </div>
+                        <div className="help-item-body">{request.message}</div>
+                        <div className="help-item-actions">
+                          <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
+                            Resolver ajuda
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="help-empty muted-body">Quando um time pedir ajuda, a fila lateral aparece aqui com a mensagem completa.</div>
+              )}
+            </div>
+          </aside>
         </div>
 
       </>
@@ -2414,10 +2484,17 @@ function App() {
                                           <div className="mission-feedback-team">{selectedEvent.teams[reflection.teamIdx]?.name || `Time ${reflection.teamIdx + 1}`}</div>
                                           <div className="mission-feedback-meta">{formatDateTime(reflection.submittedAt || reflection.ts)}</div>
                                         </div>
-                                        <div className="mission-feedback-scores">
-                                          {Object.entries(reflection.respostas || {}).map(([key, value], index) => (
-                                            <span className="team-admin-feedback-chip" key={key}>
-                                              P{index + 1}: {value}/5
+                                        <div className="mission-feedback-scores is-inline">
+                                          {Object.entries(reflection.respostas || {}).map(([key, value]) => (
+                                            <span className="mission-feedback-chip is-rating" key={key}>
+                                              <strong>{getReflectionTopicShortLabel(key)}</strong>
+                                              <span className="mission-feedback-stars" aria-label={`${value} de 5`}>
+                                                {[1, 2, 3, 4, 5].map((score) => (
+                                                  <span className="star" key={score}>
+                                                    {score <= value ? "★" : "☆"}
+                                                  </span>
+                                                ))}
+                                              </span>
                                             </span>
                                           ))}
                                         </div>
@@ -3571,14 +3648,13 @@ function HistorySection({ execs, open, onToggle }) {
 }
 
 function ReflectionSummary({ reflexao }) {
-  const labels = ["Expectativa", "Aplicacao pratica", "Conforto com IA", "Clareza da missao"];
   return (
     <div className="card reflection-summary">
       <div className="reflection-summary-title">Reflexao enviada</div>
       {reflexao.missionName ? <div className="reflection-summary-mission">{reflexao.missionName}</div> : null}
-      {Object.entries(reflexao.respostas || {}).map(([key, value], index) => (
+      {Object.entries(reflexao.respostas || {}).map(([key, value]) => (
         <div className="reflection-row" key={key}>
-          <span className="muted-body">{labels[index] || key}</span>
+          <span className="muted-body">{getReflectionTopicLabel(key)}</span>
           <div className="stars-row">
             {[1, 2, 3, 4, 5].map((score) => (
               <span className="star" key={score}>

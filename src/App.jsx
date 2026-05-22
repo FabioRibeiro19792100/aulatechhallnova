@@ -489,6 +489,21 @@ function getOpenHelpRequests(evento) {
   return (evento.helpRequests || []).filter((request) => request.status === "open");
 }
 
+function getLatestTeamReflection(evento, teamIdx) {
+  const reflections = Object.entries(evento.reflexoes || {})
+    .map(([key, entry]) => ({ ...entry, key }))
+    .filter((entry) => entry?.teamIdx === teamIdx || `${entry?.key || ""}`.startsWith(`${teamIdx}__`));
+  if (!reflections.length) return null;
+  return reflections.sort((a, b) => new Date(b.submittedAt || b.ts || 0) - new Date(a.submittedAt || a.ts || 0))[0];
+}
+
+function getMissionReflections(evento, missionId) {
+  return Object.entries(evento.reflexoes || {})
+    .map(([key, entry]) => ({ ...entry, key }))
+    .filter((entry) => entry?.missionId === missionId || `${entry?.key || ""}`.endsWith(`__${missionId}`))
+    .sort((a, b) => new Date(b.submittedAt || b.ts || 0) - new Date(a.submittedAt || a.ts || 0));
+}
+
 function getScreenShareState(evento) {
   return {
     active: false,
@@ -984,6 +999,7 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpMessage, setHelpMessage] = useState("");
+  const [reflectionComment, setReflectionComment] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false, supabaseConfigured: false });
   const [storeHydrated, setStoreHydrated] = useState(false);
@@ -1100,6 +1116,7 @@ function App() {
   const preservedUsage = currentMission && teamEvent ? getPreservedMissionUsage(teamEvent, timeTeamIdx, currentMission.id) : null;
   const currentHelpRequests = currentMission && teamEvent ? getHelpRequests(teamEvent, timeTeamIdx, currentMission.id) : [];
   const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open").length;
+  const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open") || null;
 
   useEffect(() => {
     if (!currentMission) {
@@ -1109,6 +1126,7 @@ function App() {
       setHistoryOpen(false);
       setHelpOpen(false);
       setHelpMessage("");
+      setReflectionComment("");
       return;
     }
     setMissionInput("");
@@ -1116,6 +1134,7 @@ function App() {
     setHistoryOpen(false);
     setHelpOpen(false);
     setHelpMessage("");
+    setReflectionComment("");
     setMissionMenuOpen(null);
   }, [timeMissionIdx, timeEventId]);
 
@@ -1493,22 +1512,35 @@ function App() {
     );
   }
 
-  function saveReflection(eventId, teamIdx, missionId, respostas) {
+  function saveReflection(eventId, teamIdx, missionId, missionName, respostas, comment) {
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const key = `${teamIdx}__${missionId}`;
+        const submittedAt = new Date().toISOString();
         return {
           ...event,
-          reflexoes: { ...(event.reflexoes || {}), [key]: { respostas, ts: new Date().toISOString() } },
-          conclusoes: { ...(event.conclusoes || {}), [key]: new Date().toISOString() },
+          reflexoes: {
+            ...(event.reflexoes || {}),
+            [key]: {
+              key,
+              teamIdx,
+              missionId,
+              missionName,
+              respostas,
+              comment: comment || "",
+              submittedAt,
+              ts: submittedAt,
+            },
+          },
+          conclusoes: { ...(event.conclusoes || {}), [key]: submittedAt },
         };
       }),
     );
   }
 
   function handleOpenHelp() {
-    setHelpMessage("");
+    setHelpMessage(currentOpenHelpRequest?.message || "");
     setHelpOpen(true);
   }
 
@@ -1516,6 +1548,7 @@ function App() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const message = helpMessage.trim();
     if (!message) return;
+    if (currentOpenHelpRequest) return;
 
     updateEvents((current) =>
       current.map((event) =>
@@ -1541,6 +1574,30 @@ function App() {
     setHelpOpen(false);
     setHelpMessage("");
     showToast("Pedido de ajuda enviado ao facilitador");
+  }
+
+  function handleCancelHelpRequest(eventId, requestId) {
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== eventId
+          ? event
+          : {
+              ...event,
+              helpRequests: (event.helpRequests || []).map((request) =>
+                request.id !== requestId
+                  ? request
+                  : {
+                      ...request,
+                      status: "cancelled",
+                      cancelledAt: new Date().toISOString(),
+                    },
+              ),
+            },
+      ),
+    );
+    setHelpOpen(false);
+    setHelpMessage("");
+    showToast("Pedido de ajuda cancelado");
   }
 
   function handleResolveHelpRequest(eventId, requestId) {
@@ -1854,14 +1911,20 @@ function App() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const answered = PERGUNTAS_REFLEXAO.every((question) => reflectionAnswers[question.id]);
     if (!answered) return;
-    saveReflection(teamEvent.id, timeTeamIdx, currentMission.id, reflectionAnswers);
+    saveReflection(
+      teamEvent.id,
+      timeTeamIdx,
+      currentMission.id,
+      currentMission.name,
+      reflectionAnswers,
+      reflectionComment.trim(),
+    );
     setMissionFlow((current) => ({ ...current, stage: "concluida" }));
     showToast("Reflexao enviada");
   }
 
   function renderDashboard(evento) {
     const openHelpRequests = getOpenHelpRequests(evento);
-    const resolvedHelpRequests = (evento.helpRequests || []).filter((request) => request.status === "resolved");
     let totalTokens = 0;
     let totalCusto = 0;
     let totalConclusoes = 0;
@@ -1902,6 +1965,42 @@ function App() {
           </div>
         </div>
 
+        <div className="help-board">
+          <div className="section-header">
+            <span className="section-title">Pedidos de ajuda abertos</span>
+            <span className="muted-mini">{openHelpRequests.length ? `${openHelpRequests.length} pendente(s)` : "Nenhum pedido aberto"}</span>
+          </div>
+          {openHelpRequests.length ? (
+            <div className="help-list">
+              {openHelpRequests.map((request) => {
+                const requestMission = evento.missions.find((mission) => mission.id === request.missionId);
+                const requestTeam = evento.teams[request.teamIdx];
+                return (
+                  <div className="help-item" key={request.id}>
+                    <div className="help-item-header">
+                      <div>
+                        <div className="help-item-title">{requestTeam?.name || `Time ${request.teamIdx + 1}`}</div>
+                        <div className="help-item-meta">
+                          {requestMission?.name || request.missionId} · {formatDateTime(request.createdAt)}
+                        </div>
+                      </div>
+                      <span className="team-inline-pill is-alert">aberto</span>
+                    </div>
+                    <div className="help-item-body">{request.message}</div>
+                    <div className="help-item-actions">
+                      <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
+                        Resolver ajuda
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="help-empty muted-body">Quando um time pedir ajuda, a mensagem completa aparece aqui.</div>
+          )}
+        </div>
+
         {!evento.teams.length && <div className="teams-empty">Nenhum time cadastrado ainda.</div>}
 
         <div className="section-header">
@@ -1936,6 +2035,7 @@ function App() {
           const progress = Math.round((teamConc / unlockedCount) * 100);
           const teamHelpOpen = openHelpRequests.filter((request) => request.teamIdx === teamIdx).length;
           const activeMissionCount = evento.missions.filter((mission) => getExecucoes(evento, teamIdx, mission.id).length > 0).length;
+          const latestReflection = getLatestTeamReflection(evento, teamIdx);
 
           return (
             <div className="team-admin-card" key={teamItem.name}>
@@ -1998,6 +2098,25 @@ function App() {
                 <div className="progress-bar-wrap">
                   <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
                 </div>
+                {latestReflection ? (
+                  <div className="team-admin-feedback">
+                    <div className="team-admin-feedback-head">
+                      <span className="mini-label">Ultimo feedback recebido</span>
+                      <span className="muted-mini">{formatDateTime(latestReflection.submittedAt || latestReflection.ts)}</span>
+                    </div>
+                    <div className="team-admin-feedback-title">{latestReflection.missionName || latestReflection.missionId}</div>
+                    <div className="team-admin-feedback-scores">
+                      {Object.entries(latestReflection.respostas || {}).map(([key, value], index) => (
+                        <span className="team-admin-feedback-chip" key={key}>
+                          P{index + 1}: {value}/5
+                        </span>
+                      ))}
+                    </div>
+                    {latestReflection.comment ? (
+                      <div className="team-admin-feedback-comment">{latestReflection.comment}</div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           );
@@ -2225,7 +2344,8 @@ function App() {
                                 <span className={`pack-badge pack-${pack}`}>{missions.length} missoes</span>
                               </div>
                               {missions.map((mission) => (
-                                <div className="mission-row" key={`${mission.id}-${mission._idx}`}>
+                                <div className="mission-row-wrap" key={`${mission.id}-${mission._idx}`}>
+                                <div className="mission-row">
                                   <div className="mission-main">
                                     <div className="mission-row-header">
                                       <span className="mission-num">{mission.num || ""}</span>
@@ -2236,6 +2356,12 @@ function App() {
                                     </div>
                                     <div className="mcat">{mission.category}</div>
                                     {mission.desc ? <div className="mdesc">{mission.desc}</div> : null}
+                                    <div className="mission-inline-stats">
+                                      <span>{getMissionReflections(selectedEvent, mission.id).length} feedback(s)</span>
+                                      <span>
+                                        {selectedEvent.teams.filter((_, teamIdx) => isConcluida(selectedEvent, teamIdx, mission.id)).length} time(s) concluiram
+                                      </span>
+                                    </div>
                                   </div>
                                   <div className="mission-actions">
                                     <button
@@ -2279,6 +2405,27 @@ function App() {
                                       ) : null}
                                     </div>
                                   </div>
+                                </div>
+                                {getMissionReflections(selectedEvent, mission.id).length ? (
+                                  <div className="mission-feedback-list">
+                                    {getMissionReflections(selectedEvent, mission.id).map((reflection) => (
+                                      <div className="mission-feedback-card" key={`${reflection.teamIdx}-${reflection.submittedAt || reflection.ts}`}>
+                                        <div className="mission-feedback-head">
+                                          <div className="mission-feedback-team">{selectedEvent.teams[reflection.teamIdx]?.name || `Time ${reflection.teamIdx + 1}`}</div>
+                                          <div className="mission-feedback-meta">{formatDateTime(reflection.submittedAt || reflection.ts)}</div>
+                                        </div>
+                                        <div className="mission-feedback-scores">
+                                          {Object.entries(reflection.respostas || {}).map(([key, value], index) => (
+                                            <span className="team-admin-feedback-chip" key={key}>
+                                              P{index + 1}: {value}/5
+                                            </span>
+                                          ))}
+                                        </div>
+                                        {reflection.comment ? <div className="mission-feedback-comment">{reflection.comment}</div> : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
                                 </div>
                               ))}
                             </div>
@@ -2373,7 +2520,7 @@ function App() {
                 <span className="team-badge">{team.name}</span>
                 {currentMission && !teamEventScreenShare?.active ? (
                   <button className="btn btn-sm topbar-help-btn" onClick={handleOpenHelp}>
-                    Pedir ajuda
+                    {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
                     {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
                   </button>
                 ) : null}
@@ -2759,6 +2906,7 @@ function App() {
             className="btn btn-primary"
             onClick={() => {
               setReflectionAnswers({});
+              setReflectionComment("");
               setMissionFlow((current) => ({ ...current, stage: "questionario_final" }));
             }}
           >
@@ -2790,6 +2938,14 @@ function App() {
             </div>
           </div>
         ))}
+        <div className="form-group">
+          <label className="form-label">Observacao geral</label>
+          <textarea
+            value={reflectionComment}
+            onChange={(event) => setReflectionComment(event.target.value)}
+            placeholder="Opcional: registre uma observacao geral sobre a missao, a resposta da IA ou o que o time aprendeu."
+          />
+        </div>
         <div className="modal-actions">
           <button className="btn btn-green" onClick={handleSaveReflection}>
             Enviar reflexao
@@ -2842,7 +2998,9 @@ function App() {
       <Modal open={helpOpen} onClose={() => setHelpOpen(false)} small>
         <div className="modal-title">Pedir ajuda ao facilitador</div>
         <div className="modal-sub">
-          O facilitador vai receber este pedido junto com o contexto da missao e do seu time.
+          {currentOpenHelpRequest
+            ? "Seu pedido ja foi enviado. Voce pode revisar a mensagem ou cancelar se nao precisar mais de ajuda."
+            : "O facilitador vai receber este pedido junto com o contexto da missao e do seu time."}
         </div>
         <div className="form-group">
           <label className="form-label">Mensagem curta</label>
@@ -2850,15 +3008,22 @@ function App() {
             value={helpMessage}
             onChange={(event) => setHelpMessage(event.target.value)}
             placeholder="Ex: Estamos travados para escolher a melhor acao e validar a resposta."
+            disabled={Boolean(currentOpenHelpRequest)}
           />
         </div>
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={() => setHelpOpen(false)}>
-            Cancelar
+            Fechar
           </button>
-          <button className="btn btn-primary" disabled={!helpMessage.trim()} onClick={handleSendHelpRequest}>
-            Enviar ajuda
-          </button>
+          {currentOpenHelpRequest ? (
+            <button className="btn btn-primary btn-danger" onClick={() => handleCancelHelpRequest(teamEvent.id, currentOpenHelpRequest.id)}>
+              Cancelar pedido
+            </button>
+          ) : (
+            <button className="btn btn-primary" disabled={!helpMessage.trim()} onClick={handleSendHelpRequest}>
+              Enviar ajuda
+            </button>
+          )}
         </div>
       </Modal>
 
@@ -3410,6 +3575,7 @@ function ReflectionSummary({ reflexao }) {
   return (
     <div className="card reflection-summary">
       <div className="reflection-summary-title">Reflexao enviada</div>
+      {reflexao.missionName ? <div className="reflection-summary-mission">{reflexao.missionName}</div> : null}
       {Object.entries(reflexao.respostas || {}).map(([key, value], index) => (
         <div className="reflection-row" key={key}>
           <span className="muted-body">{labels[index] || key}</span>
@@ -3422,6 +3588,12 @@ function ReflectionSummary({ reflexao }) {
           </div>
         </div>
       ))}
+      {reflexao.comment ? (
+        <div className="reflection-comment">
+          <div className="mini-label">Observacao geral</div>
+          <div className="muted-body">{reflexao.comment}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -201,13 +201,21 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
 .team-admin-metric strong{font-size:18px;color:var(--text)}
 .team-admin-foot{display:flex;flex-direction:column;gap:10px}
 .team-admin-status-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.team-admin-feedback{border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:8px}
+.team-admin-feedback-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.team-admin-feedback-title{font-size:13px;font-weight:700;color:var(--text)}
+.team-admin-feedback-scores{display:flex;flex-wrap:wrap;gap:6px}
+.team-admin-feedback-chip{display:inline-flex;align-items:center;justify-content:center;padding:4px 8px;border-radius:999px;background:var(--blue-light);color:var(--blue);font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.team-admin-feedback-comment{font-size:12px;color:var(--text2);line-height:1.7;white-space:pre-wrap}
 .team-inline-pill{display:inline-flex;align-items:center;justify-content:center;padding:4px 8px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text2)}
 .team-inline-pill.is-alert{background:var(--amber-light);border-color:rgba(133,79,11,.14);color:var(--amber)}
-.mission-row{display:flex;align-items:flex-start;justify-content:space-between;padding:14px 16px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface2);margin-bottom:8px;gap:12px}
+.mission-row-wrap{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.mission-row{display:flex;align-items:flex-start;justify-content:space-between;padding:14px 16px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface2);gap:12px}
 .mission-main{flex:1}
 .mission-row-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .mission-num{font-size:11px;color:var(--text3);font-weight:600}
 .mname{font-size:13px;font-weight:600}.mcat{font-size:11px;color:var(--text3);margin-top:2px}.mdesc{font-size:12px;color:var(--text2);margin-top:5px;line-height:1.5}
+.mission-inline-stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;color:var(--text3)}
 .mission-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:nowrap;position:relative}
 .mission-toggle{display:inline-flex;align-items:center;gap:10px;padding:8px 12px;border-radius:999px;border:1px solid var(--border-md);background:#f4f1ea;color:var(--text2);font-size:12px;font-weight:700;transition:all .14s}
 .mission-toggle.is-on{background:var(--green-light);border-color:var(--green-border);color:var(--green)}
@@ -423,8 +431,17 @@ linear-gradient(180deg,#f8f6f0 0%,#f5f1e8 100%)}
 .scale-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);padding:0 4px;margin-top:2px}
 .reflection-summary{border-color:var(--green-border)}
 .reflection-summary-title{font-size:12px;font-weight:600;color:var(--green);margin-bottom:10px}
+.reflection-summary-mission{font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px}
 .reflection-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
 .reflection-row:last-child{border-bottom:none}
+.reflection-comment{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
+.mission-feedback-list{display:flex;flex-direction:column;gap:8px;padding:0 4px 4px}
+.mission-feedback-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.mission-feedback-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.mission-feedback-team{font-size:12px;font-weight:700;color:var(--text)}
+.mission-feedback-meta{font-size:11px;color:var(--text3)}
+.mission-feedback-scores{display:flex;flex-wrap:wrap;gap:6px}
+.mission-feedback-comment{font-size:12px;color:var(--text2);line-height:1.7;white-space:pre-wrap}
 .error-box{background:var(--red-light);border:1px solid rgba(163,45,45,.25);border-radius:var(--r-md);padding:12px 16px;font-size:13px;color:var(--red);line-height:1.6}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}

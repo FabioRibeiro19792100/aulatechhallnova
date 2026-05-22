@@ -3,8 +3,10 @@ import express from "express";
 import {
   createLiveKitToken,
   createOpenAIChatCompletion,
+  getRemoteAppState,
   getRuntimeConfig,
   removeOpenAIKey,
+  saveRemoteAppState,
   saveOpenAIKey,
 } from "./lib/backend.mjs";
 
@@ -23,6 +25,22 @@ app.get("/api/health", async (_req, res) => {
 
 app.get("/api/config", async (_req, res) => {
   res.json(await getRuntimeConfig());
+});
+
+app.get("/api/state", async (_req, res) => {
+  try {
+    res.json(await getRemoteAppState());
+  } catch (error) {
+    res.status(error.statusCode || 500).send(error.message || "Falha ao carregar estado remoto.");
+  }
+});
+
+app.post("/api/state", async (req, res) => {
+  try {
+    res.json(await saveRemoteAppState(req.body || {}));
+  } catch (error) {
+    res.status(error.statusCode || 500).send(error.message || "Falha ao salvar estado remoto.");
+  }
 });
 
 app.post("/api/config/openai", async (req, res) => {

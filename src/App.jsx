@@ -393,6 +393,30 @@ function saveStore(data) {
   localStorage.setItem(STORE, JSON.stringify(data));
 }
 
+async function fetchRemoteState() {
+  const response = await fetch("/api/state");
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Falha ao carregar estado remoto.");
+  }
+  return response.json();
+}
+
+async function saveRemoteState(events) {
+  const response = await fetch("/api/state", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ events }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Falha ao salvar estado remoto.");
+  }
+  return response.json();
+}
+
 function estimateCost(model, inputTokens, outputTokens) {
   const price = MODEL_PRICING[model] || MODEL_PRICING["gpt-4.1-mini"];
   return ((inputTokens / 1_000_000) * price.input) + ((outputTokens / 1_000_000) * price.output);
@@ -915,10 +939,11 @@ function Modal({ open, children, onClose, small = false, dismissible = true }) {
 }
 
 function App() {
+  const initialLocalStore = loadStore();
   const [store, setStore] = useState(() => ({
-    events: loadStore().events || [],
-    apiKey: loadStore().apiKey || "",
-    model: loadStore().model || "gpt-4.1-mini",
+    events: initialLocalStore.events || [],
+    apiKey: initialLocalStore.apiKey || "",
+    model: initialLocalStore.model || "gpt-4.1-mini",
   }));
   const [screen, setScreen] = useState("home");
   const [facSelectedId, setFacSelectedId] = useState(null);
@@ -960,17 +985,44 @@ function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpMessage, setHelpMessage] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
-  const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false });
+  const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false, supabaseConfigured: false });
+  const [storeHydrated, setStoreHydrated] = useState(false);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
+  const lastRemoteEventsRef = useRef(JSON.stringify(initialLocalStore.events || []));
 
   useEffect(() => {
     saveStore(store);
   }, [store]);
 
   useEffect(() => {
-    fetchServerConfig()
-      .then((config) => setServerConfig(config))
-      .catch(() => undefined);
+    let cancelled = false;
+
+    async function bootstrapStore() {
+      try {
+        const config = await fetchServerConfig();
+        if (cancelled) return;
+        setServerConfig(config);
+
+        if (config.supabaseConfigured) {
+          const remoteState = await fetchRemoteState();
+          if (cancelled) return;
+          lastRemoteEventsRef.current = JSON.stringify(remoteState.events || []);
+          setStore((current) => ({
+            ...current,
+            events: remoteState.events || [],
+          }));
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (!cancelled) setStoreHydrated(true);
+      }
+    }
+
+    bootstrapStore();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -980,18 +1032,54 @@ function App() {
   }, [toastText]);
 
   useEffect(() => {
+    if (!storeHydrated) return undefined;
+
+    const serializedEvents = JSON.stringify(store.events || []);
+    if (serializedEvents === lastRemoteEventsRef.current) return undefined;
+
+    lastRemoteEventsRef.current = serializedEvents;
+    if (!serverConfig.supabaseConfigured) return undefined;
+
+    const timer = window.setTimeout(() => {
+      saveRemoteState(store.events || []).catch((error) => console.error(error));
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [serverConfig.supabaseConfigured, store.events, storeHydrated]);
+
+  useEffect(() => {
     if (!["workspace", "facilitador"].includes(screen)) return undefined;
-    const timer = window.setInterval(() => {
-      const latest = loadStore();
-      setStore({
-        events: latest.events || [],
-        apiKey: latest.apiKey || "",
-        model: latest.model || "gpt-4.1-mini",
-      });
-      fetchServerConfig()
-        .then((config) => setServerConfig(config))
-        .catch(() => undefined);
+
+    const timer = window.setInterval(async () => {
+      const latestLocal = loadStore();
+      try {
+        const config = await fetchServerConfig();
+        setServerConfig(config);
+
+        if (config.supabaseConfigured) {
+          const remoteState = await fetchRemoteState();
+          const remoteEvents = remoteState.events || [];
+          lastRemoteEventsRef.current = JSON.stringify(remoteEvents);
+          setStore((current) => ({
+            ...current,
+            events: remoteEvents,
+            apiKey: latestLocal.apiKey || "",
+            model: latestLocal.model || "gpt-4.1-mini",
+          }));
+          return;
+        }
+      } catch (error) {
+        console.error(error);
+      }
+
+      setStore((current) => ({
+        ...current,
+        events: latestLocal.events || [],
+        apiKey: latestLocal.apiKey || "",
+        model: latestLocal.model || "gpt-4.1-mini",
+      }));
     }, 3000);
+
     return () => window.clearInterval(timer);
   }, [screen]);
 

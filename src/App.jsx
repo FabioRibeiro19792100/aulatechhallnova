@@ -309,6 +309,20 @@ const SIMULATION_STEPS = [
   { key: "gerando", label: "gerando resposta" },
   { key: "finalizando", label: "finalizando" },
 ];
+const SHOW_DEV_SWITCH = false;
+
+function buildRunSteps(apiConfigured) {
+  return SIMULATION_STEPS.map((step, index) => ({
+    ...step,
+    status: index === 0 ? "active" : "pending",
+    label:
+      apiConfigured && step.key === "estrategia"
+        ? "consultando OpenAI"
+        : apiConfigured && step.key === "finalizando"
+          ? "preparando explicacao"
+          : step.label,
+  }));
+}
 const MISSION_CONCEPTS = {
   m01: [
     { name: "Sintese executiva", explanation: "Condensa material extenso em uma resposta curta e orientada a decisao." },
@@ -576,6 +590,67 @@ function buildConceptSummary(mission) {
   return (MISSION_CONCEPTS[mission.id] || []).map((concept) => concept.name).join(", ");
 }
 
+function buildTechnicalTerms(mission) {
+  const missionSpecific = {
+    m01: [
+      { term: "Compressao semantica", meaning: "reduzir o texto preservando a intencao central e descartando redundancias." },
+      { term: "Saliência", meaning: "dar mais peso aos trechos com maior densidade de decisao ou informacao." },
+      { term: "Condicionamento por prompt", meaning: "usar a instrucao da missao para definir tom, estrutura e nivel de concisao." },
+    ],
+    m02: [
+      { term: "Separacao entre observacao e inferencia", meaning: "isolar o que esta nos dados do que e apenas hipotese." },
+      { term: "Sinal vs ruído", meaning: "distinguir padroes relevantes de oscilacoes que nao sustentam conclusao." },
+      { term: "Calibracao de confianca", meaning: "evitar afirmar causalidade quando a base nao permite." },
+    ],
+  };
+
+  return missionSpecific[mission.id] || [
+    { term: "Tokenizacao", meaning: "quebrar entrada e saida em unidades que o modelo usa para processar linguagem." },
+    { term: "Predicao do proximo token", meaning: "escolher iterativamente a proxima parte da resposta com base no contexto anterior." },
+    { term: "Atenção", meaning: "priorizar partes do input e do prompt que mais influenciam a saida final." },
+  ];
+}
+
+function buildAlternativeAnswerPaths({ mission, acao, freeInstruction }) {
+  if (mission.id === "m01") {
+    return [
+      "um resumo mais executivo, com menos contexto e mais decisoes",
+      "uma lista de pontos principais, preservando mais granularidade",
+      "um plano de acao, se a instrucao pedisse saida orientada a proximo passo",
+    ];
+  }
+  return [
+    freeInstruction
+      ? "uma resposta mais tecnica ou mais simples, dependendo de como a instrucao fosse formulada"
+      : `uma resposta com outra ênfase, se a acao deixasse de ser "${getActionLabel(acao)}"`,
+    "uma resposta mais longa, cobrindo mais contexto e mais excecoes",
+    "uma resposta mais curta, sacrificando cobertura para ganhar objetividade",
+  ];
+}
+
+function buildHowToAskBetter({ mission, acao, freeInstruction }) {
+  const actionHint = freeInstruction
+    ? "defina explicitamente o formato esperado, o nivel de detalhe e o criterio de prioridade"
+    : `diga o que precisa preservar alem da acao "${getActionLabel(acao)}"`;
+  return [
+    `Para ganhar precisao: informe objetivo, destinatario e limite de tamanho da resposta.`,
+    `Para mudar a saida: ${actionHint}.`,
+    "Para explorar variacoes: peça uma segunda versao com outro tom, outra estrutura ou outro nivel de criticidade.",
+  ];
+}
+
+function buildBestPractices({ mission }) {
+  const missionHint =
+    mission.id === "m01"
+      ? "Se quiser um resumo melhor, marque o que e central, o que pode ser cortado e para quem o material sera entregue."
+      : "Se quiser outra resposta, explicite qual criterio deve pesar mais: cobertura, objetividade, criticidade ou estrutura.";
+  return [
+    "Comece delimitando objetivo, formato e profundidade.",
+    missionHint,
+    "Quando a resposta importar de verdade, peça uma segunda versao e compare os trade-offs entre elas.",
+  ];
+}
+
 function buildConceptDetails(mission, acao, output) {
   const concepts = MISSION_CONCEPTS[mission.id] || [];
   const actionText = isFreeInstructionAction(acao)
@@ -597,55 +672,46 @@ function buildReasoningDetails({ mission, input, acao, historyContext, promptApp
   const usedHistory = historyContext.length > 0;
   const freeInstruction = isFreeInstructionAction(acao);
   const actionText = freeInstruction ? "a instrucao escrita pelo time" : `a acao "${getActionLabel(acao)}"`;
-  const summaryParts = [
-    `Missao enquadrada como ${mission.category} em modo ${MODE_LABELS[mission.mode] || mission.mode}.`,
-    freeInstruction
-      ? "Nesta rodada, o time escreveu a propria instrucao, sem usar uma acao rapida predefinida."
-      : `A acao "${getActionLabel(acao)}" definiu o formato de resposta esperado.`,
-    usedHistory
-      ? `A iteracao reutilizou ${historyContext.length} respostas anteriores desta mesma missao para manter continuidade.`
-      : "Nao havia historico anterior, entao a IA tratou esta rodada como ponto de partida.",
-    EXPLICACOES[mission.id] || "A estrategia foi guiada pelo prompt da missao.",
-  ];
+  const technicalTerms = buildTechnicalTerms(mission);
+  const alternativeAnswerPaths = buildAlternativeAnswerPaths({ mission, acao, freeInstruction });
+  const howToAskBetter = buildHowToAskBetter({ mission, acao, freeInstruction });
+  const bestPractices = buildBestPractices({ mission });
+  const mechanismSummary =
+    mission.id === "m01"
+      ? "A IA tratou seu pedido como uma tarefa de compressao semantica: leu o texto, detectou redundancias, puxou os trechos mais salientes e reorganizou o material em uma forma mais curta e util."
+      : `A IA tratou esta rodada como uma tarefa de ${mission.category}: primeiro enquadrou o tipo de saida pedido, depois usou o prompt para priorizar certos sinais do input e enfim montou uma resposta coerente com esse recorte.`;
+  const selectionLogic = freeInstruction
+    ? "Como a rodada foi em instrucao livre, o modelo usou a forma da sua pergunta como principal guia de recorte, tom e estrutura."
+    : `A acao "${getActionLabel(acao)}" funcionou como trilho de decisao: ela limitou o tipo de saida, o nivel de condensacao e o que deveria entrar ou ficar de fora.`;
+  const whyThisAnswer = usedHistory
+    ? `Essa resposta saiu assim porque a IA combinou o input atual com ${historyContext.length} rodada(s) anteriores, tentando manter continuidade sem abandonar o pedido desta vez.`
+    : "Essa resposta saiu assim porque a IA priorizou o que parecia mais central no pedido atual e sacrificou detalhes periféricos para entregar uma saida mais util ao objetivo.";
+  const limitations = usedHistory
+    ? "O historico ajuda na continuidade, mas pode reforcar uma leitura anterior e empurrar o modelo para repetir recortes que nem sempre sao os melhores."
+    : "Toda resposta desse tipo e uma escolha entre cobertura e concisao: se uma informacao parecer pouco saliente, ela pode ficar resumida demais ou desaparecer.";
 
   return {
-    lessonTitle: `Mini-aula: como a IA resolveu "${mission.name}"`,
-    summary: summaryParts.join(" "),
-    teacherNarration: freeInstruction
-      ? "Pense nesta resposta como uma explicacao de professor: primeiro a IA identificou o tipo de problema, depois leu a instrucao escrita pelo time como guia principal, e por fim montou uma resposta util para este contexto."
-      : `Pense nesta resposta como uma explicacao de professor: primeiro a IA identificou o tipo de problema, depois escolheu uma estrategia guiada pela acao "${getActionLabel(acao)}", e por fim montou uma resposta util para este contexto.`,
+    mechanismTitle: `Engenharia reversa: ${mission.name}`,
+    mechanismSummary,
+    selectionLogic,
+    whyThisAnswer,
+    alternativeAnswerPaths,
+    howToAskBetter,
+    technicalTerms,
+    bestPractices,
     strategy: EXPLICACOES[mission.id] || "A IA aplicou a estrategia definida para esta missao.",
     consideredInput: shortenedInput,
     actionInfluence: freeInstruction
       ? "Nesta rodada, a propria instrucao escrita pelo time guiou o recorte, o tom e a estrutura da resposta final."
       : `A escolha "${getActionLabel(acao)}" guiou o recorte, o tom e a estrutura da resposta final.`,
-    limitations: usedHistory
-      ? "A resposta tenta ser consistente com o historico da missao, mas ainda pode simplificar contexto ou reforcar suposicoes anteriores."
-      : "A resposta foi produzida apenas com base no input atual e pode depender de detalhes nao explicitados.",
+    limitations,
     promptApplied,
     usedHistory,
     historySignal: buildHistorySignal(historyContext),
     sourceLabel: apiConfigured ? "Resposta gerada com chamada OpenAI" : "Resposta gerada em simulacao local de IA",
     sourceType: apiConfigured ? "openai-runtime" : "local-fallback",
     conceptSummary: buildConceptSummary(mission),
-    keyTakeaways: [
-      freeInstruction
-        ? "A instrucao escrita pelo time direcionou diretamente o formato da resposta."
-        : `A acao "${getActionLabel(acao)}" direcionou o formato da resposta.`,
-      usedHistory ? "A IA reaproveitou historico da missao para manter continuidade." : "A IA tratou esta rodada como uma primeira leitura do problema.",
-      `O modo ${MODE_LABELS[mission.mode] || mission.mode} influencia diretamente o tipo de raciocinio usado.`,
-    ],
-    responseMap: [
-      { step: "Leitura do problema", explanation: "A IA primeiro identificou o tipo de tarefa e o objetivo implicito no pedido." },
-      {
-        step: "Escolha de estrategia",
-        explanation: freeInstruction
-          ? "A instrucao livre escrita pelo time determinou o estilo da resposta e o que deveria ser priorizado."
-          : `A acao "${getActionLabel(acao)}" determinou o estilo da resposta e o que deveria ser priorizado.`,
-      },
-      { step: "Montagem final", explanation: "A IA organizou a resposta para entregar utilidade pratica e coerencia tecnica." },
-    ],
-    conceptDetails: [],
+    summary: mechanismSummary,
   };
 }
 
@@ -675,17 +741,19 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
     .join("\n");
   const historySignal = buildHistorySignal(historyContext);
   const prompt = [
-    "Voce e um professor explicando para uma turma como uma IA construiu a resposta.",
+    "Voce esta explicando para uma turma o mecanismo de resposta de uma IA.",
     "Nao revele chain-of-thought bruto nem raciocinio interno literal.",
-    "Seja didatico, visual, guiado e ilustrativo, como um professor em sala.",
-    "Explique com linguagem clara, mas sem perder precisao tecnica.",
+    "Nao produza mini-aula motivacional, nao escreva texto ornamental e nao faça fechamento genérico.",
+    "Seja tecnico, curto, concreto e ancorado na resposta gerada.",
+    "Explique como a resposta foi construída, por que saiu assim e como o usuario pode extrair outras variacoes.",
     "Retorne JSON valido com as chaves:",
-    "lessonTitle, summary, teacherNarration, strategy, consideredInput, actionInfluence, limitations, conceptSummary, keyTakeaways, responseMap, conceptDetails",
-    "keyTakeaways deve ser um array curto de aprendizados.",
-    "responseMap deve ser um array de etapas com: step, explanation.",
-    "conceptDetails deve ser um array de objetos com: name, explanation, whyItMatters, appliedToCase, visualExample, warning.",
-    "Explique cada conceito tecnico separadamente e conecte ao caso concreto.",
-    "A narrativa deve soar como uma mini-aula guiada, nao como documentacao seca.",
+    "mechanismTitle, mechanismSummary, selectionLogic, whyThisAnswer, alternativeAnswerPaths, howToAskBetter, technicalTerms, bestPractices, strategy, consideredInput, actionInfluence, limitations",
+    "alternativeAnswerPaths deve ser um array curto de alternativas plausiveis.",
+    "howToAskBetter deve ser um array curto de instrucoes praticas para o usuario pedir outras respostas.",
+    "bestPractices deve ser um array curto de boas praticas operacionais.",
+    "technicalTerms deve ser um array de objetos com: term, meaning.",
+    "Nomeie termos tecnicos como saliencia, compressao semantica, tokenizacao, atencao, condicionamento por prompt, decoding ou outros relevantes para o caso.",
+    "Explique o mecanismo em linguagem acessivel, mas com precisao tecnica.",
     `Missao: ${mission.name}`,
     `Categoria: ${mission.category}`,
     `Modo: ${MODE_LABELS[mission.mode] || mission.mode}`,
@@ -870,7 +938,17 @@ function App() {
   const [addTeamOpen, setAddTeamOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
-  const [confirmState, setConfirmState] = useState({ open: false, title: "", body: "", onConfirm: null });
+  const [confirmState, setConfirmState] = useState({
+    open: false,
+    title: "",
+    body: "",
+    onConfirm: null,
+    requiresPassword: false,
+    confirmValue: "",
+    confirmLabel: "",
+    confirmPlaceholder: "",
+  });
+  const [confirmInput, setConfirmInput] = useState("");
   const [missionFlow, setMissionFlow] = useState({ stage: "idle", exec: null });
   const [newEventForm, setNewEventForm] = useState({ name: "", desc: "", teams: "", pack: "core" });
   const [configForm, setConfigForm] = useState({ apiKey: "", model: "gpt-4.1-mini" });
@@ -881,7 +959,9 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpMessage, setHelpMessage] = useState("");
+  const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false });
+  const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
 
   useEffect(() => {
     saveStore(store);
@@ -948,18 +1028,56 @@ function App() {
     setHistoryOpen(false);
     setHelpOpen(false);
     setHelpMessage("");
+    setMissionMenuOpen(null);
   }, [timeMissionIdx, timeEventId]);
 
   useEffect(() => {
     if (!selectedEvent) {
       setEventMetaForm({ name: "", desc: "" });
+      lastEventMetaSavedRef.current = { id: null, name: "", desc: "" };
       return;
     }
-    setEventMetaForm({
+    const nextMeta = {
       name: selectedEvent.name || "",
       desc: selectedEvent.desc || "",
-    });
+    };
+    setEventMetaForm(nextMeta);
+    lastEventMetaSavedRef.current = { id: selectedEvent.id, ...nextMeta };
   }, [selectedEvent?.id, selectedEvent?.name, selectedEvent?.desc]);
+
+  useEffect(() => {
+    if (!selectedEvent) return undefined;
+
+    const normalizedName = eventMetaForm.name.trim();
+    const normalizedDesc = eventMetaForm.desc.trim();
+    const currentSaved = lastEventMetaSavedRef.current;
+    const selectedName = (selectedEvent.name || "").trim();
+    const selectedDesc = (selectedEvent.desc || "").trim();
+
+    if (normalizedName === selectedName && normalizedDesc === selectedDesc) return undefined;
+    if (!normalizedName) return undefined;
+    if (
+      currentSaved.id === selectedEvent.id &&
+      currentSaved.name === normalizedName &&
+      currentSaved.desc === normalizedDesc
+    ) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      updateEvents((current) =>
+        current.map((event) => (event.id === selectedEvent.id ? { ...event, name: normalizedName, desc: normalizedDesc } : event)),
+      );
+      lastEventMetaSavedRef.current = {
+        id: selectedEvent.id,
+        name: normalizedName,
+        desc: normalizedDesc,
+      };
+      showToast("Dados do evento atualizados");
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [eventMetaForm.desc, eventMetaForm.name, selectedEvent]);
 
   const availableCatalog = useMemo(() => {
     if (!selectedEvent) return [];
@@ -971,7 +1089,7 @@ function App() {
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";
-  const devQuickSwitch = import.meta.env.DEV ? (
+  const devQuickSwitch = import.meta.env.DEV && SHOW_DEV_SWITCH ? (
     <DevQuickSwitch
       events={events}
       currentEventId={devEventId}
@@ -995,12 +1113,41 @@ function App() {
     setToastText(message);
   }
 
-  function openConfirm(title, body, onConfirm) {
-    setConfirmState({ open: true, title, body, onConfirm });
+  function openConfirm(title, body, onConfirm, options = {}) {
+    setConfirmInput("");
+    setConfirmState({
+      open: true,
+      title,
+      body,
+      onConfirm,
+      requiresPassword: Boolean(options.requiresPassword),
+      confirmValue: options.confirmValue || "",
+      confirmLabel: options.confirmLabel || "Senha de confirmacao",
+      confirmPlaceholder: options.confirmPlaceholder || "",
+    });
   }
 
   function closeConfirm() {
-    setConfirmState({ open: false, title: "", body: "", onConfirm: null });
+    setConfirmInput("");
+    setConfirmState({
+      open: false,
+      title: "",
+      body: "",
+      onConfirm: null,
+      requiresPassword: false,
+      confirmValue: "",
+      confirmLabel: "",
+      confirmPlaceholder: "",
+    });
+  }
+
+  function openDeleteConfirm({ eventId, title, body, onConfirm }) {
+    openConfirm(title, body, onConfirm, {
+      requiresPassword: true,
+      confirmValue: eventId,
+      confirmLabel: "Senha de seguranca",
+      confirmPlaceholder: `Digite o codigo do evento (${eventId})`,
+    });
   }
 
   function goHome() {
@@ -1191,7 +1338,7 @@ function App() {
       showToast(trimmedKey ? "Chave salva no servidor local" : "Modelo atualizado");
     } catch (error) {
       console.error(error);
-      showToast("Falha ao salvar configuracao da IA");
+      showToast(error.message || "Falha ao salvar configuracao da IA");
     }
   }
 
@@ -1205,7 +1352,7 @@ function App() {
       showToast("Chave persistente removida");
     } catch (error) {
       console.error(error);
-      showToast("Falha ao remover chave persistente");
+      showToast(error.message || "Falha ao remover chave persistente");
     }
   }
 
@@ -1419,31 +1566,44 @@ function App() {
       stepIndex: 0,
       displayedOutput: "",
       fullOutput: "",
-      processingSteps: SIMULATION_STEPS.map((step, index) => ({
-        ...step,
-        status: index === 0 ? "active" : "pending",
-      })),
+      processingSteps: buildRunSteps(apiConfigured),
       reasoningDetails: null,
       usedHistory: historyContext.length > 0,
       simulationMode: apiConfigured ? "openai-live" : "mock-stream",
     });
 
     try {
-      for (let index = 0; index < 2; index += 1) {
+      if (!apiConfigured) {
+        for (let index = 0; index < 2; index += 1) {
+          setRunState((current) =>
+            current
+              ? {
+                  ...current,
+                  phase: SIMULATION_STEPS[index].key,
+                  stepIndex: index,
+                  processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                    ...step,
+                    status: stepIndex < index ? "done" : stepIndex === index ? "active" : "pending",
+                  })),
+                }
+              : current,
+          );
+          await sleep(index === 0 ? 700 : 850);
+        }
+      } else {
         setRunState((current) =>
           current
             ? {
                 ...current,
-                phase: SIMULATION_STEPS[index].key,
-                stepIndex: index,
+                phase: "estrategia",
+                stepIndex: 1,
                 processingSteps: current.processingSteps.map((step, stepIndex) => ({
                   ...step,
-                  status: stepIndex < index ? "done" : stepIndex === index ? "active" : "pending",
+                  status: stepIndex < 1 ? "done" : stepIndex === 1 ? "active" : "pending",
                 })),
               }
             : current,
         );
-        await sleep(index === 0 ? 700 : 850);
       }
 
       const result = apiConfigured
@@ -1463,6 +1623,18 @@ function App() {
             historyContext,
           });
 
+      const guidedReasoningPromise = apiConfigured
+        ? gerarExplicacaoGuiadaIA({
+            apiKey: store.apiKey,
+            model: store.model,
+            mission: currentMission,
+            input,
+            acao,
+            output: result.output,
+            historyContext,
+          }).catch(() => null)
+        : Promise.resolve(null);
+
       const reasoningDetails = buildReasoningDetails({
         mission: currentMission,
         input,
@@ -1471,17 +1643,61 @@ function App() {
         promptApplied: result.promptApplied,
         apiConfigured,
       });
-      const guidedReasoning = apiConfigured
-        ? await gerarExplicacaoGuiadaIA({
-            apiKey: store.apiKey,
-            model: store.model,
-            mission: currentMission,
-            input,
-            acao,
-            output: result.output,
-            historyContext,
-          })
-        : null;
+
+      setRunState((current) =>
+        current
+          ? {
+              ...current,
+              phase: "gerando",
+              stepIndex: 2,
+              fullOutput: result.output,
+              inputTokens: result.inputTokens,
+              outputTokens: 0,
+              custo: result.custo,
+              reasoningDetails,
+              processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                ...step,
+                status: stepIndex < 2 ? "done" : stepIndex === 2 ? "active" : "pending",
+              })),
+            }
+          : current,
+      );
+
+      let cursor = 0;
+      const chunkSize = apiConfigured ? 42 : 30;
+      while (cursor < result.output.length) {
+        cursor = Math.min(result.output.length, cursor + chunkSize);
+        const nextText = result.output.slice(0, cursor);
+        setRunState((current) =>
+          current
+            ? {
+                ...current,
+                displayedOutput: nextText,
+                outputTokens: Math.round((cursor / result.output.length) * result.outputTokens),
+            }
+          : current,
+        );
+        await sleep(apiConfigured ? 12 : 75);
+      }
+
+      setRunState((current) =>
+        current
+          ? {
+              ...current,
+              phase: "finalizando",
+              stepIndex: 3,
+              processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                ...step,
+                status: stepIndex < 3 ? "done" : stepIndex === 3 ? "active" : "pending",
+              })),
+            }
+          : current,
+      );
+      if (!apiConfigured) {
+        await sleep(350);
+      }
+
+      const guidedReasoning = await guidedReasoningPromise;
       const finalReasoningDetails = {
         ...reasoningDetails,
         ...(guidedReasoning || {}),
@@ -1518,7 +1734,7 @@ function App() {
           ...finalReasoningDetails,
           conceptSummary,
         },
-        processingSteps: SIMULATION_STEPS.map((step) => ({ ...step, status: "done" })),
+        processingSteps: buildRunSteps(apiConfigured).map((step) => ({ ...step, status: "done" })),
         simulationMode: apiConfigured ? "openai-live" : "mock-stream",
         promptApplied: result.promptApplied,
         usedHistory: historyContext.length > 0,
@@ -1530,57 +1746,6 @@ function App() {
         tokens: result.tokens,
         custo: result.custo,
       };
-
-      setRunState((current) =>
-        current
-          ? {
-              ...current,
-              phase: "gerando",
-              stepIndex: 2,
-              fullOutput: result.output,
-              inputTokens: result.inputTokens,
-              outputTokens: 0,
-              custo: result.custo,
-              reasoningDetails,
-              processingSteps: current.processingSteps.map((step, stepIndex) => ({
-                ...step,
-                status: stepIndex < 2 ? "done" : stepIndex === 2 ? "active" : "pending",
-              })),
-            }
-          : current,
-      );
-
-      let cursor = 0;
-      const chunkSize = apiConfigured ? 42 : 30;
-      while (cursor < result.output.length) {
-        cursor = Math.min(result.output.length, cursor + chunkSize);
-        const nextText = result.output.slice(0, cursor);
-        setRunState((current) =>
-          current
-            ? {
-                ...current,
-                displayedOutput: nextText,
-                outputTokens: Math.round((cursor / result.output.length) * result.outputTokens),
-              }
-            : current,
-        );
-        await sleep(apiConfigured ? 60 : 75);
-      }
-
-      setRunState((current) =>
-        current
-          ? {
-              ...current,
-              phase: "finalizando",
-              stepIndex: 3,
-              processingSteps: current.processingSteps.map((step, stepIndex) => ({
-                ...step,
-                status: stepIndex < 3 ? "done" : stepIndex === 3 ? "active" : "pending",
-              })),
-            }
-          : current,
-      );
-      await sleep(350);
 
       saveExecution(teamEvent.id, timeTeamIdx, currentMission.id, execRecord);
       setMissionInput("");
@@ -1607,7 +1772,6 @@ function App() {
   }
 
   function renderDashboard(evento) {
-    const unlocked = evento.missions.filter((mission) => mission.unlocked).length;
     const openHelpRequests = getOpenHelpRequests(evento);
     const resolvedHelpRequests = (evento.helpRequests || []).filter((request) => request.status === "resolved");
     let totalTokens = 0;
@@ -1626,159 +1790,123 @@ function App() {
 
     return (
       <>
-        <div className="dash-grid">
-          <div className="dash-stat">
-            <div className="dash-stat-val">{totalTokens.toLocaleString()}</div>
-            <div className="dash-stat-lbl">Tokens consumidos</div>
-            <div className="dash-stat-sub">${totalCusto.toFixed(4)} estimado</div>
+        <div className="event-summary-strip">
+          <div className="event-summary-item">
+            <span className="event-summary-label">Times</span>
+            <strong className="event-summary-value">{evento.teams.length}</strong>
           </div>
-          <div className="dash-stat">
-            <div className="dash-stat-val">{evento.teams.reduce((sum, item) => sum + (item.runs || 0), 0)}</div>
-            <div className="dash-stat-lbl">Execucoes IA</div>
-            <div className="dash-stat-sub">{evento.teams.length} times</div>
+          <div className="event-summary-item">
+            <span className="event-summary-label">Tokens</span>
+            <strong className="event-summary-value">{totalTokens.toLocaleString()}</strong>
+            <span className="event-summary-sub">${totalCusto.toFixed(4)} estimado</span>
           </div>
-          <div className="dash-stat">
-            <div className="dash-stat-val">{totalConclusoes}</div>
-            <div className="dash-stat-lbl">Missoes concluidas</div>
-            <div className="dash-stat-sub">com reflexao enviada</div>
+          <div className="event-summary-item">
+            <span className="event-summary-label">Execucoes</span>
+            <strong className="event-summary-value">{evento.teams.reduce((sum, item) => sum + (item.runs || 0), 0)}</strong>
           </div>
-          <div className="dash-stat">
-            <div className="dash-stat-val">{openHelpRequests.length}</div>
-            <div className="dash-stat-lbl">Pedidos de ajuda abertos</div>
-            <div className="dash-stat-sub">times aguardando facilitacao</div>
+          <div className="event-summary-item">
+            <span className="event-summary-label">Concluidas</span>
+            <strong className="event-summary-value">{totalConclusoes}</strong>
           </div>
-          <div className="dash-stat">
-            <div className="dash-stat-val">
-              {unlocked}/{evento.missions.length}
-            </div>
-            <div className="dash-stat-lbl">Missoes liberadas</div>
-            <div className="dash-stat-sub">pelo facilitador</div>
+          <div className="event-summary-item">
+            <span className="event-summary-label">Ajuda aberta</span>
+            <strong className="event-summary-value">{openHelpRequests.length}</strong>
           </div>
         </div>
 
         {!evento.teams.length && <div className="teams-empty">Nenhum time cadastrado ainda.</div>}
 
-        <div className="event-ops-card">
-          <div className="section-header">
-            <span className="section-title">Detalhes do evento</span>
-            <button
-              className="btn btn-sm"
-              onClick={() => {
-                navigator.clipboard.writeText(evento.id);
-                showToast("Codigo copiado");
-              }}
-            >
-              Copiar codigo
-            </button>
-          </div>
-          <div className="event-ops-grid">
-            <div className="event-ops-box">
-              <div className="mini-label">Codigo de acesso</div>
-              <div className="key-display">{evento.id}</div>
-              <div className="form-hint">Times usam este codigo na tela "Sou time".</div>
-            </div>
-            <div className="event-ops-box">
-              <div className="mini-label">Resumo rapido</div>
-              <div className="muted-body">
-                {evento.desc || "Sem descricao cadastrada para este evento."}
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div className="section-header">
-          <span className="section-title">{evento.teams.length} times no evento</span>
+          <span className="section-title">Times no evento</span>
           <button className="btn btn-sm" onClick={() => setAddTeamOpen(true)}>
             + Adicionar time
           </button>
         </div>
 
-        <FacilitatorScreenSharePanel
-          event={evento}
-          screenShare={getScreenShareState(evento)}
-          onPublishState={(nextState) => handlePublishScreenShare(evento.id, nextState)}
-        />
-
+        <div className="team-admin-grid">
         {evento.teams.map((teamItem, teamIdx) => {
           let teamTokens = 0;
           let teamCusto = 0;
           let teamConc = 0;
+          let missionRuns = 0;
 
-          const missionRows = evento.missions
+          evento.missions
             .map((mission) => {
               const execs = getExecucoes(evento, teamIdx, mission.id);
               const missionTokens = execs.reduce((sum, execucao) => sum + (execucao.tokens || 0), 0);
               const missionCusto = execs.reduce((sum, execucao) => sum + (execucao.custo || 0), 0);
               const conc = isConcluida(evento, teamIdx, mission.id);
-              const ref = getReflexao(evento, teamIdx, mission.id);
               teamTokens += missionTokens;
               teamCusto += missionCusto;
+              missionRuns += execs.length;
               if (conc) teamConc += 1;
-              if (!mission.unlocked && !execs.length) return null;
-
-              const values = Object.values(ref?.respostas || {});
-              const avg = values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
-
-              return (
-                <div className="mission-progress-row" key={`${teamItem.name}-${mission.id}`}>
-                  <div className="mission-progress-name">
-                    {mission.num}. {mission.name}
-                  </div>
-                  <div className="mission-progress-middle">
-                    {avg ? (
-                      <div className="stars-row">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <span className="star" key={star}>
-                            {star <= avg ? "★" : "☆"}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {conc ? (
-                      <span className="pill pill-done dash-pill">concluida</span>
-                    ) : (
-                      <span className="muted-mini">{execs.length} exec.</span>
-                    )}
-                  </div>
-                  <div className="mission-progress-tokens">{missionTokens ? `${missionTokens.toLocaleString()} tok` : ""}</div>
-                  <div className="mission-progress-cost">{missionCusto ? `$${missionCusto.toFixed(4)}` : ""}</div>
-                </div>
-              );
+              return null;
             })
             .filter(Boolean);
 
           const unlockedCount = evento.missions.filter((mission) => mission.unlocked).length || 1;
           const progress = Math.round((teamConc / unlockedCount) * 100);
+          const teamHelpOpen = openHelpRequests.filter((request) => request.teamIdx === teamIdx).length;
+          const activeMissionCount = evento.missions.filter((mission) => getExecucoes(evento, teamIdx, mission.id).length > 0).length;
 
           return (
-            <div className="team-dash-row" key={teamItem.name}>
-              <div className="team-dash-header">
-                <div>
-                  <div className="team-dash-name">{teamItem.name}</div>
-                  <div className="team-dash-meta">
-                    <span>{teamItem.runs || 0} execucoes</span>
-                    <span>·</span>
-                    <span>{teamTokens.toLocaleString()} tokens</span>
-                    <span>·</span>
-                    <span>${teamCusto.toFixed(4)}</span>
-                    <span>·</span>
-                    <span>{teamConc} missoes concluidas</span>
+            <div className="team-admin-card" key={teamItem.name}>
+              <div className="team-admin-head">
+                <div className="team-admin-id">
+                  <div className="team-avatar">{initials(teamItem.name)}</div>
+                  <div>
+                    <div className="team-dash-name">{teamItem.name}</div>
+                    <div className="team-admin-sub">
+                      {activeMissionCount ? `${activeMissionCount} missoes com atividade` : "Nenhuma atividade ainda"}
+                    </div>
                   </div>
                 </div>
-                <div className="header-actions">
+                <div className="team-admin-actions">
                   <div className="team-progress-val">{progress}%</div>
                   <button
                     className="btn btn-ghost btn-sm btn-danger"
                     onClick={() =>
-                      openConfirm("Remover time", "Esta acao nao pode ser desfeita.", () => handleRemoveTeam(evento.id, teamIdx))
+                      openDeleteConfirm({
+                        eventId: evento.id,
+                        title: "Remover time",
+                        body: `O time "${teamItem.name}" sera removido deste evento. Para continuar, digite o codigo do evento como senha de seguranca.`,
+                        onConfirm: () => handleRemoveTeam(evento.id, teamIdx),
+                      })
                     }
                   >
                     Remover
                   </button>
                 </div>
               </div>
-              <div className="team-dash-body">
-                {missionRows.length ? missionRows : <div className="muted-body">Nenhuma execucao ainda.</div>}
+              <div className="team-admin-metrics">
+                <div className="team-admin-metric">
+                  <span>Execucoes</span>
+                  <strong>{missionRuns}</strong>
+                </div>
+                <div className="team-admin-metric">
+                  <span>Tokens</span>
+                  <strong>{teamTokens.toLocaleString()}</strong>
+                </div>
+                <div className="team-admin-metric">
+                  <span>Concluidas</span>
+                  <strong>{teamConc}</strong>
+                </div>
+                <div className="team-admin-metric">
+                  <span>Custo</span>
+                  <strong>${teamCusto.toFixed(4)}</strong>
+                </div>
+              </div>
+              <div className="team-admin-foot">
+                <div className="team-admin-status-row">
+                  <span className="mini-label">Pedidos de ajuda</span>
+                  <span className={`team-inline-pill${teamHelpOpen ? " is-alert" : ""}`}>
+                    {teamHelpOpen ? `${teamHelpOpen} abertos` : "nenhum"}
+                  </span>
+                </div>
+                <div className="team-admin-status-row">
+                  <span className="mini-label">Progresso nas missoes liberadas</span>
+                  <span className="muted-mini">{teamConc}/{unlockedCount}</span>
+                </div>
                 <div className="progress-bar-wrap">
                   <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
                 </div>
@@ -1786,67 +1914,8 @@ function App() {
             </div>
           );
         })}
-
-        <div className="help-board">
-          <div className="section-header">
-            <span className="section-title">
-              Pedidos de ajuda
-              {openHelpRequests.length ? <span className="help-badge">{openHelpRequests.length} abertos</span> : null}
-            </span>
-          </div>
-          {openHelpRequests.length ? (
-            <div className="help-list">
-              {openHelpRequests.map((request) => {
-                const mission = evento.missions.find((item) => item.id === request.missionId);
-                const teamItem = evento.teams[request.teamIdx];
-                return (
-                  <div className="help-item" key={request.id}>
-                    <div className="help-item-header">
-                      <div>
-                        <div className="help-item-title">{teamItem?.name || "Time"} · {mission?.name || request.missionId}</div>
-                        <div className="help-item-meta">Recebido em {formatDateTime(request.createdAt)}</div>
-                      </div>
-                      <span className="pill pill-open">aberto</span>
-                    </div>
-                    <div className="help-item-body">{request.message}</div>
-                    <div className="help-item-actions">
-                      <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
-                        Marcar como resolvido
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="muted-body help-empty">Nenhum pedido aberto neste momento.</div>
-          )}
-          {resolvedHelpRequests.length ? (
-            <div className="help-resolved">
-              <div className="history-section-title">Resolvidos recentemente</div>
-              <div className="help-list">
-                {resolvedHelpRequests.slice().reverse().map((request) => {
-                  const mission = evento.missions.find((item) => item.id === request.missionId);
-                  const teamItem = evento.teams[request.teamIdx];
-                  return (
-                    <div className="help-item resolved" key={request.id}>
-                      <div className="help-item-header">
-                        <div>
-                          <div className="help-item-title">{teamItem?.name || "Time"} · {mission?.name || request.missionId}</div>
-                          <div className="help-item-meta">
-                            Aberto em {formatDateTime(request.createdAt)} · Resolvido em {formatDateTime(request.resolvedAt)}
-                          </div>
-                        </div>
-                        <span className="pill pill-done">resolvido</span>
-                      </div>
-                      <div className="help-item-body">{request.message}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
         </div>
+
       </>
     );
   }
@@ -1902,57 +1971,118 @@ function App() {
             roleBadge="facilitador"
             right={
               <>
-                {devQuickSwitch}
-                {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
-                  <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
-                ) : null}
-                {selectedEventScreenShare?.active ? <span className="topbar-live-pill">tela ao vivo</span> : null}
-                <div className={`config-indicator${apiConfigured ? " ok" : ""}`}>
-                  <span className="cdot" />
-                  <span>{apiConfigured ? store.model : "sem chave OpenAI"}</span>
+                <div className="topbar-status-strip">
+                  {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
+                    <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
+                  ) : null}
+                  {selectedEventScreenShare?.active ? <span className="topbar-live-pill">tela ao vivo</span> : null}
                 </div>
-                <button
-                  className="btn btn-sm"
-                  onClick={() => {
-                    setConfigForm({ apiKey: store.apiKey, model: store.model });
-                    setConfigOpen(true);
-                  }}
-                >
-                  Configurar IA
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={goHome}>
-                  Inicio
-                </button>
+                <div className="topbar-actions-main">
+                  <button
+                    className={`btn btn-sm topbar-api-btn${apiConfigured ? " is-connected" : ""}`}
+                    onClick={() => {
+                      setConfigForm({ apiKey: store.apiKey, model: store.model });
+                      setConfigOpen(true);
+                    }}
+                  >
+                    {apiConfigured ? "API ligada" : "Configurar IA"}
+                  </button>
+                  <FacilitatorScreenShareButton
+                    event={selectedEvent}
+                    screenShare={selectedEventScreenShare}
+                    onPublishState={(nextState) => {
+                      if (!selectedEvent) return;
+                      handlePublishScreenShare(selectedEvent.id, nextState);
+                    }}
+                  />
+                </div>
               </>
             }
           />
+          {devQuickSwitch ? <div className="dev-toolbar-shell">{devQuickSwitch}</div> : null}
 
           <div className="fac-layout">
             <aside className="sidebar">
               <div className="sidebar-label">Eventos</div>
               {!events.length && <div className="empty-list-text">Nenhum evento ainda.</div>}
               {events.map((event) => (
-                <button
-                  className={`event-item${facSelectedId === event.id ? " active" : ""}`}
-                  key={event.id}
-                  onClick={() => {
-                    setFacSelectedId(event.id);
-                    setFacTab("dashboard");
-                  }}
-                >
-                  <div className="event-item-name">
-                    {event.status === "open" ? <span className="live-dot" /> : null}
-                    {event.name}
+                <div className={`event-item-card${facSelectedId === event.id ? " active" : ""}`} key={event.id}>
+                  <button
+                    className={`event-item${facSelectedId === event.id ? " active" : ""}`}
+                    onClick={() => {
+                      setFacSelectedId(event.id);
+                      setFacTab("dashboard");
+                    }}
+                  >
+                    <div className="event-item-name">
+                      {event.status === "open" ? <span className="live-dot" /> : null}
+                      {event.name}
+                    </div>
+                    <div className="event-item-meta">
+                      {event.status !== "draft" ? <span className={`sdot sdot-${event.status}`} /> : null}
+                      {event.status === "open"
+                        ? `aberto · ${event.teams.length} times`
+                        : event.status === "closed"
+                          ? `encerrado · ${event.teams.length} times`
+                          : `${event.teams.length} times`}
+                    </div>
+                  </button>
+                  <div className="event-item-actions">
+                    {event.status === "draft" ? (
+                      <button className="btn btn-xs btn-primary" onClick={() => handleSetStatus(event.id, "open")}>
+                        Abrir
+                      </button>
+                    ) : null}
+                    {event.status === "open" ? (
+                      <button className="btn btn-xs" onClick={() => handleSetStatus(event.id, "closed")}>
+                        Encerrar
+                      </button>
+                    ) : null}
+                    {event.status !== "draft" ? (
+                      <button className="btn btn-xs btn-ghost" onClick={() => handleSetStatus(event.id, "draft")}>
+                        Fechar acesso
+                      </button>
+                    ) : null}
+                    <button
+                      className="btn btn-xs btn-ghost btn-danger"
+                      onClick={() =>
+                        openDeleteConfirm({
+                          eventId: event.id,
+                          title: "Excluir evento",
+                          body: "Todos os dados deste evento serao removidos. Para continuar, digite o codigo do evento como senha de seguranca.",
+                          onConfirm: () => handleDeleteEvent(event.id),
+                        })
+                      }
+                    >
+                      Excluir
+                    </button>
                   </div>
-                  <div className="event-item-meta">
-                    {event.status !== "draft" ? <span className={`sdot sdot-${event.status}`} /> : null}
-                    {event.status === "open"
-                      ? `aberto · ${event.teams.length} times`
-                      : event.status === "closed"
-                        ? `encerrado · ${event.teams.length} times`
-                        : `${event.teams.length} times`}
-                  </div>
-                </button>
+                  {facSelectedId === event.id ? (
+                    <div className="event-item-details">
+                      <div className="event-item-details-head">
+                        <span className="mini-label">Detalhes do evento</span>
+                        <button
+                          className="btn btn-xs"
+                          onClick={() => {
+                            navigator.clipboard.writeText(event.id);
+                            showToast("Codigo copiado");
+                          }}
+                        >
+                          Copiar codigo
+                        </button>
+                      </div>
+                      <div className="event-item-detail-block">
+                        <div className="mini-label">Codigo de acesso</div>
+                        <div className="key-display">{event.id}</div>
+                        <div className="form-hint">Times usam este codigo na tela "Sou time".</div>
+                      </div>
+                      <div className="event-item-detail-block">
+                        <div className="mini-label">Resumo rapido</div>
+                        <div className="muted-body">{event.desc || "Sem descricao cadastrada para este evento."}</div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               ))}
               <button className="btn btn-add-full" onClick={() => setNewEventOpen(true)}>
                 + Novo evento
@@ -1964,57 +2094,6 @@ function App() {
                 <EmptyState icon="⬡" title="Nenhum evento selecionado" sub="Crie ou selecione um evento." />
               ) : (
                 <>
-                  <div className="event-header-row">
-                    <div>
-                      <input
-                        className="event-title-input"
-                        type="text"
-                        value={eventMetaForm.name}
-                        onChange={(event) => setEventMetaForm((current) => ({ ...current, name: event.target.value }))}
-                        placeholder="Nome do evento"
-                      />
-                      <textarea
-                        className="event-desc-input"
-                        value={eventMetaForm.desc}
-                        onChange={(event) => setEventMetaForm((current) => ({ ...current, desc: event.target.value }))}
-                        placeholder="Descricao do evento"
-                      />
-                    </div>
-                    <div className="header-actions">
-                      <button className="btn btn-sm" onClick={handleSaveEventConfig}>
-                        Salvar dados
-                      </button>
-                      {selectedEvent.status !== "draft" ? (
-                        <span className={`pill pill-${selectedEvent.status}`}>
-                          {selectedEvent.status === "open" ? "aberto" : "encerrado"}
-                        </span>
-                      ) : null}
-                      {selectedEvent.status === "draft" && (
-                        <button className="btn btn-sm btn-primary" onClick={() => handleSetStatus(selectedEvent.id, "open")}>
-                          Abrir
-                        </button>
-                      )}
-                      {selectedEvent.status === "open" && (
-                        <button className="btn btn-sm" onClick={() => handleSetStatus(selectedEvent.id, "closed")}>
-                          Encerrar
-                        </button>
-                      )}
-                      {selectedEvent.status !== "draft" && (
-                        <button className="btn btn-sm btn-ghost" onClick={() => handleSetStatus(selectedEvent.id, "draft")}>
-                          Fechar acesso
-                        </button>
-                      )}
-                      <button
-                        className="btn btn-sm btn-ghost btn-danger"
-                        onClick={() =>
-                          openConfirm("Excluir evento", "Todos os dados serao removidos.", () => handleDeleteEvent(selectedEvent.id))
-                        }
-                      >
-                        Excluir
-                      </button>
-                    </div>
-                  </div>
-
                   <div className="tabs">
                     {["dashboard", "missoes"].map((tab) => (
                       <button
@@ -2071,34 +2150,46 @@ function App() {
                                     {mission.desc ? <div className="mdesc">{mission.desc}</div> : null}
                                   </div>
                                   <div className="mission-actions">
-                                    <span className={`pill ${mission.unlocked ? "pill-unlocked" : "pill-locked"}`}>
-                                      {mission.unlocked ? "liberada" : "bloqueada"}
-                                    </span>
-                                    {mission.unlocked ? (
-                                      <button
-                                        className="btn btn-sm"
-                                        onClick={() => handleToggleMission(selectedEvent.id, mission._idx, false)}
-                                      >
-                                        Bloquear
-                                      </button>
-                                    ) : (
-                                      <button
-                                        className="btn btn-sm btn-primary"
-                                        onClick={() => handleToggleMission(selectedEvent.id, mission._idx, true)}
-                                      >
-                                        Liberar
-                                      </button>
-                                    )}
                                     <button
-                                      className="btn btn-sm btn-ghost btn-danger"
-                                      onClick={() =>
-                                        openConfirm("Remover missao", "Esta acao nao pode ser desfeita.", () =>
-                                          handleRemoveMission(selectedEvent.id, mission._idx),
-                                        )
-                                      }
+                                      className={`mission-toggle${mission.unlocked ? " is-on" : ""}`}
+                                      onClick={() => handleToggleMission(selectedEvent.id, mission._idx, !mission.unlocked)}
                                     >
-                                      Excluir
+                                      <span className="mission-toggle-track">
+                                        <span className="mission-toggle-thumb" />
+                                      </span>
+                                      <span className="mission-toggle-label">{mission.unlocked ? "Ligada" : "Desligada"}</span>
                                     </button>
+                                    <div className="mission-overflow">
+                                      <button
+                                        className={`mission-overflow-trigger${missionMenuOpen === `${mission.id}-${mission._idx}` ? " is-open" : ""}`}
+                                        onClick={() =>
+                                          setMissionMenuOpen((current) =>
+                                            current === `${mission.id}-${mission._idx}` ? null : `${mission.id}-${mission._idx}`,
+                                          )
+                                        }
+                                        aria-label={`Abrir menu da missao ${mission.name}`}
+                                      >
+                                        ⋯
+                                      </button>
+                                      {missionMenuOpen === `${mission.id}-${mission._idx}` ? (
+                                        <div className="mission-overflow-menu">
+                                          <button
+                                            className="mission-overflow-item mission-overflow-item-danger"
+                                            onClick={() => {
+                                              setMissionMenuOpen(null);
+                                              openDeleteConfirm({
+                                                eventId: selectedEvent.id,
+                                                title: "Remover missao",
+                                                body: `A missao "${mission.name}" sera removida do evento. Para continuar, digite o codigo do evento como senha de seguranca.`,
+                                                onConfirm: () => handleRemoveMission(selectedEvent.id, mission._idx),
+                                              });
+                                            }}
+                                          >
+                                            Excluir missao
+                                          </button>
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 </div>
                               ))}
@@ -2190,15 +2281,18 @@ function App() {
             onLogoClick={goHome}
             right={
               <>
-                {devQuickSwitch}
                 <span className="topbar-caption soft">{teamEvent.name}</span>
                 <span className="team-badge">{team.name}</span>
-                <button className="btn btn-ghost btn-sm" onClick={goEscolhaTime}>
-                  Trocar time
-                </button>
+                {currentMission && !teamEventScreenShare?.active ? (
+                  <button className="btn btn-sm topbar-help-btn" onClick={handleOpenHelp}>
+                    Pedir ajuda
+                    {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
+                  </button>
+                ) : null}
               </>
             }
           />
+          {devQuickSwitch ? <div className="dev-toolbar-shell">{devQuickSwitch}</div> : null}
           {!apiConfigured && <div className="demo-banner">Modo demonstracao - sem chave OpenAI. Respostas sao simuladas.</div>}
           {teamEventScreenShare?.active ? (
             <div className="live-share-banner">
@@ -2293,12 +2387,8 @@ function App() {
                     </div>
                   ) : !readingStage ? (
                     <div className="input-card">
-                      <div className="input-card-toolbar">
-                        <button className="btn btn-sm help-trigger" onClick={handleOpenHelp}>
-                          Pedir ajuda
-                          {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
-                        </button>
-                        {hasMissionHistory ? (
+                      {hasMissionHistory ? (
+                        <div className="input-card-toolbar">
                           <button
                             className="btn btn-sm btn-ghost btn-danger"
                             onClick={() =>
@@ -2311,8 +2401,8 @@ function App() {
                           >
                             Reabrir missao do zero
                           </button>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
                       <div className="input-section-label">Acao</div>
                       <div className="acao-selector">
                         {[...(currentMission.acoes || []), FREE_ACTION_KEY].map((acao) => (
@@ -2341,9 +2431,6 @@ function App() {
                       />
                       {runError ? <div className="error-box top-gap-sm">{runError}</div> : null}
                       <div className="input-actions">
-                        <button className="btn btn-sm btn-ghost" onClick={() => setMissionInput("")}>
-                          Limpar
-                        </button>
                         <button className="btn btn-primary" disabled={running} onClick={handleExecutarMissao}>
                           {running ? "Executando..." : "Executar com IA"}
                         </button>
@@ -2463,9 +2550,13 @@ function App() {
       <Modal open={configOpen} onClose={() => setConfigOpen(false)}>
         <div className="modal-title">Configuracao da IA</div>
         <div className="notice">
-          {serverConfig.openaiConfigured
-            ? `Ha uma chave persistente ativa no servidor local (${serverConfig.openaiSource === "env" ? "vinda do .env" : "salva neste projeto"}).`
-            : "Se voce salvar uma chave aqui, ela fica persistente no servidor local deste projeto e nao depende da porta do navegador."}
+          {serverConfig.deploymentTarget === "vercel"
+            ? serverConfig.openaiConfigured
+              ? "Ha uma chave OpenAI ativa neste deploy. No Vercel, ela vem das variaveis do projeto."
+              : "No Vercel, configure OPENAI_API_KEY nas variaveis do projeto para ativar a IA."
+            : serverConfig.openaiConfigured
+              ? `Ha uma chave persistente ativa no servidor local (${serverConfig.openaiSource === "env" ? "vinda do .env" : "salva neste projeto"}).`
+              : "Se voce salvar uma chave aqui, ela fica persistente no servidor local deste projeto e nao depende da porta do navegador."}
         </div>
         <div className="form-group">
           <label className="form-label">Chave OpenAI</label>
@@ -2473,7 +2564,13 @@ function App() {
             type="password"
             value={configForm.apiKey}
             onChange={(event) => setConfigForm((current) => ({ ...current, apiKey: event.target.value }))}
-            placeholder={serverConfig.openaiConfigured ? "Cole uma nova chave para substituir a atual" : "sk-..."}
+            placeholder={
+              serverConfig.deploymentTarget === "vercel"
+                ? "Em producao, prefira configurar OPENAI_API_KEY no Vercel"
+                : serverConfig.openaiConfigured
+                  ? "Cole uma nova chave para substituir a atual"
+                  : "sk-..."
+            }
           />
         </div>
         <div className="form-group">
@@ -2487,9 +2584,11 @@ function App() {
           </select>
         </div>
         <div className="modal-actions">
-          <button className="btn btn-ghost btn-danger" onClick={handleRemoveKey}>
-            Remover chave
-          </button>
+          {serverConfig.deploymentTarget !== "vercel" ? (
+            <button className="btn btn-ghost btn-danger" onClick={handleRemoveKey}>
+              Remover chave
+            </button>
+          ) : null}
           <button className="btn" onClick={() => setConfigOpen(false)}>
             Cancelar
           </button>
@@ -2553,7 +2652,11 @@ function App() {
 
       <Modal open={missionFlow.stage === "executando"} onClose={() => {}} dismissible={false}>
         <div className="modal-title">IA respondendo</div>
-        <div className="modal-sub">A simulacao esta acontecendo como se houvesse uma chamada real para o modelo.</div>
+        <div className="modal-sub">
+          {runState?.simulationMode === "openai-live"
+            ? "Sua solicitacao esta sendo enviada para a OpenAI agora."
+            : "A simulacao local esta reproduzindo o comportamento de uma chamada real ao modelo."}
+        </div>
         {runState ? <LiveRunCard runState={runState} /> : null}
       </Modal>
 
@@ -2619,12 +2722,25 @@ function App() {
       <Modal open={confirmState.open} onClose={closeConfirm} small>
         <div className="modal-title">{confirmState.title}</div>
         <div className="confirm-body">{confirmState.body}</div>
+        {confirmState.requiresPassword ? (
+          <div className="form-group top-gap-sm">
+            <label className="form-label">{confirmState.confirmLabel}</label>
+            <input
+              type="password"
+              value={confirmInput}
+              onChange={(event) => setConfirmInput(event.target.value)}
+              placeholder={confirmState.confirmPlaceholder}
+            />
+            <div className="form-hint">Digite exatamente o codigo do evento para liberar esta exclusao.</div>
+          </div>
+        ) : null}
         <div className="modal-actions">
           <button className="btn" onClick={closeConfirm}>
             Cancelar
           </button>
           <button
             className="btn btn-primary btn-danger"
+            disabled={confirmState.requiresPassword && confirmInput.trim() !== confirmState.confirmValue}
             onClick={() => {
               confirmState.onConfirm?.();
               closeConfirm();
@@ -2775,41 +2891,55 @@ function TransparencyPanel({ exec, open, onToggle, forceOpen = false }) {
             <div className="context-banner">{details?.historySignal || exec.historySignal}</div>
           ) : null}
           <div>
-            <div className="explain-block-label">Resumo tecnico</div>
-            <div className="explain-block-text">{details?.summary || exec.reasoningSummary || exec.explicacao}</div>
+            <div className="explain-block-label">Como a IA operou aqui</div>
+            <div className="explain-block-text">{details?.mechanismSummary || details?.summary || exec.reasoningSummary || exec.explicacao}</div>
           </div>
-          {details?.conceptSummary || exec.conceptSummary ? (
+          {details?.technicalTerms?.length ? (
             <div>
-              <div className="explain-block-label">Conceitos abordados</div>
-              <div className="explain-block-text">{details?.conceptSummary || exec.conceptSummary}</div>
-            </div>
-          ) : null}
-          {details?.conceptDetails?.length ? (
-            <div>
-              <div className="explain-block-label">Conceitos tecnicos explicados</div>
-              <div className="concept-list">
-                {details.conceptDetails.map((concept, index) => (
-                  <div className="concept-card" key={`${concept.name}-${index}`}>
-                    <div className="concept-card-title">{concept.name}</div>
-                    <div className="concept-card-text">{concept.explanation}</div>
-                    {concept.appliedToCase ? <div className="concept-card-apply">{concept.appliedToCase}</div> : null}
-                  </div>
+              <div className="explain-block-label">Termos tecnicos usados</div>
+              <div className="concept-pill-row">
+                {details.technicalTerms.map((item, index) => (
+                  <span className="concept-pill" key={`${item.term}-${index}`}>
+                    {item.term}
+                  </span>
                 ))}
               </div>
             </div>
           ) : null}
           <div>
-            <div className="explain-block-label">Estrategia escolhida</div>
-            <div className="explain-block-text">{details?.strategy || exec.explicacao}</div>
+            <div className="explain-block-label">Por que saiu essa resposta</div>
+            <div className="explain-block-text">{details?.whyThisAnswer || details?.strategy || exec.explicacao}</div>
           </div>
           <div>
-            <div className="explain-block-label">O que a IA levou em conta</div>
-            <div className="explain-block-text">{details?.consideredInput || exec.input}</div>
+            <div className="explain-block-label">O que guiou a selecao</div>
+            <div className="explain-block-text">{details?.selectionLogic || details?.actionInfluence || exec.acao || "Sem acao."}</div>
           </div>
-          <div>
-            <div className="explain-block-label">Influencia da acao selecionada</div>
-            <div className="explain-block-text">{details?.actionInfluence || exec.acao || "Sem acao."}</div>
-          </div>
+          {details?.alternativeAnswerPaths?.length ? (
+            <div>
+              <div className="explain-block-label">Outras respostas plausiveis</div>
+              <div className="takeaway-list">
+                {details.alternativeAnswerPaths.map((item, index) => (
+                  <div className="takeaway-item" key={`${item}-${index}`}>
+                    <span className="takeaway-bullet">{index + 1}</span>
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {details?.howToAskBetter?.length ? (
+            <div>
+              <div className="explain-block-label">Como pedir melhor</div>
+              <div className="takeaway-list">
+                {details.howToAskBetter.map((item, index) => (
+                  <div className="takeaway-item" key={`${item}-${index}`}>
+                    <span className="takeaway-bullet">{index + 1}</span>
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div>
             <div className="explain-block-label">Limites e suposicoes</div>
             <div className="explain-block-text">{details?.limitations || "Sem observacoes adicionais."}</div>
@@ -2828,14 +2958,16 @@ function LiveRunCard({ runState }) {
   return (
     <div className="output-card live-run-card">
       <div className="output-header">
-        <div className="output-label">IA simulada em execucao</div>
-        <span className="muted-mini">{runState.simulationMode === "openai-live" ? "pipeline alinhado com OpenAI" : "simulacao local com streaming"}</span>
+        <div className="output-label">{runState.simulationMode === "openai-live" ? "OpenAI em execucao" : "IA simulada em execucao"}</div>
+        <span className="muted-mini">
+          {runState.simulationMode === "openai-live" ? "chamada real em andamento" : "simulacao local com streaming"}
+        </span>
       </div>
       <div className="output-body">
         <ProcessingPipeline processingSteps={runState.processingSteps} />
         {runState.usedHistory ? <div className="context-banner">Esta nova resposta esta considerando o historico anterior desta missao.</div> : null}
         <div className="output-text output-text-live">
-          {runState.displayedOutput || "Preparando resposta da IA..."}
+          {runState.displayedOutput || (runState.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA...")}
           <span className="streaming-cursor" />
         </div>
       </div>
@@ -2849,6 +2981,22 @@ function GuidedSection({ label, children }) {
       <div className="guided-section-label">{label}</div>
       <div className="guided-section-body">{children}</div>
     </div>
+  );
+}
+
+function LearningSlide({ index, kicker, title, subtitle, accent = "blue", children }) {
+  return (
+    <article className={`learning-slide learning-slide-${accent}`}>
+      <div className="learning-slide-head">
+        <div className="learning-slide-index">{String(index).padStart(2, "0")}</div>
+        <div className="learning-slide-meta">
+          <div className="learning-slide-kicker">{kicker}</div>
+          <div className="learning-slide-title">{title}</div>
+          {subtitle ? <div className="learning-slide-subtitle">{subtitle}</div> : null}
+        </div>
+      </div>
+      <div className="learning-slide-body">{children}</div>
+    </article>
   );
 }
 
@@ -2887,102 +3035,111 @@ function MissionReadingPanel({ exec, stage, onAdvance }) {
 
 function GuidedReading({ exec }) {
   const details = exec.reasoningDetails || {};
+  let slideIndex = 1;
+  const nextSlide = () => slideIndex++;
 
   return (
-    <div className="guided-reading">
-      {details.lessonTitle ? <div className="lesson-title">{details.lessonTitle}</div> : null}
-      {details.sourceLabel ? <div className="source-chip">{details.sourceLabel}</div> : null}
-      {details.historySignal || exec.historySignal ? (
-        <div className="context-banner">{details.historySignal || exec.historySignal}</div>
-      ) : null}
-      {details.teacherNarration ? (
-        <div className="teacher-callout">
-          <div className="teacher-callout-label">Leitura do professor</div>
-          <div className="teacher-callout-text">{details.teacherNarration}</div>
+    <div className="guided-reading guided-reading-deck">
+      <LearningSlide
+        index={nextSlide()}
+        kicker="Slide 1"
+        title="Como a IA operou aqui"
+        subtitle="Engenharia reversa do mecanismo que transformou o pedido nesta resposta."
+      >
+        {details.sourceLabel ? <div className="source-chip">{details.sourceLabel}</div> : null}
+        {details.historySignal || exec.historySignal ? (
+          <div className="context-banner">{details.historySignal || exec.historySignal}</div>
+        ) : null}
+        <div className="slide-lead">{details.mechanismSummary || details.summary || exec.reasoningSummary || exec.explicacao}</div>
+        <div className="two-col-guided">
+          <GuidedSection label="Logica de selecao">
+            <div className="explain-block-text">{details.selectionLogic || details.strategy || exec.explicacao}</div>
+          </GuidedSection>
+          <GuidedSection label="Input considerado">
+            <div className="explain-block-text">{details.consideredInput || exec.input}</div>
+          </GuidedSection>
         </div>
-      ) : null}
-      <GuidedSection label="Resumo tecnico">
-        <div className="explain-block-text">{details.summary || exec.reasoningSummary || exec.explicacao}</div>
-      </GuidedSection>
-      {details.responseMap?.length ? (
-        <GuidedSection label="Mapa da resposta">
-          <div className="response-map">
-            {details.responseMap.map((item, index) => (
-              <div className="response-step" key={`${item.step}-${index}`}>
-                <div className="response-step-index">{index + 1}</div>
-                <div className="response-step-content">
-                  <div className="response-step-title">{item.step}</div>
-                  <div className="response-step-text">{item.explanation}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </GuidedSection>
-      ) : null}
-      {details.keyTakeaways?.length ? (
-        <GuidedSection label="Aprendizados-chave">
+        {details.technicalTerms?.length ? (
           <div className="takeaway-list">
-            {details.keyTakeaways.map((item, index) => (
-              <div className="takeaway-item" key={`${item}-${index}`}>
-                <span className="takeaway-bullet">•</span>
-                <span>{item}</span>
+            {details.technicalTerms.map((item, index) => (
+              <div className="takeaway-item" key={`${item.term}-${index}`}>
+                <span className="takeaway-bullet">{index + 1}</span>
+                <span>
+                  <strong>{item.term}:</strong> {item.meaning}
+                </span>
               </div>
             ))}
           </div>
+        ) : null}
+      </LearningSlide>
+
+      <LearningSlide
+        index={nextSlide()}
+        kicker="Slide 2"
+        title="Por que saiu isso e nao outra coisa"
+        subtitle="Aqui o foco e mostrar por que a IA privilegiou esse caminho de resposta."
+        accent="amber"
+      >
+        <GuidedSection label="Por que essa saida aconteceu">
+          <div className="explain-block-text">{details.whyThisAnswer || details.strategy || exec.explicacao}</div>
         </GuidedSection>
-      ) : null}
-      {details.conceptDetails?.length ? (
-        <GuidedSection label="Conceitos tecnicos">
-          <div className="concept-list">
-            {details.conceptDetails.map((concept, index) => (
-              <div className="concept-card" key={`${concept.name}-${index}`}>
-                <div className="concept-card-title">{concept.name}</div>
-                <div className="concept-card-subtitle">Por que importa</div>
-                <div className="concept-card-text">{concept.explanation}</div>
-                {concept.whyItMatters ? (
-                  <>
-                    <div className="concept-card-subtitle concept-card-subtitle-top">Papel tecnico nesta resposta</div>
-                    <div className="concept-card-text">{concept.whyItMatters}</div>
-                  </>
-                ) : null}
-                {concept.appliedToCase ? (
-                  <>
-                    <div className="concept-card-subtitle concept-card-subtitle-top">Como apareceu nesta resposta</div>
-                    <div className="concept-card-apply">{concept.appliedToCase}</div>
-                  </>
-                ) : null}
-                {concept.visualExample ? (
-                  <>
-                    <div className="concept-card-subtitle concept-card-subtitle-top">Exemplo ilustrativo</div>
-                    <div className="concept-card-apply">{concept.visualExample}</div>
-                  </>
-                ) : null}
-                {concept.warning ? (
-                  <>
-                    <div className="concept-card-subtitle concept-card-subtitle-top">Ponto de atencao</div>
-                    <div className="concept-card-warning">{concept.warning}</div>
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>
+        <div className="two-col-guided">
+          <GuidedSection label="Influencia da acao ou instrucao">
+            <div className="explain-block-text">{details.actionInfluence || exec.acao || "Sem acao."}</div>
+          </GuidedSection>
+          <GuidedSection label="Limite ou trade-off">
+            <div className="explain-block-text">{details.limitations || "Sem observacoes adicionais."}</div>
+          </GuidedSection>
+        </div>
+        {details.alternativeAnswerPaths?.length ? (
+          <GuidedSection label="Outras respostas plausiveis">
+            <div className="takeaway-list">
+              {details.alternativeAnswerPaths.map((item, index) => (
+                <div className="takeaway-item" key={`${item}-${index}`}>
+                  <span className="takeaway-bullet">{index + 1}</span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </GuidedSection>
+        ) : null}
+      </LearningSlide>
+
+      <LearningSlide
+        index={nextSlide()}
+        kicker="Slide 3"
+        title="Como perguntar melhor e extrair variacoes"
+        subtitle="Este slide transforma a devolutiva em boa pratica operacional."
+        accent="green"
+      >
+        {details.howToAskBetter?.length ? (
+          <GuidedSection label="Como pedir outras versoes">
+            <div className="takeaway-list">
+              {details.howToAskBetter.map((item, index) => (
+                <div className="takeaway-item" key={`${item}-${index}`}>
+                  <span className="takeaway-bullet">{index + 1}</span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </GuidedSection>
+        ) : null}
+        {details.bestPractices?.length ? (
+          <GuidedSection label="Boas praticas">
+            <div className="takeaway-list">
+              {details.bestPractices.map((item, index) => (
+                <div className="takeaway-item" key={`${item}-${index}`}>
+                  <span className="takeaway-bullet">{index + 1}</span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </GuidedSection>
+        ) : null}
+        <GuidedSection label="Prompt aplicado">
+          <div className="prompt-preview">{exec.promptApplied || details.promptApplied || exec.acao || "Sem acao"}</div>
         </GuidedSection>
-      ) : null}
-      <GuidedSection label="Estrategia escolhida">
-        <div className="explain-block-text">{details.strategy || exec.explicacao}</div>
-      </GuidedSection>
-      <GuidedSection label="O que a IA levou em conta">
-        <div className="explain-block-text">{details.consideredInput || exec.input}</div>
-      </GuidedSection>
-      <GuidedSection label="Influencia da acao escolhida">
-        <div className="explain-block-text">{details.actionInfluence || exec.acao || "Sem acao."}</div>
-      </GuidedSection>
-      <GuidedSection label="Limite ou risco">
-        <div className="explain-block-text">{details.limitations || "Sem observacoes adicionais."}</div>
-      </GuidedSection>
-      <GuidedSection label="Prompt aplicado">
-        <div className="prompt-preview">{exec.promptApplied || details.promptApplied || exec.acao || "Sem acao"}</div>
-      </GuidedSection>
+      </LearningSlide>
     </div>
   );
 }
@@ -3035,6 +3192,12 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage })
           cost: execs[execs.length - 1].custo || 0,
         }
       : { input: 0, output: 0, total: 0, cost: 0 };
+  const combinedTotals = {
+    total: totals.total + (preservedUsage?.total || 0),
+    input: totals.input + (preservedUsage?.input || 0),
+    output: totals.output + (preservedUsage?.output || 0),
+    cost: totals.cost + (preservedUsage?.cost || 0),
+  };
 
   return (
     <aside className="token-rail">
@@ -3048,74 +3211,49 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage })
           <div className="token-rail-model">{model}</div>
         </div>
         <div className="token-rail-block">
-          <div className="token-rail-label">Rodada atual</div>
-          <div className="token-rail-metrics">
-            <div className="token-rail-metric">
+          <div className="token-rail-label">Totais acumulados</div>
+          <div className="token-rail-summary">
+            <div className="token-summary-item token-summary-primary">
               <span>Total</span>
-              <strong>{currentRun.total.toLocaleString()}</strong>
+              <strong>{combinedTotals.total.toLocaleString()} tok</strong>
             </div>
-            <div className="token-rail-metric">
+            <div className="token-summary-item">
               <span>Input</span>
-              <strong>{currentRun.input.toLocaleString()}</strong>
+              <strong>{combinedTotals.input.toLocaleString()}</strong>
             </div>
-            <div className="token-rail-metric">
+            <div className="token-summary-item">
               <span>Output</span>
-              <strong>{currentRun.output.toLocaleString()}</strong>
+              <strong>{combinedTotals.output.toLocaleString()}</strong>
             </div>
-            <div className="token-rail-metric">
+            <div className="token-summary-item token-summary-cost">
               <span>Custo</span>
-              <strong>${currentRun.cost.toFixed(4)}</strong>
+              <strong>${combinedTotals.cost.toFixed(4)}</strong>
             </div>
           </div>
         </div>
         <div className="token-rail-block">
-          <div className="token-rail-label">Acumulado da missao</div>
-          <div className="tokens-grid tokens-grid-rail">
-            <div className="token-cell tokens-accent-blue">
-              <div className="token-cell-label">Total</div>
-              <div className="token-cell-val">{totals.total.toLocaleString()}</div>
-              <div className="token-cell-sub">tokens consumidos</div>
+          <div className="token-rail-label">Log de execucoes</div>
+          {execs.length ? (
+            <div className="token-log-list">
+              {[...execs].reverse().map((exec, index) => (
+                <div className="token-log-item" key={exec.id || `${exec.ts}-${index}`}>
+                  <div className="token-log-head">
+                    <strong>Rodada {exec.iterationNumber || execs.length - index}</strong>
+                    <span>{exec.isFreeInstruction ? "Instrucao livre" : getActionLabel(exec.acao)}</span>
+                  </div>
+                  <div className="token-log-meta">
+                    <span>{(exec.tokens || 0).toLocaleString()} tok</span>
+                    <span>in {((exec.inputTokens || 0)).toLocaleString()}</span>
+                    <span>out {((exec.outputTokens || 0)).toLocaleString()}</span>
+                    <span>${(exec.custo || 0).toFixed(4)}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="token-cell">
-              <div className="token-cell-label">Input</div>
-              <div className="token-cell-val">{totals.input.toLocaleString()}</div>
-              <div className="token-cell-sub">enviados ao modelo</div>
-            </div>
-            <div className="token-cell">
-              <div className="token-cell-label">Output</div>
-              <div className="token-cell-val">{totals.output.toLocaleString()}</div>
-              <div className="token-cell-sub">gerados pelo modelo</div>
-            </div>
-            <div className="token-cell tokens-accent-green">
-              <div className="token-cell-label">Custo est.</div>
-              <div className="token-cell-val">${totals.cost.toFixed(4)}</div>
-              <div className="token-cell-sub">{model}</div>
-            </div>
-          </div>
+          ) : (
+            <div className="muted-body">Nenhuma execucao ainda.</div>
+          )}
         </div>
-        {preservedUsage && preservedUsage.total > 0 ? (
-          <div className="token-rail-block">
-            <div className="token-rail-label">Acumulado preservado apos reset</div>
-            <div className="token-rail-metrics">
-              <div className="token-rail-metric">
-                <span>Total</span>
-                <strong>{preservedUsage.total.toLocaleString()}</strong>
-              </div>
-              <div className="token-rail-metric">
-                <span>Input</span>
-                <strong>{preservedUsage.input.toLocaleString()}</strong>
-              </div>
-              <div className="token-rail-metric">
-                <span>Output</span>
-                <strong>{preservedUsage.output.toLocaleString()}</strong>
-              </div>
-              <div className="token-rail-metric">
-                <span>Custo</span>
-                <strong>${preservedUsage.cost.toFixed(4)}</strong>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
     </aside>
   );
@@ -3200,7 +3338,7 @@ function ReflectionSummary({ reflexao }) {
   );
 }
 
-function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
+function useFacilitatorScreenSharePresenter(event, screenShare, onPublishState) {
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
   const roomRef = useRef(null);
@@ -3231,7 +3369,7 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
     roomRef.current?.disconnect();
     roomRef.current = null;
     setStatus("idle");
-    if (markEnded) {
+    if (markEnded && event) {
       onPublishState({
         active: false,
         endedAt: new Date().toISOString(),
@@ -3240,6 +3378,7 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
   }
 
   async function startShare() {
+    if (!event) return;
     const roomName = `event-${event.id}-screen`;
     const identity = `facilitador-${event.id}`;
     setStatus("connecting");
@@ -3292,6 +3431,52 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
   }
 
   const effectiveStatus = status === "live" || screenShare.active ? "live" : status;
+  return { status, error, effectiveStatus, startShare, stopShare };
+}
+
+function FacilitatorScreenShareButton({ event, screenShare, onPublishState }) {
+  const shareState = screenShare || getScreenShareState({});
+  const { status, error, effectiveStatus, startShare, stopShare } = useFacilitatorScreenSharePresenter(
+    event,
+    shareState,
+    onPublishState,
+  );
+  const disabled = !event || status === "connecting";
+
+  return (
+    <button
+      className={`btn btn-sm topbar-screen-share-btn${shareState.active ? " is-live" : ""}`}
+      disabled={disabled}
+      title={
+        !event
+          ? "Selecione um evento para projetar"
+          : error
+            ? error
+            : effectiveStatus === "live"
+              ? shareState.startedAt
+                ? `Ao vivo desde ${formatDateTime(shareState.startedAt)}`
+                : "Transmissao ao vivo"
+              : effectiveStatus === "connecting"
+                ? "Conectando apresentacao"
+                : "Projetar sua tela para os times"
+      }
+      onClick={() => (shareState.active ? stopShare(true) : startShare())}
+    >
+      {status === "connecting"
+        ? "Conectando..."
+        : shareState.active
+          ? "Encerrar projecao"
+          : "Projetar tela"}
+    </button>
+  );
+}
+
+function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
+  const { status, error, effectiveStatus, startShare, stopShare } = useFacilitatorScreenSharePresenter(
+    event,
+    screenShare,
+    onPublishState,
+  );
 
   return (
     <div className={`screen-share-panel${screenShare.active ? " is-live" : ""}`}>
@@ -3304,10 +3489,7 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
       <div className="screen-share-row">
         <div>
           <div className="screen-share-title">
-            {screenShare.active ? "Voce esta apresentando sua tela" : "Apresente sua tela para todos os times"}
-          </div>
-          <div className="screen-share-text">
-            Funciona como uma apresentacao ao vivo: voce escolhe uma aba, janela ou tela, e todos os times do evento passam a assistir em tempo real.
+            {screenShare.active ? "Voce esta apresentando sua tela" : "Projetar tela"}
           </div>
           <div className="screen-share-meta">
             <span>Status: {effectiveStatus === "live" ? "ao vivo" : effectiveStatus === "connecting" ? "conectando" : "inativo"}</span>
@@ -3332,17 +3514,6 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
         </div>
       </div>
       {error ? <div className="error-box top-gap-sm">{error}</div> : null}
-      <div className="screen-share-tips">
-        <div className="screen-share-tip">
-          <strong>1.</strong> Escolha a aba do navegador quando quiser mostrar exatamente esta interface.
-        </div>
-        <div className="screen-share-tip">
-          <strong>2.</strong> Os times entram em modo foco e veem sua tela em destaque, como numa apresentacao.
-        </div>
-        <div className="screen-share-tip">
-          <strong>3.</strong> Ao encerrar, eles voltam automaticamente para o workspace normal.
-        </div>
-      </div>
     </div>
   );
 }

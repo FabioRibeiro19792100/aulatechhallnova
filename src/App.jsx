@@ -2,24 +2,57 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
 
 const FREE_ACTION_KEY = "__free_instruction__";
-const FREE_ACTION_LABEL = "Escrever minha propria instrucao";
+const FREE_ACTION_LABEL = "Escrever minha própria instrução";
+
+function EventCardSectionLabel({ icon, children }) {
+  return (
+    <div className="mini-label event-card-label">
+      <span className="event-card-label-icon" aria-hidden="true">
+        {icon === "summary" ? (
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M4.25 3.75h7.5a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5h-7.5a1.5 1.5 0 0 1-1.5-1.5v-5.5a1.5 1.5 0 0 1 1.5-1.5Z" />
+            <path d="M5.75 6h4.5" />
+            <path d="M5.75 8h4.5" />
+            <path d="M5.75 10h3.25" />
+          </svg>
+        ) : null}
+        {icon === "teams" ? (
+          <svg viewBox="0 0 16 16" fill="none">
+            <circle cx="5.75" cy="5.75" r="1.75" />
+            <path d="M2.75 11.5c.55-1.6 1.85-2.45 3-2.45 1.2 0 2.5.85 3.05 2.45" />
+            <circle cx="11.25" cy="6.25" r="1.35" />
+            <path d="M9.75 11.1c.35-1 1.05-1.65 2-1.65.55 0 1.05.15 1.5.45" />
+          </svg>
+        ) : null}
+        {icon === "code" ? (
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M5.75 5.25 3.5 8l2.25 2.75" />
+            <path d="M10.25 5.25 12.5 8l-2.25 2.75" />
+            <path d="M8.85 4 7.15 12" />
+          </svg>
+        ) : null}
+      </span>
+      <span className="event-card-label-text">{children}</span>
+    </div>
+  );
+}
 
 const CATALOGO = [
   {
     id: "m01",
     num: 1,
     pack: "core",
-    name: "Reestruturar informacao",
-    category: "sintese",
+    name: "Reestruturar informação",
+    category: "síntese",
     mode: "single-pass",
-    desc: "Texto baguncado vira material util para decisao.",
+    desc: "Texto bagunçado vira material útil para decisão.",
     situacao:
-      "Seu time recebeu notas brutas de uma reuniao. O material esta disperso e cheio de redundancias. O diretor precisa de um resumo executivo ate o fim do dia.",
+      "Seu time recebeu notas brutas de uma reunião. O material está disperso e cheio de redundâncias. O diretor precisa de um resumo executivo até o fim do dia.",
     instrucao:
-      "Cole as notas, o briefing ou o texto que voce quer transformar. Escolha a acao que melhor descreve o que voce precisa.",
+      "Cole as notas, o briefing ou o texto que você quer transformar. Escolha a ação que melhor descreve o que você precisa.",
     placeholder:
-      "Notas da reuniao:\n- Joao: prazo esta apertado\n- Fernanda: problema com fornecedor\n- Pendente: aprovacao antes de seguir",
-    acoes: ["Resumir", "Extrair pontos principais", "Gerar plano de acao"],
+      "Notas da reunião:\n- João: prazo está apertado\n- Fernanda: problema com fornecedor\n- Pendente: aprovação antes de seguir",
+    acoes: ["Resumir", "Extrair pontos principais", "Gerar plano de ação"],
     systemPrompt:
       "Voce e um assistente de sintese executiva. Transforme o material em algo util para decisao. Nao invente nada que nao esteja no material. Sinalize ambiguidades.",
   },
@@ -28,13 +61,13 @@ const CATALOGO = [
     num: 2,
     pack: "core",
     name: "Conversar com dados",
-    category: "analise",
+    category: "análise",
     mode: "single-pass",
-    desc: "Aprenda a diferenca entre observar dados e inventar explicacoes.",
+    desc: "Aprenda a diferença entre observar dados e inventar explicações.",
     situacao:
       "Sua empresa coletou dados de uso dos ultimos 3 meses. O time precisa entender o que os dados realmente mostram antes de apresentar para a diretoria.",
     instrucao:
-      "Cole o CSV ou descreva a tabela. Escolha o que voce quer que a IA faca com eles.",
+      "Cole o CSV ou descreva a tabela. Escolha o que você quer que a IA faça com eles.",
     placeholder: "mes, usuarios, conversoes\njan, 1200, 85\nfev, 1380, 91\nmar, 1290, 72",
     acoes: ["Identificar padroes", "Encontrar anomalias", "Gerar hipoteses", "Sugerir grafico"],
     systemPrompt:
@@ -44,8 +77,8 @@ const CATALOGO = [
     id: "m03",
     num: 3,
     pack: "core",
-    name: "Criar um mock de solucao",
-    category: "producao",
+    name: "Criar um mock de solução",
+    category: "produção",
     mode: "single-pass",
     desc: "Ideia vaga vira estrutura de produto.",
     situacao:
@@ -64,7 +97,7 @@ const CATALOGO = [
     name: "Classificar e decidir",
     category: "triagem",
     mode: "single-pass",
-    desc: "A IA classifica com criterio e aponta onde humano precisa revisar.",
+    desc: "A IA classifica com critério e aponta onde humano precisa revisar.",
     situacao:
       "O suporte recebeu varios chamados. O time precisa tria-los por prioridade antes da reuniao.",
     instrucao: "Cole os casos que precisam ser classificados.",
@@ -79,7 +112,7 @@ const CATALOGO = [
     num: 5,
     pack: "core",
     name: "Testar limites",
-    category: "diagnostico",
+    category: "diagnóstico",
     mode: "single-pass",
     desc: "Pedidos ruins revelam onde a IA alucina ou finge certeza.",
     situacao:
@@ -96,7 +129,7 @@ const CATALOGO = [
     num: 6,
     pack: "pesquisa",
     name: "Buscar contexto com RAG",
-    category: "recuperacao",
+    category: "recuperação",
     mode: "rag",
     desc: "A IA recupera trechos de um acervo antes de responder.",
     situacao:
@@ -113,13 +146,13 @@ const CATALOGO = [
     num: 7,
     pack: "pesquisa",
     name: "Comparar sem RAG vs com RAG",
-    category: "comparacao",
+    category: "comparação",
     mode: "compare-modes",
     desc: "A mesma pergunta roda duas vezes. O time compara rastreabilidade e risco.",
     situacao:
       "O time precisa ver concretamente o que muda quando a IA tem contexto vs. quando nao tem.",
     instrucao: "Escreva uma pergunta que poderia ser respondida de duas formas.",
-    placeholder: "Qual e a politica da empresa para reembolso de despesas de viagem?",
+    placeholder: "Qual é a política da empresa para reembolso de despesas de viagem?",
     acoes: ["Responder sem contexto", "Responder com contexto", "Comparar precisao", "Comparar rastreabilidade"],
     systemPrompt:
       "Responda a pergunta duas vezes:\n[SEM CONTEXTO]: so memoria geral\n[COM CONTEXTO]: como se tivesse documento interno\n[COMPARACAO]: qualidade, rastreabilidade, risco",
@@ -129,14 +162,14 @@ const CATALOGO = [
     num: 8,
     pack: "avancado",
     name: "Usar ferramenta para decidir",
-    category: "orquestracao",
+    category: "orquestração",
     mode: "tool-assisted",
     desc: "A IA identifica que precisa consultar um recurso antes de responder.",
     situacao:
       "O time precisa de uma recomendacao que depende de informacao atual que a IA nao tem na memoria.",
     instrucao:
-      "Descreva um objetivo que depende de informacao de algum sistema externo.",
-    placeholder: "Preciso saber se temos capacidade para iniciar o projeto X no proximo mes.",
+      "Descreva um objetivo que depende de informação de algum sistema externo.",
+    placeholder: "Preciso saber se temos capacidade para iniciar o projeto X no próximo mês.",
     acoes: ["Decidir se precisa ferramenta", "Consultar recurso", "Sintetizar resultado"],
     systemPrompt:
       "Formato:\n[DECISAO DE FERRAMENTA] precisa/nao - motivo\n[CONSULTA SIMULADA] sistema + resultado\n[SINTESE FINAL] recomendacao baseada na consulta",
@@ -146,14 +179,14 @@ const CATALOGO = [
     num: 9,
     pack: "recuperacao",
     name: "Avaliar e revisar resposta de IA",
-    category: "revisao critica",
+    category: "revisão crítica",
     mode: "single-pass",
     desc: "O time aprende a julgar uma resposta, nao so gera-la.",
     situacao:
       "Um colega usou IA para redigir uma analise. O time precisa avaliar se e confiavel e propor melhorias.",
-    instrucao: "Cole a resposta de IA que voce quer avaliar.",
+    instrucao: "Cole a resposta de IA que você quer avaliar.",
     placeholder: "Cole aqui a resposta de IA que quer avaliar...",
-    acoes: ["Identificar fragilidades", "Dar nota por criterio", "Sugerir revisao"],
+    acoes: ["Identificar fragilidades", "Dar nota por critério", "Sugerir revisão"],
     systemPrompt:
       "Avalie: [SUPORTE] tem base? [RISCO] pode enganar? [CLAREZA] e precisa? Nota 1-5 com justificativa. Proponha versao melhorada do ponto mais fragil.",
   },
@@ -162,9 +195,9 @@ const CATALOGO = [
     num: 10,
     pack: "recuperacao",
     name: "Definir guardrails operacionais",
-    category: "governanca",
+    category: "governança",
     mode: "single-pass",
-    desc: "Regra operacional muda o comportamento da IA. Recusar bem tambem e correto.",
+    desc: "Regra operacional muda o comportamento da IA. Recusar bem também é correto.",
     situacao:
       "O time esta desenhando um assistente de IA interno e precisa testar se ele respeita politicas.",
     instrucao:
@@ -182,7 +215,7 @@ const CATALOGO = [
     name: "Comparar modelos de LLM",
     category: "arquitetura",
     mode: "compare-models",
-    desc: "A mesma tarefa roda em dois modelos. O time compara custo, qualidade e adequacao.",
+    desc: "A mesma tarefa roda em dois modelos. O time compara custo, qualidade e adequação.",
     situacao:
       "O time precisa decidir qual modelo usar em producao. A escolha afeta custo, velocidade e qualidade.",
     instrucao: "Escreva a tarefa que voce quer rodar nos dois modelos.",
@@ -205,14 +238,14 @@ const PACKS = {
 const PACK_LABELS = {
   core: "Core",
   pesquisa: "Pesquisa",
-  avancado: "Avancado",
-  recuperacao: "Recuperacao",
+  avancado: "Avançado",
+  recuperacao: "Recuperação",
 };
 
 const MODE_LABELS = {
   "single-pass": "single-pass",
-  "compare-modes": "comparacao de modos",
-  "compare-models": "comparacao de modelos",
+  "compare-modes": "comparação de modos",
+  "compare-models": "comparação de modelos",
   rag: "RAG",
   "tool-assisted": "ferramenta",
 };
@@ -225,23 +258,28 @@ const MODE_CLASS = {
   "tool-assisted": "mode-tool",
 };
 
+const PLANNING_MODE_PROMPTS = {
+  off: "Modo de planejamento: responda de forma direta, com pouca deliberação exposta e foco em velocidade e clareza.",
+  on: "Modo de planejamento: antes de responder, organize melhor a abordagem, cheque cobertura, critérios e estrutura da saída.",
+};
+
 const PERGUNTAS_REFLEXAO = [
-  { id: "q1", texto: "O que a IA fez correspondeu ao que voce esperava?", min: "muito abaixo", max: "muito acima" },
+  { id: "q1", texto: "O que a IA fez correspondeu ao que você esperava?", min: "muito abaixo", max: "muito acima" },
   { id: "q2", texto: "Consegue imaginar onde usaria isso no trabalho?", min: "nao consigo", max: "consigo claramente" },
-  { id: "q3", texto: "Quao confortavel voce se sente usando IA para esse tipo de tarefa?", min: "desconfortavel", max: "muito confortavel" },
-  { id: "q4", texto: "Essa missao ficou clara do inicio ao fim?", min: "confusa", max: "muito clara" },
+  { id: "q3", texto: "Quão confortável você se sente usando IA para esse tipo de tarefa?", min: "desconfortável", max: "muito confortável" },
+  { id: "q4", texto: "Essa missão ficou clara do início ao fim?", min: "confusa", max: "muito clara" },
 ];
 
 const REFLECTION_TOPIC_LABELS = {
   q1: "Expectativa atendida",
-  q2: "Aplicacao no trabalho",
+  q2: "Aplicação no trabalho",
   q3: "Conforto com IA",
-  q4: "Clareza da missao",
+  q4: "Clareza da missão",
 };
 
 const REFLECTION_TOPIC_SHORT_LABELS = {
   q1: "Expectativa",
-  q2: "Aplicacao",
+  q2: "Aplicação",
   q3: "Conforto",
   q4: "Clareza",
 };
@@ -323,7 +361,7 @@ const SIMULATION_STEPS = [
   { key: "gerando", label: "gerando resposta" },
   { key: "finalizando", label: "finalizando" },
 ];
-const SHOW_DEV_SWITCH = false;
+const SHOW_DEV_SWITCH = true;
 
 function buildRunSteps(apiConfigured) {
   return SIMULATION_STEPS.map((step, index) => ({
@@ -440,9 +478,58 @@ function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function normalizeStudentName(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function parseStudentList(rawValue) {
+  const seen = new Set();
+  return rawValue
+    .split("\n")
+    .map((item) => normalizeStudentName(item))
+    .filter(Boolean)
+    .filter((item) => {
+      if (seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+}
+
+function makeTeam(name, members = []) {
+  return {
+    name,
+    runs: 0,
+    members,
+  };
+}
+
+function shuffleArray(items) {
+  const clone = [...items];
+  for (let index = clone.length - 1; index > 0; index -= 1) {
+    const nextIndex = Math.floor(Math.random() * (index + 1));
+    [clone[index], clone[nextIndex]] = [clone[nextIndex], clone[index]];
+  }
+  return clone;
+}
+
+function buildTeamsFromStudents(students, mode, teamCount = 0) {
+  if (mode === "solo") {
+    return students.map((student) => makeTeam(student, [student]));
+  }
+
+  const totalTeams = Number(teamCount);
+  if (!totalTeams || totalTeams < 1 || totalTeams > students.length) return [];
+  const shuffled = shuffleArray(students);
+  const groups = Array.from({ length: totalTeams }, (_, index) => makeTeam(`Time ${index + 1}`, []));
+  shuffled.forEach((student, index) => {
+    groups[index % totalTeams].members.push(student);
+  });
+  return groups;
+}
+
 function makeEvent({ name, desc, rawTeams, pack }) {
   const teams = rawTeams
-    ? rawTeams.split(",").map((item) => item.trim()).filter(Boolean).map((team) => ({ name: team, runs: 0 }))
+    ? rawTeams.split(",").map((item) => item.trim()).filter(Boolean).map((team) => makeTeam(team))
     : [];
   const missions = (PACKS[pack] || []).map((mission) => ({ ...mission, unlocked: false }));
   return {
@@ -465,6 +552,23 @@ function makeEvent({ name, desc, rawTeams, pack }) {
       endedAt: null,
       provider: "livekit",
     },
+  };
+}
+
+function makeDevLabEvent() {
+  const event = makeEvent({
+    name: "Lab de teste",
+    desc: "Ambiente rapido para validar fluxo local",
+    rawTeams: "Time 1",
+    pack: "core",
+  });
+  return {
+    ...event,
+    status: "open",
+    missions: event.missions.map((mission, index) => ({
+      ...mission,
+      unlocked: index === 0,
+    })),
   };
 }
 
@@ -516,6 +620,129 @@ function getMissionReflections(evento, missionId) {
     .map(([key, entry]) => ({ ...entry, key }))
     .filter((entry) => entry?.missionId === missionId || `${entry?.key || ""}`.endsWith(`__${missionId}`))
     .sort((a, b) => new Date(b.submittedAt || b.ts || 0) - new Date(a.submittedAt || a.ts || 0));
+}
+
+function extractPromptFeatures(text) {
+  const prompt = (text || "").trim();
+  const normalized = prompt.toLowerCase();
+  return {
+    prompt,
+    tooShort: prompt.length < 50,
+    hasStructure: /[\n:;-]/.test(prompt),
+    hasGoalVerb: /(resuma|analise|classifique|gere|crie|compare|liste|explique|avalie|descreva|organize|reescreva|priorize|sugira)/i.test(prompt),
+    hasContext: /(contexto|empresa|cliente|time|dados|tabela|documento|sistema|reuni[aã]o|cen[aá]rio|objetivo|problema)/i.test(prompt),
+    asksFormat: /(em t[oó]picos|em tabela|formato|em lista|passo a passo|bullet|markdown|colunas|json)/i.test(prompt),
+    mixedRequests: /\be\b.*\be\b/i.test(normalized) || /,.*?,.*?,/.test(prompt),
+    vague: !/(quem|para|com base|use|considere|objetivo|formato|crit[eé]rio|limite)/i.test(prompt),
+  };
+}
+
+function analyzePromptQuality({ exec, mission }) {
+  const features = extractPromptFeatures(exec.input);
+  const strengths = [];
+  const watchouts = [];
+
+  if (features.hasGoalVerb) strengths.push("deixou claro o que a IA deveria fazer");
+  else watchouts.push("o pedido não explicita bem a operação esperada");
+
+  if (features.hasContext) strengths.push("trouxe contexto suficiente para orientar a resposta");
+  else watchouts.push("faltou contexto para a IA entender o cenário");
+
+  if (features.asksFormat) strengths.push("definiu um formato de saída útil");
+  else watchouts.push("não definiu como a resposta deveria voltar");
+
+  if (features.hasStructure) strengths.push("organizou o pedido de forma legível");
+  else watchouts.push("o prompt pode ficar mais estruturado visualmente");
+
+  if (features.tooShort) watchouts.push("o prompt está curto demais para reduzir ambiguidades");
+  if (features.mixedRequests) watchouts.push("misturou objetivos demais numa única instrução");
+  if (features.vague) watchouts.push("há termos vagos que deixam a intenção aberta");
+
+  const actionHint = exec.isFreeInstruction ? "objetivo" : `ação (${getActionLabel(exec.acao)})`;
+  const rewriteSuggestion = [
+    `Contexto: ${features.hasContext ? "use o contexto central já citado" : "descreva rapidamente o cenário e o material disponível"}.`,
+    `Pedido: explicite o ${actionHint}.`,
+    `Saída: ${features.asksFormat ? "mantenha o formato pedido" : "diga em que formato a resposta deve vir"}.`,
+  ].join(" ");
+
+  const teachingNote = strengths.length
+    ? "Quando o prompt define contexto, tarefa e formato, a resposta tende a ficar mais aproveitável."
+    : "Antes de buscar uma resposta melhor, vale tornar o pedido mais concreto e menos ambíguo.";
+
+  return {
+    strengths: strengths.slice(0, 3),
+    watchouts: watchouts.slice(0, 3),
+    rewriteSuggestion,
+    teachingNote,
+  };
+}
+
+function getPromptInsightEntries(evento) {
+  const entries = [];
+  Object.entries(evento.execucoes || {}).forEach(([key, execs]) => {
+    const [teamIdxRaw, missionId] = key.split("__");
+    const teamIdx = Number(teamIdxRaw);
+    const team = evento.teams?.[teamIdx];
+    const mission = evento.missions?.find((item) => item.id === missionId);
+    (execs || []).forEach((exec, index) => {
+      entries.push({
+        id: `${key}-${exec.ts || index}`,
+        key,
+        teamIdx,
+        teamName: team?.name || `Time ${teamIdx + 1}`,
+        missionId,
+        missionName: mission?.name || missionId,
+        missionNum: mission?.num || null,
+        actionLabel: getActionLabel(exec.acao),
+        ts: exec.ts,
+        prompt: exec.input || "",
+        output: exec.output || "",
+        analysis: analyzePromptQuality({ exec, mission }),
+      });
+    });
+  });
+  return entries.sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
+}
+
+function summarizePromptPatterns(entries, side) {
+  const counter = new Map();
+  entries.forEach((entry) => {
+    (entry.analysis?.[side] || []).forEach((item) => {
+      counter.set(item, (counter.get(item) || 0) + 1);
+    });
+  });
+  return [...counter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([text, count]) => ({ text, count }));
+}
+
+function truncatePromptSnippet(text, max = 140) {
+  const normalized = (text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "Sem prompt registrado.";
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max).trim()}...`;
+}
+
+function groupPromptInsightsByObservation(entries, side) {
+  const grouped = new Map();
+  entries.forEach((entry) => {
+    (entry.analysis?.[side] || []).forEach((item) => {
+      if (!grouped.has(item)) {
+        grouped.set(item, []);
+      }
+      grouped.get(item).push({
+        id: entry.id,
+        teamName: entry.teamName,
+        actionLabel: entry.actionLabel,
+        prompt: truncatePromptSnippet(entry.prompt, 84),
+      });
+    });
+  });
+  return [...grouped.entries()].map(([text, participants]) => ({
+    text,
+    participants,
+  }));
 }
 
 function getScreenShareState(evento) {
@@ -632,7 +859,7 @@ function getActionLabel(acao) {
   return isFreeInstructionAction(acao) ? FREE_ACTION_LABEL : acao || "-";
 }
 
-function buildPromptApplied({ mission, acao, historyContext }) {
+function buildPromptApplied({ mission, acao, historyContext, planningMode = "off" }) {
   const historyBlock = historyContext.length
     ? `\n\nContexto anterior desta missao:\n${historyContext
         .map(
@@ -644,7 +871,7 @@ function buildPromptApplied({ mission, acao, historyContext }) {
   const actionBlock = isFreeInstructionAction(acao)
     ? "Diretriz da rodada: o time escreveu a propria instrucao livremente, sem usar uma acao rapida predefinida."
     : `Acao selecionada: ${getActionLabel(acao)}.`;
-  return `${mission.systemPrompt}\n\n${actionBlock}\nModo: ${MODE_LABELS[mission.mode] || mission.mode}.${historyBlock}`;
+  return `${mission.systemPrompt}\n\n${actionBlock}\n${PLANNING_MODE_PROMPTS[planningMode] || PLANNING_MODE_PROMPTS.off}\nModo: ${MODE_LABELS[mission.mode] || mission.mode}.${historyBlock}`;
 }
 
 function buildConceptSummary(mission) {
@@ -891,8 +1118,8 @@ async function fetchChatCompletion({ apiKey, model, messages }) {
   };
 }
 
-async function executarComIA({ mission, input, acao, apiKey, model, historyContext }) {
-  const promptApplied = buildPromptApplied({ mission, acao, historyContext });
+async function executarComIA({ mission, input, acao, apiKey, model, planningMode, historyContext }) {
+  const promptApplied = buildPromptApplied({ mission, acao, historyContext, planningMode });
   if (mission.mode === "compare-models") {
     const [mini, full] = await Promise.all([
       fetchChatCompletion({
@@ -950,13 +1177,13 @@ async function executarComIA({ mission, input, acao, apiKey, model, historyConte
   };
 }
 
-function executarMock({ mission, input, acao, model, historyContext }) {
+function executarMock({ mission, input, acao, model, planningMode, historyContext }) {
   const output = (MOCKS[mission.id] || (() => "Sem mock configurado."))(input, getActionLabel(acao));
   const inputTokens = Math.max(120, Math.round(input.length / 3.5));
   const outputTokens = Math.max(180, Math.round(output.length / 3.8));
   return {
     output,
-    promptApplied: buildPromptApplied({ mission, acao, historyContext }),
+    promptApplied: buildPromptApplied({ mission, acao, historyContext, planningMode }),
     inputTokens,
     outputTokens,
     tokens: inputTokens + outputTokens,
@@ -976,15 +1203,19 @@ function Modal({ open, children, onClose, small = false, dismissible = true }) {
 }
 
 function App() {
+  const isLocalDev = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const initialLocalStore = loadStore();
   const [store, setStore] = useState(() => ({
     events: initialLocalStore.events || [],
     apiKey: initialLocalStore.apiKey || "",
     model: initialLocalStore.model || "gpt-4.1-mini",
+    planningMode: initialLocalStore.planningMode || "off",
   }));
   const [screen, setScreen] = useState("home");
   const [facSelectedId, setFacSelectedId] = useState(null);
-  const [facTab, setFacTab] = useState("times");
+  const [facTab, setFacTab] = useState("dashboard");
+  const [dashboardView, setDashboardView] = useState("team");
+  const [promptInsightsView, setPromptInsightsView] = useState("team");
   const [entryCode, setEntryCode] = useState("");
   const [entryError, setEntryError] = useState("");
   const [timeEventId, setTimeEventId] = useState(null);
@@ -1012,10 +1243,24 @@ function App() {
   });
   const [confirmInput, setConfirmInput] = useState("");
   const [missionFlow, setMissionFlow] = useState({ stage: "idle", exec: null });
-  const [newEventForm, setNewEventForm] = useState({ name: "", desc: "", teams: "", pack: "core" });
-  const [configForm, setConfigForm] = useState({ apiKey: "", model: "gpt-4.1-mini" });
+  const [newEventForm, setNewEventForm] = useState({
+    name: "",
+    desc: "",
+    teams: "",
+    pack: "core",
+    teamMode: "manual",
+    studentsRaw: "",
+    importMode: "solo",
+    randomTeamCount: 2,
+  });
+  const [configForm, setConfigForm] = useState({ apiKey: "", model: "gpt-4.1-mini", planningMode: "off" });
   const [eventMetaForm, setEventMetaForm] = useState({ name: "", desc: "" });
   const [newTeamName, setNewTeamName] = useState("");
+  const [teamImportForm, setTeamImportForm] = useState({
+    studentsRaw: "",
+    importMode: "solo",
+    randomTeamCount: 2,
+  });
   const [catalogSelection, setCatalogSelection] = useState([]);
   const [reflectionAnswers, setReflectionAnswers] = useState({});
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -1023,6 +1268,7 @@ function App() {
   const [helpMessage, setHelpMessage] = useState("");
   const [reflectionComment, setReflectionComment] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
+  const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false, supabaseConfigured: false });
   const [storeHydrated, setStoreHydrated] = useState(false);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
@@ -1121,6 +1367,30 @@ function App() {
     return () => window.clearInterval(timer);
   }, [screen]);
 
+  useEffect(() => {
+    if (!storeHydrated || !isLocalDev) return;
+    if ((store.events || []).length > 0) return;
+
+    const labEvent = makeDevLabEvent();
+    setStore((current) => ({
+      ...current,
+      events: [labEvent],
+    }));
+    setFacSelectedId(labEvent.id);
+    setTimeEventId(labEvent.id);
+    setTimeTeamIdx(0);
+    setTimeMissionIdx(0);
+    setEntryCode(labEvent.id);
+    setFacTab("dashboard");
+  }, [isLocalDev, store.events, storeHydrated]);
+
+  useEffect(() => {
+    if (!isLocalDev) return;
+    if (!(store.events || []).length) return;
+    if (!facSelectedId) setFacSelectedId(store.events[0].id);
+    if (!timeEventId) setTimeEventId(store.events[0].id);
+  }, [facSelectedId, isLocalDev, store.events, timeEventId]);
+
   const events = store.events || [];
   const selectedEvent = events.find((event) => event.id === facSelectedId) || null;
   const teamEvent = events.find((event) => event.id === timeEventId) || null;
@@ -1139,6 +1409,8 @@ function App() {
   const currentHelpRequests = currentMission && teamEvent ? getHelpRequests(teamEvent, timeTeamIdx, currentMission.id) : [];
   const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open").length;
   const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open") || null;
+  const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
+  const importedStudents = parseStudentList(teamImportForm.studentsRaw || "");
 
   useEffect(() => {
     if (!currentMission) {
@@ -1218,7 +1490,7 @@ function App() {
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";
-  const devQuickSwitch = import.meta.env.DEV && SHOW_DEV_SWITCH ? (
+  const devQuickSwitch = import.meta.env.DEV && isLocalDev && SHOW_DEV_SWITCH ? (
     <DevQuickSwitch
       events={events}
       currentEventId={devEventId}
@@ -1240,6 +1512,16 @@ function App() {
 
   function showToast(message) {
     setToastText(message);
+  }
+
+  function handleQuickModelChange(nextModel) {
+    setStore((current) => ({ ...current, model: nextModel }));
+    setConfigForm((current) => ({ ...current, model: nextModel }));
+  }
+
+  function handleQuickPlanningModeChange(nextPlanningMode) {
+    setStore((current) => ({ ...current, planningMode: nextPlanningMode }));
+    setConfigForm((current) => ({ ...current, planningMode: nextPlanningMode }));
   }
 
   function openConfirm(title, body, onConfirm, options = {}) {
@@ -1353,10 +1635,35 @@ function App() {
       rawTeams: newEventForm.teams.trim(),
       pack: newEventForm.pack,
     });
+    if (newEventForm.teamMode === "import") {
+      const generatedTeams = buildTeamsFromStudents(
+        newEventStudents,
+        newEventForm.importMode,
+        newEventForm.randomTeamCount,
+      );
+      if (!newEventStudents.length) {
+        showToast("Cole pelo menos um nome para importar");
+        return;
+      }
+      if (newEventForm.importMode === "random" && (!newEventForm.randomTeamCount || newEventForm.randomTeamCount > newEventStudents.length)) {
+        showToast("Defina uma quantidade de times valida");
+        return;
+      }
+      event.teams = generatedTeams;
+    }
     updateEvents((current) => [...current, event]);
     setFacSelectedId(event.id);
     setFacTab("dashboard");
-    setNewEventForm({ name: "", desc: "", teams: "", pack: "core" });
+    setNewEventForm({
+      name: "",
+      desc: "",
+      teams: "",
+      pack: "core",
+      teamMode: "manual",
+      studentsRaw: "",
+      importMode: "solo",
+      randomTeamCount: 2,
+    });
     setNewEventOpen(false);
     setScreen("facilitador");
     showToast("Evento criado");
@@ -1379,12 +1686,69 @@ function App() {
       current.map((event) =>
         event.id !== selectedEvent.id
           ? event
-          : { ...event, teams: [...event.teams, { name: newTeamName.trim(), runs: 0 }] },
+          : { ...event, teams: [...event.teams, makeTeam(newTeamName.trim())] },
       ),
     );
     setNewTeamName("");
     setAddTeamOpen(false);
     showToast("Time adicionado");
+  }
+
+  function applyImportedTeams(eventId, teams) {
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== eventId
+          ? event
+          : {
+              ...event,
+              teams,
+              execucoes: {},
+              reflexoes: {},
+              conclusoes: {},
+              preservedMissionUsage: {},
+              helpRequests: [],
+            },
+      ),
+    );
+    if (timeEventId === eventId) {
+      setTimeTeamIdx(null);
+      setTimeMissionIdx(null);
+      setMissionFlow({ stage: "idle", exec: null });
+      setHistoryOpen(false);
+      setMissionInput("");
+    }
+    setTeamImportForm({
+      studentsRaw: "",
+      importMode: "solo",
+      randomTeamCount: 2,
+    });
+    setAddTeamOpen(false);
+    showToast("Times gerados");
+  }
+
+  function handleGenerateTeamsForEvent() {
+    if (!selectedEvent) return;
+    if (!importedStudents.length) {
+      showToast("Cole pelo menos um nome para importar");
+      return;
+    }
+    if (teamImportForm.importMode === "random" && (!teamImportForm.randomTeamCount || teamImportForm.randomTeamCount > importedStudents.length)) {
+      showToast("Defina uma quantidade de times valida");
+      return;
+    }
+
+    const teams = buildTeamsFromStudents(importedStudents, teamImportForm.importMode, teamImportForm.randomTeamCount);
+    if (selectedEvent.teams.length) {
+      openDeleteConfirm({
+        eventId: selectedEvent.id,
+        title: "Substituir estrutura de times",
+        body: "Os times atuais serao substituidos e os vinculos operacionais desta turma serao zerados para reconfigurar o evento do zero. Digite o codigo do evento para continuar.",
+        onConfirm: () => applyImportedTeams(selectedEvent.id, teams),
+      });
+      return;
+    }
+
+    applyImportedTeams(selectedEvent.id, teams);
   }
 
   function handleRemoveTeam(eventId, index) {
@@ -1780,6 +2144,7 @@ function App() {
             acao,
             apiKey: store.apiKey,
             model: store.model,
+            planningMode: store.planningMode,
             historyContext,
           })
         : executarMock({
@@ -1787,6 +2152,7 @@ function App() {
             input,
             acao,
             model: store.model,
+            planningMode: store.planningMode,
             historyContext,
           });
 
@@ -1947,6 +2313,7 @@ function App() {
 
   function renderDashboard(evento) {
     const openHelpRequests = getOpenHelpRequests(evento);
+    const unlockedMissions = evento.missions.filter((mission) => mission.unlocked);
     let totalTokens = 0;
     let totalCusto = 0;
     let totalConclusoes = 0;
@@ -1992,13 +2359,27 @@ function App() {
         <div className="dashboard-layout">
           <div className="dashboard-main">
             <div className="section-header">
-              <span className="section-title">Times no evento</span>
-              <button className="btn btn-sm" onClick={() => setAddTeamOpen(true)}>
-                + Adicionar time
-              </button>
+              <span className="section-title">{dashboardView === "team" ? "Times no evento" : "Missoes no evento"}</span>
+              <div className="section-actions">
+                <div className="inline-choice-row dashboard-view-toggle">
+                  <button
+                    className={`choice-pill${dashboardView === "team" ? " active" : ""}`}
+                    onClick={() => setDashboardView("team")}
+                  >
+                    Visão por time
+                  </button>
+                  <button
+                    className={`choice-pill${dashboardView === "mission" ? " active" : ""}`}
+                    onClick={() => setDashboardView("mission")}
+                  >
+                    Visão por missão
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div className="team-admin-grid">
+            {dashboardView === "team" ? (
+              <div className="team-admin-grid">
         {evento.teams.map((teamItem, teamIdx) => {
           let teamTokens = 0;
           let teamCusto = 0;
@@ -2024,7 +2405,6 @@ function App() {
           const teamHelpOpenRequests = openHelpRequests.filter((request) => request.teamIdx === teamIdx);
           const teamHelpOpen = teamHelpOpenRequests.length;
           const activeMissionCount = evento.missions.filter((mission) => getExecucoes(evento, teamIdx, mission.id).length > 0).length;
-          const latestReflection = getLatestTeamReflection(evento, teamIdx);
           const missionProgressItems = evento.missions
             .filter((mission) => mission.unlocked)
             .map((mission) => {
@@ -2035,6 +2415,8 @@ function App() {
                 name: mission.name,
                 runs: execs.length,
                 concluded: Boolean(reflection),
+                reflection,
+                helpOpen: teamHelpOpenRequests.filter((request) => request.missionId === mission.id).length,
                 lastRunAt: execs.length ? execs[execs.length - 1].ts : null,
               };
             });
@@ -2047,14 +2429,23 @@ function App() {
                   <div>
                     <div className="team-dash-name">{teamItem.name}</div>
                     <div className="team-admin-sub">
-                      {activeMissionCount ? `${activeMissionCount} missoes com atividade` : "Nenhuma atividade ainda"}
+                      {teamItem.members?.length
+                        ? `${teamItem.members.length} aluno${teamItem.members.length > 1 ? "s" : ""}`
+                        : ""}
                     </div>
+                    {teamItem.members?.length ? (
+                      <div className="team-members-preview">
+                        {teamItem.members.slice(0, 4).join(", ")}
+                        {teamItem.members.length > 4 ? ` +${teamItem.members.length - 4}` : ""}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 <div className="team-admin-actions">
-                  <div className="team-progress-val">{progress}%</div>
                   <button
-                    className="btn btn-ghost btn-sm btn-danger"
+                    className="icon-copy-btn team-remove-icon"
+                    aria-label={`Remover time ${teamItem.name}`}
+                    title="Remover time"
                     onClick={() =>
                       openDeleteConfirm({
                         eventId: evento.id,
@@ -2064,7 +2455,7 @@ function App() {
                       })
                     }
                   >
-                    Remover
+                    Excluir time
                   </button>
                 </div>
               </div>
@@ -2087,71 +2478,183 @@ function App() {
                 </div>
               </div>
               <div className="team-admin-foot">
-                <div className="team-admin-status-row">
-                  <span className="mini-label">Pedidos de ajuda</span>
-                  <span className={`team-inline-pill${teamHelpOpen ? " is-alert" : ""}`}>
-                    {teamHelpOpen ? `${teamHelpOpen} abertos` : "nenhum"}
-                  </span>
-                </div>
-                <div className="team-admin-status-row">
-                  <span className="mini-label">Progresso nas missoes liberadas</span>
-                  <span className="muted-mini">{teamConc}/{unlockedCount}</span>
-                </div>
-                <div className="progress-bar-wrap">
-                  <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
-                </div>
                 {missionProgressItems.length ? (
-                  <div className="team-mission-list">
-                    {missionProgressItems.map((missionItem) => (
+                  <div className="team-mission-section">
+                    <div className="team-mission-section-head">
+                      <span className="mini-label">Missões liberadas</span>
+                    </div>
+                    <div className="team-mission-list">
+                    {missionProgressItems.map((missionItem, missionIndex) => (
                       <div className="team-mission-row" key={missionItem.id}>
-                        <div className="team-mission-copy">
-                          <div className="team-mission-name">{missionItem.name}</div>
-                          <div className="team-mission-meta">
-                            {missionItem.concluded
-                              ? "concluida"
-                              : missionItem.runs
-                                ? `${missionItem.runs} execucao${missionItem.runs > 1 ? "oes" : ""}`
-                                : "sem atividade"}
+                        <div className="team-mission-main">
+                          <div className="team-mission-copy">
+                            <div className="team-mission-title-row">
+                              <div className="team-mission-kicker">{missionIndex + 1}.</div>
+                              <div className="team-mission-name">{missionItem.name}</div>
+                            </div>
+                            {missionItem.runs && !missionItem.concluded ? (
+                              <div className="team-mission-meta">
+                                {`${missionItem.runs} execucao${missionItem.runs > 1 ? "oes" : ""}`}
+                              </div>
+                            ) : null}
                           </div>
+                          <div className="team-mission-side">
+                            <div className="team-mission-status">
+                              <span className={`team-inline-pill${missionItem.concluded ? " is-complete" : missionItem.runs ? "" : " is-muted"}`}>
+                                {missionItem.concluded ? "feito" : missionItem.runs ? "em andamento" : "pendente"}
+                              </span>
+                              {missionItem.helpOpen ? (
+                                <span
+                                  className="team-help-indicator is-alert"
+                                  aria-label={`${missionItem.helpOpen} pedidos de ajuda abertos nesta missao`}
+                                  title={`${missionItem.helpOpen} pedidos de ajuda abertos nesta missao`}
+                                >
+                                  <span className="team-help-indicator-icon">!</span>
+                                  <span className="team-help-indicator-count">{missionItem.helpOpen}</span>
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="team-mission-side-date">
+                              {missionItem.reflection
+                                ? formatDateTime(missionItem.reflection.submittedAt || missionItem.reflection.ts)
+                                : ""}
+                            </div>
+                          </div>
+                          {missionItem.reflection ? (
+                            <div className="team-mission-feedback">
+                              <div className="team-admin-feedback-scores is-inline">
+                                {Object.entries(missionItem.reflection.respostas || {}).map(([key, value]) => (
+                                  <span className="mission-feedback-chip is-rating" key={`${missionItem.id}-${key}`}>
+                                    <strong>{getReflectionTopicShortLabel(key)}</strong>
+                                    <span className="mission-feedback-score" aria-label={`${value} de 5`}>
+                                      {value}/5
+                                    </span>
+                                  </span>
+                                ))}
+                              </div>
+                              {missionItem.reflection.comment ? (
+                                <div className="team-admin-feedback-comment">{missionItem.reflection.comment}</div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                        <span className={`team-inline-pill${missionItem.concluded ? "" : " is-muted"}`}>
-                          {missionItem.concluded ? "feito" : "em aberto"}
-                        </span>
                       </div>
                     ))}
-                  </div>
-                ) : null}
-                {latestReflection ? (
-                  <div className="team-admin-feedback">
-                    <div className="team-admin-feedback-head">
-                      <span className="mini-label">Ultimo feedback recebido</span>
-                      <span className="muted-mini">{formatDateTime(latestReflection.submittedAt || latestReflection.ts)}</span>
                     </div>
-                    <div className="team-admin-feedback-title">{latestReflection.missionName || latestReflection.missionId}</div>
-                    <div className="team-admin-feedback-scores is-inline">
-                      {Object.entries(latestReflection.respostas || {}).map(([key, value]) => (
-                        <span className="mission-feedback-chip is-rating" key={key}>
-                          <strong>{getReflectionTopicShortLabel(key)}</strong>
-                          <span className="mission-feedback-stars" aria-label={`${value} de 5`}>
-                            {[1, 2, 3, 4, 5].map((score) => (
-                              <span className="star" key={score}>
-                                {score <= value ? "★" : "☆"}
-                              </span>
-                            ))}
-                          </span>
-                        </span>
-                      ))}
-                    </div>
-                    {latestReflection.comment ? (
-                      <div className="team-admin-feedback-comment">{latestReflection.comment}</div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>
             </div>
           );
         })}
-            </div>
+              </div>
+            ) : (
+              <div className="mission-admin-grid">
+                {unlockedMissions.map((mission, missionIndex) => {
+                  let missionTokens = 0;
+                  let missionCusto = 0;
+                  let missionRuns = 0;
+                  let missionConcluded = 0;
+                  const missionHelpOpen = openHelpRequests.filter((request) => request.missionId === mission.id).length;
+
+                  const teamRows = evento.teams.map((teamItem, teamIdx) => {
+                    const execs = getExecucoes(evento, teamIdx, mission.id);
+                    const reflection = (evento.reflexoes || {})[`${teamIdx}__${mission.id}`];
+                    const helpOpen = openHelpRequests.filter((request) => request.teamIdx === teamIdx && request.missionId === mission.id).length;
+                    const teamTokens = execs.reduce((sum, execucao) => sum + (execucao.tokens || 0), 0);
+                    const teamCusto = execs.reduce((sum, execucao) => sum + (execucao.custo || 0), 0);
+                    missionTokens += teamTokens;
+                    missionCusto += teamCusto;
+                    missionRuns += execs.length;
+                    if (reflection) missionConcluded += 1;
+                    return {
+                      teamName: teamItem.name,
+                      reflection,
+                      helpOpen,
+                      runs: execs.length,
+                    };
+                  });
+
+                  return (
+                    <div className="mission-admin-card" key={mission.id}>
+                      <div className="mission-admin-head">
+                        <div>
+                          <div className="mission-admin-title">
+                            {missionIndex + 1}. {mission.name}
+                          </div>
+                          <div className="mission-admin-sub">
+                            {missionConcluded}/{evento.teams.length} times concluiram
+                          </div>
+                        </div>
+                        {missionHelpOpen ? (
+                          <span className="team-help-indicator is-alert" title={`${missionHelpOpen} pedidos de ajuda abertos nesta missao`}>
+                            <span className="team-help-indicator-icon">!</span>
+                            <span className="team-help-indicator-count">{missionHelpOpen}</span>
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mission-admin-metrics">
+                        <div className="team-admin-metric">
+                          <span>Times</span>
+                          <strong>{evento.teams.length}</strong>
+                        </div>
+                        <div className="team-admin-metric">
+                          <span>Execucoes</span>
+                          <strong>{missionRuns}</strong>
+                        </div>
+                        <div className="team-admin-metric">
+                          <span>Concluidas</span>
+                          <strong>{missionConcluded}</strong>
+                        </div>
+                        <div className="team-admin-metric">
+                          <span>Tokens</span>
+                          <strong>{missionTokens.toLocaleString()}</strong>
+                        </div>
+                      </div>
+                      <div className="mission-team-list">
+                        {teamRows.map((teamRow) => (
+                          <div className="mission-team-row" key={`${mission.id}-${teamRow.teamName}`}>
+                            <div className="mission-team-main">
+                              <div className="mission-team-top">
+                                <div className="mission-team-name">{teamRow.teamName}</div>
+                                <div className="team-mission-status">
+                                  <span className={`team-inline-pill${teamRow.reflection ? " is-complete" : teamRow.runs ? "" : " is-muted"}`}>
+                                    {teamRow.reflection ? "feito" : teamRow.runs ? "em andamento" : "pendente"}
+                                  </span>
+                                  {teamRow.helpOpen ? (
+                                    <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedidos de ajuda abertos nesta missao`}>
+                                      <span className="team-help-indicator-icon">!</span>
+                                      <span className="team-help-indicator-count">{teamRow.helpOpen}</span>
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              {teamRow.reflection ? (
+                                <div className="team-mission-feedback mission-team-feedback">
+                                  <div className="team-admin-feedback-scores is-inline">
+                                    {Object.entries(teamRow.reflection.respostas || {}).map(([key, value]) => (
+                                      <span className="mission-feedback-chip is-rating" key={`${mission.id}-${teamRow.teamName}-${key}`}>
+                                        <strong>{getReflectionTopicShortLabel(key)}</strong>
+                                        <span className="mission-feedback-score" aria-label={`${value} de 5`}>
+                                          {value}/5
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {teamRow.reflection.comment ? (
+                                    <div className="team-admin-feedback-comment">{teamRow.reflection.comment}</div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <aside className="dashboard-side">
@@ -2194,6 +2697,126 @@ function App() {
         </div>
 
       </>
+    );
+  }
+
+  function renderPromptInsights(evento) {
+    const entries = getPromptInsightEntries(evento);
+    if (!entries.length) {
+      return <div className="teams-empty">Nenhum prompt executado ainda.</div>;
+    }
+
+    const byMission = evento.missions
+      .filter((mission) => entries.some((entry) => entry.missionId === mission.id))
+      .map((mission) => ({
+        mission,
+        entries: entries.filter((entry) => entry.missionId === mission.id),
+      }));
+
+    return (
+      <div className="prompt-insights-shell">
+        <div className="section-header">
+          <span className="section-title">Leitura pedagógica dos prompts</span>
+          <span className="muted-mini">{byMission.length} missão(ões) com prompts analisados</span>
+        </div>
+
+        <div className="prompt-insight-group-list">
+          {byMission.map(({ mission, entries: missionEntries }) => (
+            <section className="prompt-insight-group editorial" key={`mission-${mission.id}`}>
+              {(() => {
+                const strengthGroups = groupPromptInsightsByObservation(missionEntries, "strengths");
+                const watchoutGroups = groupPromptInsightsByObservation(missionEntries, "watchouts");
+                const participantCount = new Set(missionEntries.map((entry) => entry.teamName)).size;
+
+                return (
+                  <>
+              <div className="prompt-insight-group-head">
+                <div>
+                  <div className="prompt-insight-group-title">
+                    {mission.num ? `${mission.num}. ` : ""}
+                    {mission.name}
+                  </div>
+                  <div className="prompt-insight-group-sub">
+                    {missionEntries.length} prompt(s) · {participantCount} pessoa(s) nesta missão
+                  </div>
+                </div>
+              </div>
+
+              <div className="prompt-insight-columns editorial">
+                <div className="prompt-insight-column editorial is-good">
+                  <div className="prompt-insight-column-head">
+                    <div className="prompt-insight-column-title">
+                      <span className="prompt-insight-column-icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20" fill="none">
+                          <path d="M4.5 10.5l3.2 3.2 7.8-7.8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                      <span>Funcionou bem</span>
+                    </div>
+                  </div>
+                  <div className="prompt-insight-open-list">
+                    {strengthGroups.length ? (
+                      strengthGroups.map((group) => (
+                        <article className="prompt-insight-open-item" key={`strength-group-${group.text}`}>
+                          <div className="prompt-insight-open-note prompt-insight-observation">{group.text}</div>
+                          <div className="prompt-insight-chip-row">
+                            {group.participants.map((participant) => (
+                              <span className="prompt-insight-person-chip" key={`${group.text}-${participant.id}`}>
+                                {participant.teamName}
+                              </span>
+                            ))}
+                          </div>
+                        </article>
+                      ))
+                    ) : (
+                      <div className="prompt-insight-empty">
+                        <strong>Ainda não apareceu um caso forte de acerto.</strong>
+                        <span>Procure próximos prompts com objetivo claro, contexto suficiente e formato de saída definido.</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="prompt-insight-column editorial is-watchout">
+                  <div className="prompt-insight-column-head">
+                    <div className="prompt-insight-column-title">
+                      <span className="prompt-insight-column-icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20" fill="none">
+                          <path d="M10 4.5v6.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                          <circle cx="10" cy="13.9" r="0.9" fill="currentColor" />
+                          <path d="M10 2.8l7 12.1a1 1 0 0 1-.86 1.5H3.86a1 1 0 0 1-.86-1.5l7-12.1a1 1 0 0 1 1.72 0Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                      <span>A observar</span>
+                    </div>
+                  </div>
+                  <div className="prompt-insight-open-list">
+                    {watchoutGroups.length ? (
+                      watchoutGroups.map((group) => (
+                        <article className="prompt-insight-open-item" key={`watchout-group-${group.text}`}>
+                          <div className="prompt-insight-open-note prompt-insight-observation">{group.text}</div>
+                          <div className="prompt-insight-chip-row">
+                            {group.participants.map((participant) => (
+                              <span className="prompt-insight-person-chip" key={`${group.text}-${participant.id}`}>
+                                {participant.teamName}
+                              </span>
+                            ))}
+                          </div>
+                        </article>
+                      ))
+                    ) : (
+                      <div className="prompt-insight-empty">Nenhum ponto crítico recorrente apareceu nesta missão.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+                  </>
+                );
+              })()}
+            </section>
+          ))}
+        </div>
+      </div>
     );
   }
 
@@ -2258,7 +2881,7 @@ function App() {
                   <button
                     className={`btn btn-sm topbar-api-btn${apiConfigured ? " is-connected" : ""}`}
                     onClick={() => {
-                      setConfigForm({ apiKey: store.apiKey, model: store.model });
+                      setConfigForm({ apiKey: store.apiKey, model: store.model, planningMode: store.planningMode });
                       setConfigOpen(true);
                     }}
                   >
@@ -2282,10 +2905,46 @@ function App() {
             <aside className="sidebar">
               <div className="sidebar-label">Eventos</div>
               {!events.length && <div className="empty-list-text">Nenhum evento ainda.</div>}
-              {events.map((event) => (
-                <div className={`event-item-card${facSelectedId === event.id ? " active" : ""}`} key={event.id}>
+              {events.map((event) => {
+                const isSelected = facSelectedId === event.id;
+                const isCollapsed = isSelected && event.status !== "open";
+                return (
+                <div className={`event-item-card${isSelected ? " active" : ""}${isCollapsed ? " is-collapsed" : ""}`} key={event.id}>
+                  {isSelected ? (
+                    <div className="event-item-status-toggle-row">
+                      <div className="event-item-top-actions">
+                        <button
+                          className={`event-status-toggle${event.status === "open" ? " is-on" : ""}`}
+                          aria-label={event.status === "open" ? "Desligar evento" : "Ligar evento"}
+                          title={event.status === "open" ? "Desligar evento" : "Ligar evento"}
+                          onClick={() => handleSetStatus(event.id, event.status === "open" ? "closed" : "open")}
+                        >
+                          <span className="event-status-toggle-track">
+                            <span className="event-status-toggle-thumb" />
+                          </span>
+                        </button>
+                        {event.status === "open" ? (
+                          <button
+                            className="icon-copy-btn team-remove-icon event-delete-btn"
+                            aria-label={`Excluir evento ${event.name}`}
+                            title="Excluir evento"
+                            onClick={() =>
+                              openDeleteConfirm({
+                                eventId: event.id,
+                                title: "Excluir evento",
+                                body: "Todos os dados deste evento serao removidos. Para continuar, digite o codigo do evento como senha de seguranca.",
+                                onConfirm: () => handleDeleteEvent(event.id),
+                              })
+                            }
+                          >
+                            Excluir evento
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                   <button
-                    className={`event-item${facSelectedId === event.id ? " active" : ""}`}
+                    className={`event-item${isSelected ? " active" : ""}`}
                     onClick={() => {
                       setFacSelectedId(event.id);
                       setFacTab("dashboard");
@@ -2295,72 +2954,51 @@ function App() {
                       {event.status === "open" ? <span className="live-dot" /> : null}
                       {event.name}
                     </div>
-                    <div className="event-item-meta">
-                      {event.status !== "draft" ? <span className={`sdot sdot-${event.status}`} /> : null}
-                      {event.status === "open"
-                        ? `aberto · ${event.teams.length} times`
-                        : event.status === "closed"
-                          ? `encerrado · ${event.teams.length} times`
-                          : `${event.teams.length} times`}
-                    </div>
                   </button>
-                  <div className="event-item-actions">
-                    {event.status === "draft" ? (
-                      <button className="btn btn-xs btn-primary" onClick={() => handleSetStatus(event.id, "open")}>
-                        Abrir
-                      </button>
-                    ) : null}
-                    {event.status === "open" ? (
-                      <button className="btn btn-xs" onClick={() => handleSetStatus(event.id, "closed")}>
-                        Encerrar
-                      </button>
-                    ) : null}
-                    {event.status !== "draft" ? (
-                      <button className="btn btn-xs btn-ghost" onClick={() => handleSetStatus(event.id, "draft")}>
-                        Fechar acesso
-                      </button>
-                    ) : null}
-                    <button
-                      className="btn btn-xs btn-ghost btn-danger"
-                      onClick={() =>
-                        openDeleteConfirm({
-                          eventId: event.id,
-                          title: "Excluir evento",
-                          body: "Todos os dados deste evento serao removidos. Para continuar, digite o codigo do evento como senha de seguranca.",
-                          onConfirm: () => handleDeleteEvent(event.id),
-                        })
-                      }
-                    >
-                      Excluir
-                    </button>
-                  </div>
-                  {facSelectedId === event.id ? (
+                  {isSelected && event.status === "open" ? (
                     <div className="event-item-details">
-                      <div className="event-item-details-head">
-                        <span className="mini-label">Detalhes do evento</span>
-                        <button
-                          className="btn btn-xs"
-                          onClick={() => {
-                            navigator.clipboard.writeText(event.id);
-                            showToast("Codigo copiado");
-                          }}
-                        >
-                          Copiar codigo
-                        </button>
+                      <div className="event-item-detail-block">
+                        <EventCardSectionLabel icon="summary">Resumo rápido</EventCardSectionLabel>
+                        <div className="muted-body">{event.desc || "Sem descrição cadastrada para este evento."}</div>
+                      </div>
+                      <div className="event-item-management-actions">
+                        <div className="event-item-management-head">
+                          <EventCardSectionLabel icon="teams">Incluir pessoas no LAB</EventCardSectionLabel>
+                        </div>
+                        <div className="event-item-management-grid">
+                          <div className="event-item-management-option">
+                            <button className="btn btn-sm" onClick={() => setAddTeamOpen(true)}>
+                              Por lote
+                            </button>
+                          </div>
+                          <div className="event-item-management-option">
+                            <button className="btn btn-sm btn-ghost" onClick={() => setAddTeamOpen("manual")}>
+                              Individual
+                            </button>
+                          </div>
+                        </div>
                       </div>
                       <div className="event-item-detail-block">
-                        <div className="mini-label">Codigo de acesso</div>
-                        <div className="key-display">{event.id}</div>
-                        <div className="form-hint">Times usam este codigo na tela "Sou time".</div>
-                      </div>
-                      <div className="event-item-detail-block">
-                        <div className="mini-label">Resumo rapido</div>
-                        <div className="muted-body">{event.desc || "Sem descricao cadastrada para este evento."}</div>
+                        <EventCardSectionLabel icon="code">Código de acesso</EventCardSectionLabel>
+                        <div className="key-inline-row">
+                          <div className="key-display">{event.id}</div>
+                          <button
+                            className="icon-copy-btn"
+                            aria-label="Copiar código do evento"
+                            title="Copiar código"
+                            onClick={() => {
+                              navigator.clipboard.writeText(event.id);
+                              showToast("Código copiado");
+                            }}
+                          >
+                            ⧉
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : null}
                 </div>
-              ))}
+              )})}
               <button className="btn btn-add-full" onClick={() => setNewEventOpen(true)}>
                 + Novo evento
               </button>
@@ -2372,13 +3010,13 @@ function App() {
               ) : (
                 <>
                   <div className="tabs">
-                    {["dashboard", "missoes"].map((tab) => (
+                    {["dashboard", "missoes", "prompts"].map((tab) => (
                       <button
                         key={tab}
                         className={`tab${facTab === tab ? " active" : ""}`}
                         onClick={() => setFacTab(tab)}
                       >
-                        {tab === "dashboard" ? "Dashboard" : "Missoes"}
+                        {tab === "dashboard" ? "Dashboard" : tab === "missoes" ? "Missões" : "Prompts"}
                       </button>
                     ))}
                   </div>
@@ -2388,7 +3026,7 @@ function App() {
                   {facTab === "missoes" && (
                     <>
                       <div className="section-header">
-                        <span className="section-title">{selectedEvent.missions.length} missoes</span>
+                        <span className="section-title">{selectedEvent.missions.length} missões</span>
                         <button
                           className="btn btn-sm"
                           onClick={() => {
@@ -2400,7 +3038,7 @@ function App() {
                         </button>
                       </div>
                       {!selectedEvent.missions.length ? (
-                        <div className="teams-empty">Nenhuma missao.</div>
+                        <div className="teams-empty">Nenhuma missão.</div>
                       ) : (
                         ["core", "pesquisa", "avancado", "recuperacao", "outro"].map((pack) => {
                           const missions = selectedEvent.missions
@@ -2411,7 +3049,7 @@ function App() {
                             <div key={pack}>
                               <div className="pack-header">
                                 <span>{PACK_LABELS[pack] || pack}</span>
-                                <span className={`pack-badge pack-${pack}`}>{missions.length} missoes</span>
+                                <span className={`pack-badge pack-${pack}`}>{missions.length} missões</span>
                               </div>
                               {missions.map((mission) => (
                                 <div className="mission-row-wrap" key={`${mission.id}-${mission._idx}`}>
@@ -2419,6 +3057,15 @@ function App() {
                                   <div className="mission-main">
                                     <div className="mission-row-header">
                                       <span className="mission-num">{mission.num || ""}</span>
+                                      <button
+                                        className={`mission-toggle mission-toggle-inline${mission.unlocked ? " is-on" : ""}`}
+                                        onClick={() => handleToggleMission(selectedEvent.id, mission._idx, !mission.unlocked)}
+                                        aria-label={mission.unlocked ? `Desligar missao ${mission.name}` : `Ligar missao ${mission.name}`}
+                                      >
+                                        <span className="mission-toggle-track">
+                                          <span className="mission-toggle-thumb" />
+                                        </span>
+                                      </button>
                                       <span className="mname">{mission.name}</span>
                                       <span className={`mode-badge ${MODE_CLASS[mission.mode] || "mode-single"}`}>
                                         {MODE_LABELS[mission.mode] || mission.mode}
@@ -2429,20 +3076,11 @@ function App() {
                                     <div className="mission-inline-stats">
                                       <span>{getMissionReflections(selectedEvent, mission.id).length} feedback(s)</span>
                                       <span>
-                                        {selectedEvent.teams.filter((_, teamIdx) => isConcluida(selectedEvent, teamIdx, mission.id)).length} time(s) concluiram
+                                        {selectedEvent.teams.filter((_, teamIdx) => isConcluida(selectedEvent, teamIdx, mission.id)).length} time(s) concluíram
                                       </span>
                                     </div>
                                   </div>
                                   <div className="mission-actions">
-                                    <button
-                                      className={`mission-toggle${mission.unlocked ? " is-on" : ""}`}
-                                      onClick={() => handleToggleMission(selectedEvent.id, mission._idx, !mission.unlocked)}
-                                    >
-                                      <span className="mission-toggle-track">
-                                        <span className="mission-toggle-thumb" />
-                                      </span>
-                                      <span className="mission-toggle-label">{mission.unlocked ? "Ligada" : "Desligada"}</span>
-                                    </button>
                                     <div className="mission-overflow">
                                       <button
                                         className={`mission-overflow-trigger${missionMenuOpen === `${mission.id}-${mission._idx}` ? " is-open" : ""}`}
@@ -2463,13 +3101,13 @@ function App() {
                                               setMissionMenuOpen(null);
                                               openDeleteConfirm({
                                                 eventId: selectedEvent.id,
-                                                title: "Remover missao",
-                                                body: `A missao "${mission.name}" sera removida do evento. Para continuar, digite o codigo do evento como senha de seguranca.`,
+                                                title: "Remover missão",
+                                                body: `A missão "${mission.name}" será removida do evento. Para continuar, digite o código do evento como senha de segurança.`,
                                                 onConfirm: () => handleRemoveMission(selectedEvent.id, mission._idx),
                                               });
                                             }}
                                           >
-                                            Excluir missao
+                                            Excluir missão
                                           </button>
                                         </div>
                                       ) : null}
@@ -2491,7 +3129,7 @@ function App() {
                                               <span className="mission-feedback-stars" aria-label={`${value} de 5`}>
                                                 {[1, 2, 3, 4, 5].map((score) => (
                                                   <span className="star" key={score}>
-                                                    {score <= value ? "★" : "☆"}
+                                                    {score <= value ? "✦" : "✧"}
                                                   </span>
                                                 ))}
                                               </span>
@@ -2511,6 +3149,8 @@ function App() {
                       )}
                     </>
                   )}
+
+                  {facTab === "prompts" && renderPromptInsights(selectedEvent)}
 
                 </>
               )}
@@ -2533,10 +3173,10 @@ function App() {
           <div className="center-wrap">
             <div className="center-box">
               <div className="center-box-title">Entrar na aula</div>
-              <div className="center-box-sub">Informe o codigo do evento para acessar seu workspace.</div>
+                  <div className="center-box-sub">Informe o código do evento para acessar seu workspace.</div>
               <div className="card">
                 <div className="form-group">
-                  <label className="form-label">Codigo do evento</label>
+                  <label className="form-label">Código do evento</label>
                   <input type="text" value={entryCode} onChange={(event) => setEntryCode(event.target.value)} placeholder="ev_..." />
                 </div>
                 {entryError ? <div className="error-box">{entryError}</div> : null}
@@ -2566,7 +3206,7 @@ function App() {
           <div className="center-wrap">
             <div className="center-box">
               <div className="center-box-title">Escolha seu time</div>
-              <div className="center-box-sub">Selecione o time em que voce esta participando.</div>
+              <div className="center-box-sub">Selecione o time em que você está participando.</div>
               <div className="teams-list">
                 {!teamEvent.teams.length ? (
                   <div className="empty-list-text">Nenhum time cadastrado ainda.</div>
@@ -2595,6 +3235,11 @@ function App() {
               <>
                 <span className="topbar-caption soft">{teamEvent.name}</span>
                 <span className="team-badge">{team.name}</span>
+                {!teamEventScreenShare?.active ? (
+                  <button className="btn btn-sm topbar-tokens-btn" onClick={() => setTokenDrawerOpen(true)}>
+                    Extrato de tokens
+                  </button>
+                ) : null}
                 {currentMission && !teamEventScreenShare?.active ? (
                   <button className="btn btn-sm topbar-help-btn" onClick={handleOpenHelp}>
                     {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
@@ -2605,7 +3250,7 @@ function App() {
             }
           />
           {devQuickSwitch ? <div className="dev-toolbar-shell">{devQuickSwitch}</div> : null}
-          {!apiConfigured && <div className="demo-banner">Modo demonstracao - sem chave OpenAI. Respostas sao simuladas.</div>}
+          {!apiConfigured && <div className="demo-banner">Modo demonstração - sem chave OpenAI. Respostas são simuladas.</div>}
           {teamEventScreenShare?.active ? (
             <div className="live-share-banner">
               Compartilhamento de tela ao vivo. O facilitador esta projetando a propria tela.
@@ -2614,9 +3259,9 @@ function App() {
           <div className={`workspace${teamEventScreenShare?.active ? " workspace-live-focus" : ""}`}>
             {!teamEventScreenShare?.active ? (
               <aside className="ws-sidebar">
-                <div className="ws-sidebar-label">Missoes</div>
+                <div className="ws-sidebar-label">Missões</div>
                 {!teamEvent.missions.length ? (
-                  <div className="empty-list-text">Nenhuma missao disponivel.</div>
+                  <div className="empty-list-text">Nenhuma missão disponível.</div>
                 ) : (
                   ["core", "pesquisa", "avancado", "recuperacao", "outro"].map((pack) => {
                     const missions = teamEvent.missions
@@ -2630,30 +3275,60 @@ function App() {
                           const locked = !mission.unlocked;
                           const concluida = isConcluida(teamEvent, timeTeamIdx, mission.id);
                           const execs = getExecucoes(teamEvent, timeTeamIdx, mission.id);
-                          const meta = concluida ? "concluida" : locked ? "bloqueada" : execs.length ? `${execs.length} exec.` : "liberada";
+                          const meta = concluida ? "concluída" : locked ? "bloqueada" : execs.length ? `${execs.length} exec.` : "liberada";
+                          const isCurrentMission = timeMissionIdx === mission._idx;
+                          const canResetMission = isCurrentMission && hasMissionHistory;
                           return (
-                            <button
-                              key={`${mission.id}-${mission._idx}`}
-                              className={`mission-item${timeMissionIdx === mission._idx ? " active" : ""}${locked ? " locked" : ""}${concluida ? " done" : ""}`}
-                              disabled={locked}
-                              onClick={() => handleSelectMission(mission._idx)}
-                              title={locked ? "Bloqueada pelo facilitador" : ""}
-                            >
-                              <div className="mission-item-name">
-                                {mission.num ? `${mission.num}. ` : ""}
-                                {mission.name}
-                              </div>
-                              <div className="mission-item-meta">{meta}</div>
-                            </button>
+                            <div className="mission-item-wrap" key={`${mission.id}-${mission._idx}`}>
+                              <button
+                                className={`mission-item${isCurrentMission ? " active" : ""}${locked ? " locked" : ""}${concluida ? " done" : ""}`}
+                                disabled={locked}
+                                onClick={() => handleSelectMission(mission._idx)}
+                                title={locked ? "Bloqueada pelo facilitador" : ""}
+                              >
+                                <div className="mission-item-name">
+                                  {mission.num ? `${mission.num}. ` : ""}
+                                  {mission.name}
+                                </div>
+                                <div className="mission-item-meta">{meta}</div>
+                              </button>
+                              {isCurrentMission ? (
+                                <div className="mission-item-brief">
+                                  <div className="mission-item-brief-meta">
+                                    <span>Modo: {MODE_LABELS[mission.mode] || mission.mode}</span>
+                                    <span>Tipo: {mission.category}</span>
+                                  </div>
+                                  <div className="mission-item-brief-block">
+                                    <strong className="mini-label">Situação</strong>
+                                    <p>{mission.situacao || mission.desc}</p>
+                                  </div>
+                                  <div className="mission-item-brief-block">
+                                    <strong className="mini-label">O que fazer</strong>
+                                    <p>{mission.instrucao || "Escreva o input abaixo e escolha a ação."}</p>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {canResetMission ? (
+                                <button
+                                  className="mission-reset-btn"
+                                  onClick={() =>
+                                    openConfirm(
+                                      "Reabrir missão do zero",
+                                      "Isso vai apagar respostas, explicações, histórico, questionário e status de concluída desta missão para o time atual. Os tokens consumidos permanecerão no acumulado histórico. Deseja continuar?",
+                                      handleResetMissionFromZero,
+                                    )
+                                  }
+                                >
+                                  Reabrir missão do zero
+                                </button>
+                              ) : null}
+                            </div>
                           );
                         })}
                       </div>
                     );
                   })
                 )}
-                <div className="polling-indicator">
-                  <span className="poll-dot" /> atualizando
-                </div>
               </aside>
             ) : null}
 
@@ -2665,120 +3340,178 @@ function App() {
                   team={team}
                 />
               ) : !currentMission ? (
-                <EmptyState icon="◎" title="Nenhuma missao selecionada" sub="Selecione uma missao liberada na barra lateral." />
+                <EmptyState icon="◎" title="Nenhuma missão selecionada" sub="Selecione uma missão liberada na barra lateral." />
               ) : (
                 <>
-                  <div className="enunciado">
-                    <div className="enunciado-header">
-                      <div className="enunciado-head-main">
-                        <span className="mission-head-num">{currentMission.num}.</span>
-                        <div className="enunciado-title">{currentMission.name}</div>
-                        <span className={`mode-badge ${MODE_CLASS[currentMission.mode] || "mode-single"}`}>
-                          {MODE_LABELS[currentMission.mode] || currentMission.mode}
-                        </span>
-                      </div>
-                      <span className="mission-category">{currentMission.category}</span>
-                    </div>
-                    <div className="enunciado-body">
-                      <div className="situacao-box">
-                        <strong className="block-legend">Situacao</strong>
-                        {currentMission.situacao || currentMission.desc}
-                      </div>
-                      <div className="instrucao-box">
-                        <strong className="block-legend">O que fazer</strong>
-                        {currentMission.instrucao || "Escreva o input abaixo e escolha a acao."}
-                      </div>
-                    </div>
-                  </div>
+                  <div className="workspace-flow">
+                    <section className="workspace-chat-col">
+                      {!currentConcluida ? (
+                        <div className="input-card input-card-chat">
+                          <div className="prompt-composer">
+                            <PromptConversation
+                              execs={currentExecs}
+                              pendingPrompt={missionInput}
+                              runState={running ? runState : null}
+                              explainableExecId={!running && missionFlow.stage === "resposta_aberta" ? (missionFlow.exec?.id || missionFlow.exec?.ts) : null}
+                              onOpenExplanation={
+                                !running && missionFlow.stage === "resposta_aberta"
+                                  ? () =>
+                                      setMissionFlow((current) => ({
+                                        ...current,
+                                        stage: "cot_aberto",
+                                      }))
+                                  : null
+                              }
+                            />
+                            <div className="prompt-entry-shell">
+                              <textarea
+                                value={missionInput}
+                                onChange={(event) => setMissionInput(event.target.value)}
+                                placeholder=""
+                              />
+                              <div className="input-actions input-compose-bar">
+                                <div className="input-compose-meta">
+                                  <div className="input-compact-control">
+                                    <select
+                                      id="mission-action-select"
+                                      aria-label="Presets Tech Hall"
+                                      className="input-model-select input-model-select-compact"
+                                      value={selectedAcoes[timeMissionIdx] || ""}
+                                      onChange={(event) =>
+                                        setSelectedAcoes((current) => ({ ...current, [timeMissionIdx]: event.target.value }))
+                                      }
+                                      disabled={running}
+                                    >
+                                      <option value="" disabled>
+                                        Presets Tech Hall
+                                      </option>
+                                      {[...(currentMission.acoes || []), FREE_ACTION_KEY].map((acao) => (
+                                        <option key={acao} value={acao}>
+                                          {getActionLabel(acao)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div className="input-compact-control">
+                                    <select
+                                      id="mission-planning-select"
+                                      aria-label="Planejamento"
+                                      className="input-model-select input-model-select-compact"
+                                      value={store.planningMode}
+                                      onChange={(event) => handleQuickPlanningModeChange(event.target.value)}
+                                      disabled={running}
+                                    >
+                                      <option value="off">Plain off</option>
+                                      <option value="on">Plain on</option>
+                                    </select>
+                                  </div>
+                                  <div className="input-compact-control">
+                                    <select
+                                      id="mission-model-select"
+                                      aria-label="Modelo"
+                                      className="input-model-select input-model-select-compact"
+                                      value={store.model}
+                                      onChange={(event) => handleQuickModelChange(event.target.value)}
+                                      disabled={running}
+                                    >
+                                      {MODEL_OPTIONS.map((model) => (
+                                        <option key={model} value={model}>
+                                          {model}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                                <button
+                                  className="input-send-btn"
+                                  aria-label={running ? "Executando com IA" : "Executar com IA"}
+                                  disabled={running}
+                                  onClick={handleExecutarMissao}
+                                  title={running ? "Executando com IA" : "Executar com IA"}
+                                >
+                                  <span className="input-send-btn-icon">{running ? "…" : "↑"}</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          {runError ? <div className="error-box top-gap-sm">{runError}</div> : null}
+                        </div>
+                      ) : null}
 
-                  {currentConcluida ? (
-                    <div className="done-overlay">
-                      Missao concluida pelo seu time.
-                      <br />
-                      <span className="done-sub">Aguarde a proxima missao ser liberada pelo facilitador.</span>
-                    </div>
-                  ) : !readingStage ? (
-                    <div className="input-card">
-                      {hasMissionHistory ? (
-                        <div className="input-card-toolbar">
-                          <button
-                            className="btn btn-sm btn-ghost btn-danger"
-                            onClick={() =>
-                              openConfirm(
-                                "Reabrir missao do zero",
-                                "Isso vai apagar respostas, explicacoes, historico, questionario e status de concluida desta missao para o time atual. Os tokens consumidos permanecerao no acumulado historico. Deseja continuar?",
-                                handleResetMissionFromZero,
-                              )
-                            }
-                          >
-                            Reabrir missao do zero
-                          </button>
+                      {currentConcluida ? (
+                        <div className="done-inline-banner">
+                          Missão concluída pelo seu time.
+                          <span className="done-sub">Aguarde a próxima missão ser liberada pelo facilitador.</span>
                         </div>
                       ) : null}
-                      <div className="input-section-label">Acao</div>
-                      <div className="acao-selector">
-                        {[...(currentMission.acoes || []), FREE_ACTION_KEY].map((acao) => (
-                          <button
-                            key={acao}
-                            className={`acao-btn${selectedAcoes[timeMissionIdx] === acao ? " selected" : ""}`}
-                            onClick={() => setSelectedAcoes((current) => ({ ...current, [timeMissionIdx]: acao }))}
-                          >
-                            {getActionLabel(acao)}
-                          </button>
-                        ))}
-                      </div>
-                      {isFreeInstructionAction(selectedAcoes[timeMissionIdx]) ? (
-                        <div className="input-hint free-instruction-hint">
-                          Nesta rodada, a IA vai seguir a sua instrucao diretamente, mas ainda dentro do contexto desta missao.
-                        </div>
-                      ) : null}
-                      <div className="input-section-label top-gap">Seu input</div>
-                      {currentMission.placeholder ? (
-                        <div className="input-hint">Exemplo: {currentMission.placeholder.split("\n")[0]}...</div>
-                      ) : null}
-                      <textarea
-                        value={missionInput}
-                        onChange={(event) => setMissionInput(event.target.value)}
-                        placeholder={currentMission.placeholder || "Escreva aqui..."}
+
+                      <MissionClosurePanel
+                        stage={missionFlow.stage}
+                        reflectionAnswers={reflectionAnswers}
+                        reflectionComment={reflectionComment}
+                        onSelectAnswer={(questionId, score) =>
+                          setReflectionAnswers((current) => ({ ...current, [questionId]: score }))
+                        }
+                        onChangeComment={setReflectionComment}
+                        onIterate={() => setMissionFlow((current) => ({ ...current, stage: "idle" }))}
+                        onFinish={() => {
+                          setReflectionAnswers({});
+                          setReflectionComment("");
+                          setMissionFlow((current) => ({ ...current, stage: "questionario_final" }));
+                        }}
+                        onSubmitReflection={handleSaveReflection}
+                        onCloseCompleted={() => setMissionFlow({ stage: "idle", exec: null })}
                       />
-                      {runError ? <div className="error-box top-gap-sm">{runError}</div> : null}
-                      <div className="input-actions">
-                        <button className="btn btn-primary" disabled={running} onClick={handleExecutarMissao}>
-                          {running ? "Executando..." : "Executar com IA"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="reading-placeholder">
-                      <div className="reading-placeholder-title">Leitura da rodada em andamento</div>
-                      <div className="reading-placeholder-text">
-                        Use o painel abaixo para ler a resposta e a explicacao tecnica desta iteracao.
-                      </div>
-                    </div>
-                  )}
 
-                  {readingStage && missionFlow.exec ? (
-                    <MissionReadingPanel
-                      exec={missionFlow.exec}
-                      stage={missionFlow.stage}
-                      onAdvance={() =>
-                        setMissionFlow((current) => ({
-                          ...current,
-                          stage: current.stage === "resposta_aberta" ? "cot_aberto" : "decisao_iteracao",
-                        }))
-                      }
-                    />
-                  ) : null}
+                      {currentConcluida && currentReflexao ? <ReflectionSummary reflexao={currentReflexao} /> : null}
+                    </section>
 
-                  {currentExecs.length > 0 ? (
-                    <HistorySection execs={currentExecs} open={historyOpen} onToggle={() => setHistoryOpen((current) => !current)} />
-                  ) : null}
-
-                  {currentConcluida && currentReflexao ? <ReflectionSummary reflexao={currentReflexao} /> : null}
+                    <aside className="workspace-explain-col">
+                      {readingStage && missionFlow.exec && missionFlow.stage !== "resposta_aberta" ? (
+                        <MissionReadingPanel
+                          exec={missionFlow.exec}
+                          stage={missionFlow.stage}
+                          onAdvance={() =>
+                            setMissionFlow((current) => ({
+                              ...current,
+                              stage: current.stage === "resposta_aberta" ? "cot_aberto" : "decisao_iteracao",
+                            }))
+                          }
+                        />
+                      ) : (
+                        <div className="reading-placeholder workspace-reading-placeholder">
+                          <div className="reading-placeholder-title">Explicação técnica</div>
+                          <div className="reading-placeholder-text">
+                            Depois de executar uma rodada, abra a explicação técnica para ver mecanismo, critérios e limites da resposta.
+                          </div>
+                        </div>
+                      )}
+                    </aside>
+                  </div>
                 </>
               )}
             </main>
-            {currentMission && !teamEventScreenShare?.active ? (
+          </div>
+        </div>
+      )}
+
+      {screen === "workspace" && tokenDrawerOpen ? (
+        <div className="side-sheet-backdrop" onClick={() => setTokenDrawerOpen(false)}>
+          <aside className="side-sheet side-sheet-right" onClick={(event) => event.stopPropagation()}>
+            <div className="side-sheet-header">
+              <div>
+                <div className="side-sheet-kicker">Extrato</div>
+                <div className="side-sheet-title">Uso de tokens</div>
+              </div>
+              <button
+                className="side-sheet-close"
+                aria-label="Fechar extrato de tokens"
+                onClick={() => setTokenDrawerOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="side-sheet-body">
               <MissionTokenRail
                 execs={currentExecs}
                 runState={runState}
@@ -2786,13 +3519,13 @@ function App() {
                 model={store.model}
                 preservedUsage={preservedUsage}
               />
-            ) : null}
-          </div>
+            </div>
+          </aside>
         </div>
-      )}
+      ) : null}
 
       <Modal open={newEventOpen} onClose={() => setNewEventOpen(false)}>
-        <div className="modal-title">Criar novo evento</div>
+            <div className="modal-title">Criar novo evento</div>
         <div className="form-group">
           <label className="form-label">Nome *</label>
           <input
@@ -2812,26 +3545,102 @@ function App() {
           />
         </div>
         <div className="form-group">
-          <label className="form-label">Times (separados por virgula)</label>
-          <input
-            type="text"
-            value={newEventForm.teams}
-            onChange={(event) => setNewEventForm((current) => ({ ...current, teams: event.target.value }))}
-            placeholder="Ex: Alpha, Beta, Gamma"
-          />
-          <div className="form-hint">Voce pode adicionar times depois.</div>
+          <label className="form-label">Como montar os times</label>
+          <div className="inline-choice-row">
+            <button
+              className={`choice-pill${newEventForm.teamMode === "manual" ? " active" : ""}`}
+              onClick={() => setNewEventForm((current) => ({ ...current, teamMode: "manual" }))}
+            >
+              Digitar times
+            </button>
+            <button
+              className={`choice-pill${newEventForm.teamMode === "import" ? " active" : ""}`}
+              onClick={() => setNewEventForm((current) => ({ ...current, teamMode: "import" }))}
+            >
+              Importar alunos
+            </button>
+          </div>
         </div>
+        {newEventForm.teamMode === "manual" ? (
+          <div className="form-group">
+            <label className="form-label">Times (separados por virgula)</label>
+            <input
+              type="text"
+              value={newEventForm.teams}
+              onChange={(event) => setNewEventForm((current) => ({ ...current, teams: event.target.value }))}
+              placeholder="Ex: Alpha, Beta, Gamma"
+            />
+            <div className="form-hint">Você pode adicionar times depois.</div>
+          </div>
+        ) : (
+          <>
+            <div className="form-group">
+              <label className="form-label">Lista de alunos</label>
+              <textarea
+                value={newEventForm.studentsRaw}
+                onChange={(event) => setNewEventForm((current) => ({ ...current, studentsRaw: event.target.value }))}
+                placeholder={"Um nome por linha\nAna Souza\nBruno Lima\nCamila Rocha"}
+              />
+              <div className="form-hint">{newEventStudents.length} aluno(s) validado(s).</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Destino da importação</label>
+              <div className="inline-choice-row">
+                <button
+                  className={`choice-pill${newEventForm.importMode === "solo" ? " active" : ""}`}
+                  onClick={() => setNewEventForm((current) => ({ ...current, importMode: "solo" }))}
+                >
+                  1 sala por aluno
+                </button>
+                <button
+                  className={`choice-pill${newEventForm.importMode === "random" ? " active" : ""}`}
+                  onClick={() => setNewEventForm((current) => ({ ...current, importMode: "random" }))}
+                >
+                  Randomizar em times
+                </button>
+              </div>
+            </div>
+            {newEventForm.importMode === "random" ? (
+              <div className="form-group">
+                <label className="form-label">Quantidade de times</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={Math.max(1, newEventStudents.length || 1)}
+                  value={newEventForm.randomTeamCount}
+                  onChange={(event) =>
+                    setNewEventForm((current) => ({ ...current, randomTeamCount: Number(event.target.value) || 1 }))
+                  }
+                />
+                <div className="form-hint">A distribuição fica equilibrada, com diferença máxima de 1 aluno entre os grupos.</div>
+              </div>
+            ) : null}
+            {newEventStudents.length ? (
+              <div className="import-preview">
+                <div className="mini-label">Prévia</div>
+                <div className="import-preview-list">
+                  {newEventStudents.slice(0, 8).map((student) => (
+                    <span className="import-preview-chip" key={student}>
+                      {student}
+                    </span>
+                  ))}
+                  {newEventStudents.length > 8 ? <span className="import-preview-more">+{newEventStudents.length - 8} nomes</span> : null}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
         <div className="form-group">
           <label className="form-label">Pack de missoes</label>
           <select value={newEventForm.pack} onChange={(event) => setNewEventForm((current) => ({ ...current, pack: event.target.value }))}>
             <option value="core">Core</option>
             <option value="pesquisa">Pesquisa</option>
             <option value="avancado">Avancado</option>
-            <option value="recuperacao">Recuperacao</option>
+            <option value="recuperacao">Recuperação</option>
             <option value="todos">Todos</option>
             <option value="nenhum">Nenhum</option>
           </select>
-          <div className="form-hint">Missoes entram bloqueadas. Voce libera na hora certa.</div>
+          <div className="form-hint">Missões entram bloqueadas. Você libera na hora certa.</div>
         </div>
         <div className="modal-actions">
           <button className="btn" onClick={() => setNewEventOpen(false)}>
@@ -2843,24 +3652,96 @@ function App() {
         </div>
       </Modal>
 
-      <Modal open={addTeamOpen} onClose={() => setAddTeamOpen(false)}>
-        <div className="modal-title">Adicionar time</div>
-        <div className="form-group">
-          <label className="form-label">Nome *</label>
-          <input type="text" value={newTeamName} onChange={(event) => setNewTeamName(event.target.value)} placeholder="Ex: Zeta" />
-        </div>
-        <div className="modal-actions">
-          <button className="btn" onClick={() => setAddTeamOpen(false)}>
-            Cancelar
-          </button>
-          <button className="btn btn-primary" onClick={handleAddTeam}>
-            Adicionar
-          </button>
-        </div>
+      <Modal open={Boolean(addTeamOpen)} onClose={() => setAddTeamOpen(false)}>
+        {addTeamOpen === "manual" ? (
+          <>
+            <div className="modal-title">Adicionar time</div>
+            <div className="form-group">
+              <label className="form-label">Nome *</label>
+              <input type="text" value={newTeamName} onChange={(event) => setNewTeamName(event.target.value)} placeholder="Ex: Zeta" />
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setAddTeamOpen(false)}>
+                Cancelar
+              </button>
+              <button className="btn btn-primary" onClick={handleAddTeam}>
+                Adicionar
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="modal-title">Importar alunos e gerar times</div>
+            <div className="modal-sub">
+              Cole uma lista com um nome por linha. Depois escolha entre criar uma sala por aluno ou randomizar em grupos.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Lista de alunos</label>
+              <textarea
+                value={teamImportForm.studentsRaw}
+                onChange={(event) => setTeamImportForm((current) => ({ ...current, studentsRaw: event.target.value }))}
+                placeholder={"Um nome por linha\nAna Souza\nBruno Lima\nCamila Rocha"}
+              />
+              <div className="form-hint">{importedStudents.length} aluno(s) valido(s).</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Como gerar</label>
+              <div className="inline-choice-row">
+                <button
+                  className={`choice-pill${teamImportForm.importMode === "solo" ? " active" : ""}`}
+                  onClick={() => setTeamImportForm((current) => ({ ...current, importMode: "solo" }))}
+                >
+                  1 sala por aluno
+                </button>
+                <button
+                  className={`choice-pill${teamImportForm.importMode === "random" ? " active" : ""}`}
+                  onClick={() => setTeamImportForm((current) => ({ ...current, importMode: "random" }))}
+                >
+                  Randomizar em times
+                </button>
+              </div>
+            </div>
+            {teamImportForm.importMode === "random" ? (
+              <div className="form-group">
+                <label className="form-label">Quantidade de times</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={Math.max(1, importedStudents.length || 1)}
+                  value={teamImportForm.randomTeamCount}
+                  onChange={(event) =>
+                    setTeamImportForm((current) => ({ ...current, randomTeamCount: Number(event.target.value) || 1 }))
+                  }
+                />
+              </div>
+            ) : null}
+            {importedStudents.length ? (
+              <div className="import-preview">
+                <div className="mini-label">Prévia</div>
+                <div className="import-preview-list">
+                  {importedStudents.slice(0, 10).map((student) => (
+                    <span className="import-preview-chip" key={student}>
+                      {student}
+                    </span>
+                  ))}
+                  {importedStudents.length > 10 ? <span className="import-preview-more">+{importedStudents.length - 10} nomes</span> : null}
+                </div>
+              </div>
+            ) : null}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setAddTeamOpen(false)}>
+                Cancelar
+              </button>
+              <button className="btn btn-primary" onClick={handleGenerateTeamsForEvent}>
+                Gerar times
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
 
       <Modal open={configOpen} onClose={() => setConfigOpen(false)}>
-        <div className="modal-title">Configuracao da IA</div>
+        <div className="modal-title">Configuração da IA</div>
         <div className="notice">
           {serverConfig.deploymentTarget === "vercel"
             ? serverConfig.openaiConfigured
@@ -2868,7 +3749,7 @@ function App() {
               : "No Vercel, configure OPENAI_API_KEY nas variaveis do projeto para ativar a IA."
             : serverConfig.openaiConfigured
               ? `Ha uma chave persistente ativa no servidor local (${serverConfig.openaiSource === "env" ? "vinda do .env" : "salva neste projeto"}).`
-              : "Se voce salvar uma chave aqui, ela fica persistente no servidor local deste projeto e nao depende da porta do navegador."}
+              : "Se você salvar uma chave aqui, ela fica persistente no servidor local deste projeto e não depende da porta do navegador."}
         </div>
         <div className="form-group">
           <label className="form-label">Chave OpenAI</label>
@@ -2958,84 +3839,6 @@ function App() {
           </button>
           <button className="btn btn-primary" onClick={handleAddCatalogMissions}>
             Adicionar selecionadas
-          </button>
-        </div>
-      </Modal>
-
-      <Modal open={missionFlow.stage === "executando"} onClose={() => {}} dismissible={false}>
-        <div className="modal-title">IA respondendo</div>
-        <div className="modal-sub">
-          {runState?.simulationMode === "openai-live"
-            ? "Sua solicitacao esta sendo enviada para a OpenAI agora."
-            : "A simulacao local esta reproduzindo o comportamento de uma chamada real ao modelo."}
-        </div>
-        {runState ? <LiveRunCard runState={runState} /> : null}
-      </Modal>
-
-      <Modal open={missionFlow.stage === "decisao_iteracao"} onClose={() => {}} small dismissible={false}>
-        <div className="modal-title">Nova interacao?</div>
-        <div className="confirm-body">Quer fazer uma nova interacao nesta mesma missao antes de encerrar?</div>
-        <div className="modal-actions">
-          <button className="btn" onClick={() => setMissionFlow((current) => ({ ...current, stage: "idle" }))}>
-            Sim, quero iterar
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              setReflectionAnswers({});
-              setReflectionComment("");
-              setMissionFlow((current) => ({ ...current, stage: "questionario_final" }));
-            }}
-          >
-            Nao, encerrar
-          </button>
-        </div>
-      </Modal>
-
-      <Modal open={missionFlow.stage === "questionario_final"} onClose={() => {}} dismissible={false}>
-        <div className="modal-title">Concluir missao</div>
-        <div className="modal-sub">Voce decidiu encerrar as iteracoes. Responda as 4 perguntas para fechar a atividade do time.</div>
-        {PERGUNTAS_REFLEXAO.map((question) => (
-          <div className="reflexao-question" key={question.id}>
-            <div className="reflexao-q-text">{question.texto}</div>
-            <div className="scale-row">
-              {[1, 2, 3, 4, 5].map((score) => (
-                <button
-                  key={score}
-                  className={`scale-btn${reflectionAnswers[question.id] === score ? " selected" : ""}`}
-                  onClick={() => setReflectionAnswers((current) => ({ ...current, [question.id]: score }))}
-                >
-                  {score}
-                </button>
-              ))}
-            </div>
-            <div className="scale-labels">
-              <span>{question.min}</span>
-              <span>{question.max}</span>
-            </div>
-          </div>
-        ))}
-        <div className="form-group">
-          <label className="form-label">Observacao geral</label>
-          <textarea
-            value={reflectionComment}
-            onChange={(event) => setReflectionComment(event.target.value)}
-            placeholder="Opcional: registre uma observacao geral sobre a missao, a resposta da IA ou o que o time aprendeu."
-          />
-        </div>
-        <div className="modal-actions">
-          <button className="btn btn-green" onClick={handleSaveReflection}>
-            Enviar reflexao
-          </button>
-        </div>
-      </Modal>
-
-      <Modal open={missionFlow.stage === "concluida"} onClose={() => setMissionFlow({ stage: "idle", exec: null })} small dismissible={false}>
-        <div className="modal-title">Missao concluida</div>
-        <div className="confirm-body">Questionario enviado. Esta missao foi encerrada para o time atual.</div>
-        <div className="modal-actions">
-          <button className="btn btn-primary" onClick={() => setMissionFlow({ stage: "idle", exec: null })}>
-            Fechar
           </button>
         </div>
       </Modal>
@@ -3305,6 +4108,117 @@ function LiveRunCard({ runState }) {
   );
 }
 
+function PromptConversation({ execs, pendingPrompt, runState, explainableExecId, onOpenExplanation }) {
+  const hasHistory = execs.length > 0;
+  const hasPending = Boolean(runState && pendingPrompt.trim());
+
+  return (
+    <div className={`prompt-thread${!hasHistory && !hasPending ? " is-empty" : ""}`}>
+      {execs.map((exec, index) => {
+        const key = exec.id || exec.ts || `exec-${index}`;
+        const canExplain = explainableExecId && (exec.id === explainableExecId || exec.ts === explainableExecId);
+        return (
+          <div className="prompt-thread-turn" key={key}>
+            <div className="prompt-thread-bubble is-user">
+              <div className="prompt-thread-meta">
+                <span>Você</span>
+                <span>{exec.isFreeInstruction ? "Instrução livre" : getActionLabel(exec.acao)}</span>
+              </div>
+              <div className="prompt-thread-text">{exec.input}</div>
+            </div>
+            <div className="prompt-thread-bubble is-assistant">
+              <div className="prompt-thread-meta">
+                <span>IA</span>
+                <span>{exec.tokens?.toLocaleString() || 0} tokens</span>
+              </div>
+              {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
+              <div className="prompt-thread-text">{exec.output}</div>
+              {canExplain && onOpenExplanation ? (
+                <div className="prompt-thread-actions">
+                  <button className="btn btn-primary btn-sm" onClick={onOpenExplanation}>
+                    Abrir explicação técnica
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+
+      {hasPending ? (
+        <div className="prompt-thread-turn is-pending">
+          <div className="prompt-thread-bubble is-user">
+            <div className="prompt-thread-meta">
+              <span>Você</span>
+              <span>{runState?.selectedActionLabel || "Nova rodada"}</span>
+            </div>
+            <div className="prompt-thread-text">{pendingPrompt}</div>
+          </div>
+          <div className="prompt-thread-bubble is-assistant">
+            <div className="prompt-thread-meta">
+              <span>IA</span>
+              <span>{runState?.simulationMode === "openai-live" ? "OpenAI em execução" : "IA simulada em execução"}</span>
+            </div>
+            {runState?.processingSteps?.length ? <ProcessingPipeline processingSteps={runState.processingSteps} /> : null}
+            {runState?.usedHistory ? (
+              <div className="context-banner">Esta nova resposta está considerando o histórico anterior desta missão.</div>
+            ) : null}
+            <div className="prompt-thread-text is-live">
+              {runState?.displayedOutput || (runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA...")}
+              <span className="streaming-cursor" />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {!hasHistory && !hasPending ? <div className="prompt-thread-empty-spacer" aria-hidden="true" /> : null}
+    </div>
+  );
+}
+
+function ComposerResponseInline({ exec, runState, onOpenExplanation }) {
+  const isRunning = Boolean(runState);
+  const outputText = isRunning
+    ? (runState?.displayedOutput || (runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA..."))
+    : exec?.output || "";
+
+  if (!isRunning && !exec) return null;
+
+  return (
+    <div className="prompt-composer-response">
+      <div className="prompt-composer-response-head">
+        <div className="output-label">{isRunning ? "Resposta em andamento" : "Resposta desta rodada"}</div>
+        <span className="muted-mini">
+          {isRunning
+            ? runState?.simulationMode === "openai-live"
+              ? "OpenAI em execução"
+              : "IA simulada em execução"
+            : `${exec?.acao || "-"} · ${exec?.tokens?.toLocaleString() || 0} tokens`}
+        </span>
+      </div>
+      <div className="prompt-composer-response-body">
+        {isRunning && runState?.processingSteps?.length ? <ProcessingPipeline processingSteps={runState.processingSteps} /> : null}
+        {(runState?.usedHistory || exec?.historySignal) ? (
+          <div className="context-banner">
+            {isRunning && runState?.usedHistory ? "Esta nova resposta está considerando o histórico anterior desta missão." : exec?.historySignal}
+          </div>
+        ) : null}
+        <div className={`output-text${isRunning ? " output-text-live" : ""}`}>
+          {outputText}
+          {isRunning ? <span className="streaming-cursor" /> : null}
+        </div>
+        {!isRunning && exec && onOpenExplanation ? (
+          <div className="prompt-composer-response-actions">
+            <button className="btn btn-primary btn-sm" onClick={onOpenExplanation}>
+              Abrir explicação técnica
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function GuidedSection({ label, children }) {
   return (
     <div className="guided-section">
@@ -3359,6 +4273,112 @@ function MissionReadingPanel({ exec, stage, onAdvance }) {
           <GuidedReading exec={exec} />
         </div>
       )}
+    </section>
+  );
+}
+
+function MissionClosurePanel({
+  stage,
+  reflectionAnswers,
+  reflectionComment,
+  onSelectAnswer,
+  onChangeComment,
+  onIterate,
+  onFinish,
+  onSubmitReflection,
+  onCloseCompleted,
+}) {
+  if (!["decisao_iteracao", "questionario_final", "concluida"].includes(stage)) return null;
+
+  if (stage === "decisao_iteracao") {
+    return (
+      <section className="reading-panel mission-inline-panel">
+        <div className="reading-panel-header">
+          <div>
+            <div className="reading-panel-kicker">Próximo passo</div>
+            <div className="reading-panel-title">Nova interação?</div>
+            <div className="reading-panel-sub">Você quer iterar mais nesta missão ou encerrar a rodada atual?</div>
+          </div>
+        </div>
+        <div className="mission-inline-panel-body">
+          <div className="mission-inline-actions">
+            <button className="btn" onClick={onIterate}>
+              Sim, quero iterar
+            </button>
+            <button className="btn btn-primary" onClick={onFinish}>
+              Não, encerrar
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (stage === "questionario_final") {
+    return (
+      <section className="reading-panel mission-inline-panel">
+        <div className="reading-panel-header">
+          <div>
+            <div className="reading-panel-kicker">Fechamento</div>
+            <div className="reading-panel-title">Concluir missão</div>
+            <div className="reading-panel-sub">Responda as 4 perguntas para fechar a atividade do time.</div>
+          </div>
+        </div>
+        <div className="mission-inline-panel-body">
+          {PERGUNTAS_REFLEXAO.map((question) => (
+            <div className="reflexao-question" key={question.id}>
+              <div className="reflexao-q-text">{question.texto}</div>
+              <div className="scale-row">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    className={`scale-btn${reflectionAnswers[question.id] === score ? " selected" : ""}`}
+                    onClick={() => onSelectAnswer(question.id, score)}
+                  >
+                    {score}
+                  </button>
+                ))}
+              </div>
+              <div className="scale-labels">
+                <span>{question.min}</span>
+                <span>{question.max}</span>
+              </div>
+            </div>
+          ))}
+          <div className="form-group">
+            <label className="form-label">Observação geral</label>
+            <textarea
+              value={reflectionComment}
+              onChange={(event) => onChangeComment(event.target.value)}
+              placeholder="Opcional: registre uma observação geral sobre a missão, a resposta da IA ou o que o time aprendeu."
+            />
+          </div>
+          <div className="mission-inline-actions">
+            <button className="btn btn-green" onClick={onSubmitReflection}>
+              Enviar reflexão
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="reading-panel mission-inline-panel">
+      <div className="reading-panel-header">
+        <div>
+          <div className="reading-panel-kicker">Encerrado</div>
+          <div className="reading-panel-title">Missão concluída</div>
+          <div className="reading-panel-sub">Questionário enviado. Esta missão foi encerrada para o time atual.</div>
+        </div>
+      </div>
+      <div className="mission-inline-panel-body">
+        <div className="mission-inline-actions">
+          <button className="btn btn-primary" onClick={onCloseCompleted}>
+            Fechar
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -3658,7 +4678,7 @@ function ReflectionSummary({ reflexao }) {
           <div className="stars-row">
             {[1, 2, 3, 4, 5].map((score) => (
               <span className="star" key={score}>
-                {score <= value ? "★" : "☆"}
+                {score <= value ? "✦" : "✧"}
               </span>
             ))}
           </div>

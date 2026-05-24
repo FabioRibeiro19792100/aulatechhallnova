@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, CalendarDays, CircleAlert, Code2, FileText, LayoutDashboard, LifeBuoy, Layers3, ListChecks, MessageSquareText, Monitor, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints } from "lucide-react";
+import { BookOpen, CalendarDays, CircleAlert, Code2, FileText, LayoutDashboard, LifeBuoy, Layers3, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import techHallLogoDark from "../tech_hall_branding/tech_hall_preto.png";
 
@@ -8,6 +8,11 @@ const FREE_ACTION_LABEL = "Escrever minha própria instrução";
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
 const TRAINING_THREAD_ID = "__training__";
+const PRESENCE_STALE_MS = 45000;
+const MAX_ATTACHMENT_COUNT = 3;
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_TEXT_CHARS = 12000;
+const ATTACHMENT_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp";
 const TRAINING_MISSION = {
   id: TRAINING_THREAD_ID,
   num: 0,
@@ -569,6 +574,7 @@ function makeEvent({ name, desc, rawTeams, pack }) {
     helpRequests: [],
     trainingRuns: {},
     trainingHelpRequests: [],
+    presenceMap: {},
     screenShare: {
       active: false,
       roomName: "",
@@ -639,6 +645,39 @@ function getHelpRequests(evento, teamIdx, missionId) {
 
 function getTrainingHelpRequests(evento, teamIdx = null) {
   return (evento.trainingHelpRequests || []).filter((request) => teamIdx === null || request.teamIdx === teamIdx);
+}
+
+function getEventStudentOptions(evento) {
+  if (!evento) return [];
+
+  const rawEntries = (evento.teams || []).flatMap((teamItem, teamIdx) => {
+    const names = teamItem.members?.length ? teamItem.members : teamItem.name ? [teamItem.name] : [];
+    return names
+      .map((name) => normalizeStudentName(name))
+      .filter(Boolean)
+      .map((name) => ({
+        id: `${teamIdx}__${name}`,
+        name,
+        teamIdx,
+        teamName: teamItem.name || `Time ${teamIdx + 1}`,
+        fallbackFromTeamName: !(teamItem.members?.length),
+      }));
+  });
+
+  const duplicateCounts = rawEntries.reduce((accumulator, item) => {
+    accumulator[item.name] = (accumulator[item.name] || 0) + 1;
+    return accumulator;
+  }, {});
+
+  return rawEntries.map((item) => ({
+    ...item,
+    showTeamName: item.fallbackFromTeamName || duplicateCounts[item.name] > 1,
+  }));
+}
+
+function isPresenceLive(presence) {
+  if (!presence?.lastSeenAt) return false;
+  return Date.now() - new Date(presence.lastSeenAt).getTime() < PRESENCE_STALE_MS;
 }
 
 function getOpenHelpRequests(evento) {
@@ -911,11 +950,131 @@ function initials(name) {
   return (name || "?").slice(0, 2).toUpperCase();
 }
 
+function getFileExtension(name = "") {
+  const match = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match?.[1] || "";
+}
+
+function classifyAttachment(file) {
+  const ext = getFileExtension(file.name);
+  if (["png", "jpg", "jpeg", "webp"].includes(ext)) return "image";
+  if (["txt", "md", "csv"].includes(ext)) return "text";
+  if (["pdf", "docx"].includes(ext)) return "document";
+  return "unsupported";
+}
+
+function formatAttachmentSize(bytes = 0) {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function normalizeAttachmentText(text = "") {
+  return text.replace(/\r/g, "").trim();
+}
+
+function truncateAttachmentText(text = "", max = MAX_ATTACHMENT_TEXT_CHARS) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n\n[trecho truncado para caber no contexto]`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(`Falha ao ler ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function createAttachmentRecord(file) {
+  const kind = classifyAttachment(file);
+  if (kind === "unsupported") {
+    throw new Error(`${file.name}: tipo de arquivo não suportado.`);
+  }
+
+  const base = {
+    id: `${file.name}-${file.size}-${file.lastModified}`,
+    name: file.name,
+    size: file.size,
+    sizeLabel: formatAttachmentSize(file.size),
+    extension: getFileExtension(file.name),
+    kind,
+  };
+
+  if (kind === "image") {
+    return {
+      ...base,
+      previewMode: "image",
+      dataUrl: await readFileAsDataUrl(file),
+      summary: "Imagem anexada para análise visual.",
+    };
+  }
+
+  if (kind === "text") {
+    const text = truncateAttachmentText(normalizeAttachmentText(await file.text()));
+    return {
+      ...base,
+      previewMode: "text",
+      extractedText: text,
+      summary: "Texto extraído e enviado junto da rodada.",
+    };
+  }
+
+  return {
+    ...base,
+    previewMode: "metadata",
+    extractedText: "",
+    summary: "Arquivo anexado sem extração automática de texto nesta versão.",
+  };
+}
+
+function buildAttachmentContext(attachments = []) {
+  const textBlocks = attachments
+    .filter((attachment) => attachment.kind === "text" && attachment.extractedText)
+    .map(
+      (attachment, index) =>
+        `Arquivo ${index + 1}: ${attachment.name}\nConteúdo extraído:\n${attachment.extractedText}`,
+    );
+
+  const metadataBlocks = attachments
+    .filter((attachment) => attachment.kind === "document")
+    .map(
+      (attachment, index) =>
+        `Arquivo ${index + 1}: ${attachment.name} (${attachment.extension.toUpperCase()}, ${attachment.sizeLabel})\nObservação: o arquivo foi anexado, mas nesta versão só os metadados seguem para a IA.`,
+    );
+
+  return [...textBlocks, ...metadataBlocks].join("\n\n");
+}
+
+function buildAttachmentSummary(attachments = []) {
+  if (!attachments.length) return "";
+  const labels = attachments.map((attachment) => attachment.name);
+  return `Anexos: ${labels.join(", ")}`;
+}
+
+function buildUserMessageContent(input, attachments = []) {
+  const attachmentContext = buildAttachmentContext(attachments);
+  const textPart = attachmentContext
+    ? `${input || "Considere os anexos desta rodada."}\n\nArquivos anexados para contexto:\n${attachmentContext}`
+    : input;
+
+  const images = attachments.filter((attachment) => attachment.kind === "image" && attachment.dataUrl);
+  if (!images.length) return textPart;
+
+  return [
+    { type: "text", text: textPart || "Considere a imagem anexada." },
+    ...images.map((attachment) => ({
+      type: "image_url",
+      image_url: { url: attachment.dataUrl },
+    })),
+  ];
+}
+
 function buildHistoryContext(execs) {
   return execs.slice(-3).map((exec, index) => ({
     ordem: index + 1,
     acao: exec.isFreeInstruction ? "Instrucao livre" : getActionLabel(exec.acao),
     input: exec.input,
+    anexos: buildAttachmentSummary(exec.attachments || []),
     output: exec.output,
   }));
 }
@@ -969,7 +1128,7 @@ function buildPromptApplied({ mission, acao, historyContext, planningMode = "off
     ? `\n\nContexto anterior desta missao:\n${historyContext
         .map(
           (item) =>
-            `Rodada ${item.ordem}\nAcao: ${item.acao}\nInput: ${item.input}\nResposta: ${item.output}`,
+            `Rodada ${item.ordem}\nAcao: ${item.acao}\nInput: ${item.input}${item.anexos ? `\n${item.anexos}` : ""}\nResposta: ${item.output}`,
         )
         .join("\n\n")}`
     : "";
@@ -1218,14 +1377,21 @@ async function fetchChatCompletion({ apiKey, model, messages, reasoningEffort })
   }
 
   const data = await response.json();
+  const rawContent = data.choices?.[0]?.message?.content;
+  const output = Array.isArray(rawContent)
+    ? rawContent
+        .map((item) => item?.text || "")
+        .join("\n")
+        .trim()
+    : `${rawContent || ""}`.trim();
   return {
-    output: data.choices?.[0]?.message?.content?.trim() || "Sem conteudo retornado.",
+    output: output || "Sem conteudo retornado.",
     inputTokens: data.usage?.prompt_tokens || 0,
     outputTokens: data.usage?.completion_tokens || 0,
   };
 }
 
-async function executarComIA({ mission, input, acao, apiKey, model, planningMode, historyContext }) {
+async function executarComIA({ mission, input, attachments = [], acao, apiKey, model, planningMode, historyContext }) {
   const planningRuntime = resolvePlanningRuntime(model, planningMode);
   const promptApplied = buildPromptApplied({
     mission,
@@ -1234,6 +1400,7 @@ async function executarComIA({ mission, input, acao, apiKey, model, planningMode
     planningMode,
     includePlanningPrompt: !planningRuntime.planningModeReal,
   });
+  const userMessageContent = buildUserMessageContent(input, attachments);
   if (mission.mode === "compare-models") {
     const [mini, full] = await Promise.all([
       fetchChatCompletion({
@@ -1241,7 +1408,7 @@ async function executarComIA({ mission, input, acao, apiKey, model, planningMode
         model: "gpt-4.1-mini",
         messages: [
           { role: "system", content: promptApplied },
-          { role: "user", content: input },
+          { role: "user", content: userMessageContent },
         ],
       }),
       fetchChatCompletion({
@@ -1249,7 +1416,7 @@ async function executarComIA({ mission, input, acao, apiKey, model, planningMode
         model: "gpt-4.1",
         messages: [
           { role: "system", content: promptApplied },
-          { role: "user", content: input },
+          { role: "user", content: userMessageContent },
         ],
       }),
     ]);
@@ -1277,7 +1444,7 @@ async function executarComIA({ mission, input, acao, apiKey, model, planningMode
     reasoningEffort: planningRuntime.reasoningEffort,
     messages: [
       { role: "system", content: promptApplied },
-      { role: "user", content: input },
+      { role: "user", content: userMessageContent },
     ],
   });
 
@@ -1341,6 +1508,7 @@ function App() {
   const [timeTeamIdx, setTimeTeamIdx] = useState(null);
   const [timeMissionIdx, setTimeMissionIdx] = useState(null);
   const [missionInput, setMissionInput] = useState("");
+  const [missionAttachments, setMissionAttachments] = useState([]);
   const [running, setRunning] = useState(false);
   const [runState, setRunState] = useState(null);
   const [runError, setRunError] = useState("");
@@ -1389,8 +1557,11 @@ function App() {
   const [reflectionComment, setReflectionComment] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
+  const [roomMapOpen, setRoomMapOpen] = useState(false);
+  const [activeStudentName, setActiveStudentName] = useState("");
   const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false, supabaseConfigured: false });
   const [storeHydrated, setStoreHydrated] = useState(false);
+  const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
   const lastRemoteEventsRef = useRef(JSON.stringify(initialLocalStore.events || []));
 
@@ -1549,15 +1720,17 @@ function App() {
     if (!currentMission) {
       setMissionInput("");
       setRunState(null);
-      setMissionFlow({ stage: "idle", exec: null });
-      setHistoryOpen(false);
-      setHelpOpen(false);
-      setHelpMessage("");
-      setReflectionComment("");
-      return;
-    }
-    setMissionInput("");
-    setRunError("");
+    setMissionFlow({ stage: "idle", exec: null });
+    setHistoryOpen(false);
+    setHelpOpen(false);
+    setHelpMessage("");
+    setReflectionComment("");
+    setMissionAttachments([]);
+    return;
+  }
+  setMissionInput("");
+  setMissionAttachments([]);
+  setRunError("");
     setHistoryOpen(false);
     setHelpOpen(false);
     setHelpMessage("");
@@ -1613,6 +1786,19 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [eventMetaForm.desc, eventMetaForm.name, selectedEvent]);
 
+  useEffect(() => {
+    if (screen !== "workspace" || !teamEvent || timeTeamIdx === null) return undefined;
+
+    const presenceName = activeStudentName || team?.name || "";
+    markTeamPresence(teamEvent.id, timeTeamIdx, presenceName);
+
+    const timer = window.setInterval(() => {
+      markTeamPresence(teamEvent.id, timeTeamIdx, presenceName);
+    }, 15000);
+
+    return () => window.clearInterval(timer);
+  }, [activeStudentName, screen, team?.name, teamEvent, timeTeamIdx]);
+
   const availableCatalog = useMemo(() => {
     if (!selectedEvent) return [];
     const existingIds = new Set(selectedEvent.missions.map((mission) => mission.id));
@@ -1624,33 +1810,7 @@ function App() {
     [events],
   );
 
-  const teamStudentOptions = useMemo(() => {
-    if (!teamEvent) return [];
-
-    const rawEntries = (teamEvent.teams || []).flatMap((teamItem, teamIdx) => {
-      const names = teamItem.members?.length ? teamItem.members : teamItem.name ? [teamItem.name] : [];
-      return names
-        .map((name) => normalizeStudentName(name))
-        .filter(Boolean)
-        .map((name) => ({
-          id: `${teamIdx}__${name}`,
-          name,
-          teamIdx,
-          teamName: teamItem.name || `Time ${teamIdx + 1}`,
-          fallbackFromTeamName: !(teamItem.members?.length),
-        }));
-    });
-
-    const duplicateCounts = rawEntries.reduce((accumulator, item) => {
-      accumulator[item.name] = (accumulator[item.name] || 0) + 1;
-      return accumulator;
-    }, {});
-
-    return rawEntries.map((item) => ({
-      ...item,
-      showTeamName: item.fallbackFromTeamName || duplicateCounts[item.name] > 1,
-    }));
-  }, [teamEvent]);
+  const teamStudentOptions = useMemo(() => getEventStudentOptions(teamEvent), [teamEvent]);
 
   const apiConfigured = Boolean(store.apiKey || serverConfig.openaiConfigured);
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
@@ -1676,6 +1836,29 @@ function App() {
     setStore((current) => ({ ...current, events: updater(current.events || []) }));
   }
 
+  function markTeamPresence(eventId, teamIdx, memberName) {
+    if (!eventId || teamIdx === null || teamIdx === undefined) return;
+    const normalizedName = normalizeStudentName(memberName || "");
+    const lastSeenAt = new Date().toISOString();
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id === eventId
+          ? {
+              ...event,
+              presenceMap: {
+                ...(event.presenceMap || {}),
+                [teamIdx]: {
+                  teamIdx,
+                  memberName: normalizedName || event.teams?.[teamIdx]?.name || `Time ${Number(teamIdx) + 1}`,
+                  lastSeenAt,
+                },
+              },
+            }
+          : event,
+      ),
+    );
+  }
+
   function showToast(message) {
     setToastText(message);
   }
@@ -1688,6 +1871,46 @@ function App() {
   function handleQuickPlanningModeChange(nextPlanningMode) {
     setStore((current) => ({ ...current, planningMode: nextPlanningMode }));
     setConfigForm((current) => ({ ...current, planningMode: nextPlanningMode }));
+  }
+
+  async function handleAttachFiles(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+
+    if (missionAttachments.length >= MAX_ATTACHMENT_COUNT) {
+      showToast(`Limite de ${MAX_ATTACHMENT_COUNT} arquivos por rodada.`);
+      return;
+    }
+
+    const availableSlots = MAX_ATTACHMENT_COUNT - missionAttachments.length;
+    const nextFiles = files.slice(0, availableSlots);
+
+    try {
+      const validFiles = nextFiles.filter((file) => {
+        if (file.size > MAX_ATTACHMENT_SIZE) {
+          showToast(`${file.name} excede o limite de 10 MB.`);
+          return false;
+        }
+        if (classifyAttachment(file) === "unsupported") {
+          showToast(`${file.name} não é um tipo permitido.`);
+          return false;
+        }
+        return true;
+      });
+
+      const records = await Promise.all(validFiles.map((file) => createAttachmentRecord(file)));
+      if (!records.length) return;
+      setMissionAttachments((current) => [...current, ...records].slice(0, MAX_ATTACHMENT_COUNT));
+      showToast(`${records.length} arquivo(s) anexado(s)`);
+    } catch (error) {
+      console.error(error);
+      showToast("Falha ao anexar arquivo.");
+    }
+  }
+
+  function handleRemoveAttachment(attachmentId) {
+    setMissionAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }
 
   function openConfirm(title, body, onConfirm, options = {}) {
@@ -1732,6 +1955,7 @@ function App() {
   function goHome() {
     setScreen("home");
     setEntryError("");
+    setActiveStudentName("");
   }
 
   function goFacilitador() {
@@ -1744,6 +1968,7 @@ function App() {
     setTimeEventId(null);
     setTimeTeamIdx(null);
     setTimeMissionIdx(null);
+    setActiveStudentName("");
   }
 
   function goEscolhaTime() {
@@ -1923,12 +2148,12 @@ function App() {
 
     const teams = buildTeamsFromStudents(importedStudents, teamImportForm.importMode, teamImportForm.randomTeamCount);
     if (selectedEvent.teams.length) {
-      openDeleteConfirm({
-        eventId: selectedEvent.id,
-        title: "Substituir estrutura de times",
-        body: "Os times atuais serao substituidos e os vinculos operacionais desta turma serao zerados para reconfigurar o evento do zero. Digite o codigo do evento para continuar.",
-        onConfirm: () => applyImportedTeams(selectedEvent.id, teams),
-      });
+      openConfirm(
+        "Substituir estrutura de times",
+        "Os times atuais serão substituídos e os vínculos operacionais desta turma serão zerados para reconfigurar o evento do zero. Deseja continuar?",
+        () => applyImportedTeams(selectedEvent.id, teams),
+        { confirmTone: "primary" },
+      );
       return;
     }
 
@@ -2057,13 +2282,14 @@ function App() {
     setScreen("team");
   }
 
-  function handleEscolherTime(index) {
+  function handleEscolherTime(index, memberName = "") {
     const selectedEvent = events.find((event) => event.id === timeEventId) || null;
     const eventMode = selectedEvent ? getEventMode(selectedEvent) : MISSIONS_MODE_EVENT;
     const firstUnlockedMissionIdx =
       selectedEvent && eventMode !== TRAINING_MODE_EVENT
         ? selectedEvent.missions.findIndex((mission) => mission.unlocked)
         : -1;
+    setActiveStudentName(normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "");
     setTimeTeamIdx(index);
     setTimeMissionIdx(firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null);
     setScreen("workspace");
@@ -2083,14 +2309,13 @@ function App() {
     openConfirm(
       "Confirmar identidade",
       `Confirmar que você é ${label}?`,
-      () => handleEscolherTime(teamIdx),
+      () => handleEscolherTime(teamIdx, label),
       { confirmTone: "primary" },
     );
   }
 
   function handleSelectMission(index) {
     setTimeMissionIdx(index);
-    setSelectedAcoes((current) => ({ ...current, [index]: null }));
   }
 
   function saveExecution(eventId, teamIdx, missionId, execData) {
@@ -2364,10 +2589,11 @@ function App() {
   async function handleExecutarMissao() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const input = missionInput.trim();
+    const attachments = missionAttachments;
     const acao = FREE_ACTION_KEY;
     const historyContext = buildHistoryContext(currentExecs);
-    if (!input) {
-      setRunError("Escreva um input para executar a missao.");
+    if (!input && !attachments.length) {
+      setRunError("Escreva um input ou anexe pelo menos um arquivo.");
       return;
     }
 
@@ -2423,6 +2649,7 @@ function App() {
         ? await executarComIA({
             mission: currentMission,
             input,
+            attachments,
             acao,
             apiKey: store.apiKey,
             model: store.model,
@@ -2539,6 +2766,7 @@ function App() {
         id: `run_${Date.now()}`,
         ts: new Date().toISOString(),
         input,
+        attachments,
         acao,
         actionMode: isFreeInstructionAction(acao) ? "free" : "preset",
         isFreeInstruction: isFreeInstructionAction(acao),
@@ -2573,6 +2801,7 @@ function App() {
         saveExecution(teamEvent.id, timeTeamIdx, currentMission.id, execRecord);
       }
       setMissionInput("");
+      setMissionAttachments([]);
       setRunState(null);
       setMissionFlow({ stage: "cot_aberto", exec: execRecord });
       showToast(apiConfigured ? "Execucao concluida" : "Execucao simulada");
@@ -2723,7 +2952,12 @@ function App() {
             <aside className="dashboard-side">
               <div className="help-queue">
                 <div className="section-header">
-                  <span className="section-title">Fila de ajuda</span>
+                  <span className="section-title section-title-with-icon">
+                    <span className="section-title-icon" aria-hidden="true">
+                      <LifeBuoy size={16} strokeWidth={1.6} />
+                    </span>
+                    <span>Fila de ajuda</span>
+                  </span>
                   <span className="muted-mini">{openHelpRequests.length ? `${openHelpRequests.length} na fila` : "Sem fila agora"}</span>
                 </div>
                 {openHelpRequests.length ? (
@@ -3174,7 +3408,12 @@ function App() {
       return (
         <div className="prompt-insights-shell">
           <div className="section-header">
-            <span className="section-title">Leitura pedagógica dos prompts</span>
+            <span className="section-title section-title-with-icon">
+              <span className="section-title-icon" aria-hidden="true">
+                <MessageSquareText size={16} strokeWidth={1.6} />
+              </span>
+              <span>Leitura pedagógica dos prompts</span>
+            </span>
             <span className="muted-mini">{entries.length} rodada(s) livres analisadas</span>
           </div>
 
@@ -3423,6 +3662,15 @@ function App() {
                   >
                     {apiConfigured ? "API ligada" : "Configurar IA"}
                   </button>
+                  <button
+                    className="btn btn-sm topbar-roommap-btn"
+                    disabled={!selectedEvent}
+                    title={!selectedEvent ? "Selecione um evento para ver o mapa da sala" : "Ver mapa da sala"}
+                    onClick={() => setRoomMapOpen(true)}
+                  >
+                    <Map size={14} strokeWidth={1.7} aria-hidden="true" />
+                    Ver mapa da sala
+                  </button>
                   <FacilitatorScreenShareButton
                     event={selectedEvent}
                     screenShare={selectedEventScreenShare}
@@ -3583,7 +3831,17 @@ function App() {
                   {facTab === "missoes" && (
                     <>
                       {selectedEventMode === TRAINING_MODE_EVENT ? (
-                        <div className="teams-empty">Este evento está em modo treino livre. As missões e o catálogo ficam ocultos até você voltar para o modo Missões.</div>
+                        <>
+                          <div className="section-header">
+                            <span className="section-title section-title-with-icon">
+                              <span className="section-title-icon" aria-hidden="true">
+                                <BookOpen size={16} strokeWidth={1.6} />
+                              </span>
+                              <span>Missões</span>
+                            </span>
+                          </div>
+                          <div className="teams-empty">Este evento está em modo treino livre. As missões e o catálogo ficam ocultos até você voltar para o modo Missões.</div>
+                        </>
                       ) : (
                         <>
                       <div className="section-header">
@@ -3999,16 +4257,56 @@ function App() {
                           <PromptConversation
                             execs={currentExecs}
                             pendingPrompt={missionInput}
+                            pendingAttachments={missionAttachments}
                             runState={running ? runState : null}
                           />
                           <div className="prompt-entry-shell">
+                            {missionAttachments.length ? (
+                              <div className="composer-attachments">
+                                {missionAttachments.map((attachment) => (
+                                  <div className={`composer-attachment-chip is-${attachment.kind}`} key={attachment.id}>
+                                    <div className="composer-attachment-copy">
+                                      <span>{attachment.name}</span>
+                                      <small>{attachment.kind === "document" ? `${attachment.sizeLabel} · sem extração automática` : attachment.sizeLabel}</small>
+                                    </div>
+                                    <button
+                                      className="composer-attachment-remove"
+                                      type="button"
+                                      aria-label={`Remover ${attachment.name}`}
+                                      onClick={() => handleRemoveAttachment(attachment.id)}
+                                      disabled={running}
+                                    >
+                                      <X size={14} strokeWidth={1.8} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                             <textarea
                               value={missionInput}
                               onChange={(event) => setMissionInput(event.target.value)}
-                              placeholder=""
+                              placeholder="Escreva sua mensagem ou anexe até 3 arquivos"
+                            />
+                            <input
+                              ref={composerFileInputRef}
+                              type="file"
+                              accept={ATTACHMENT_ACCEPT}
+                              multiple
+                              className="visually-hidden-file-input"
+                              onChange={handleAttachFiles}
                             />
                             <div className="input-actions input-compose-bar">
                               <div className="input-compose-meta">
+                                <button
+                                  className="input-attach-btn"
+                                  type="button"
+                                  onClick={() => composerFileInputRef.current?.click()}
+                                  disabled={running || missionAttachments.length >= MAX_ATTACHMENT_COUNT}
+                                  title={`Anexar arquivo (${MAX_ATTACHMENT_COUNT} por rodada, até 10 MB cada)`}
+                                >
+                                  <Paperclip size={14} strokeWidth={1.8} />
+                                  <span>Anexar</span>
+                                </button>
                                 <div className="input-compact-control">
                                   <select
                                     id="mission-planning-select"
@@ -4143,6 +4441,10 @@ function App() {
             </div>
           </aside>
         </div>
+      ) : null}
+
+      {screen === "facilitador" && roomMapOpen && selectedEvent ? (
+        <FacilitatorRoomMapDrawer event={selectedEvent} onClose={() => setRoomMapOpen(false)} />
       ) : null}
 
       <Modal open={newEventOpen} onClose={() => setNewEventOpen(false)}>
@@ -4561,7 +4863,7 @@ function Topbar({ onLogoClick, right, roleBadge }) {
   return (
     <div className="topbar">
       <button className="logo" onClick={onLogoClick}>
-        <span className="topbar-brand-title">Tech Hall AI Lab</span>
+        <img src={techHallLogoDark} alt="Tech Hall" className="brand-wordmark topbar-wordmark" />
         {roleBadge ? <span className="badge-role">{roleBadge}</span> : null}
       </button>
       <div className="topbar-right">{right}</div>
@@ -4574,8 +4876,7 @@ function AppFooter({ compact = false }) {
     <footer className={`app-footer${compact ? " is-compact" : ""}`}>
       <div className="app-footer-inner">
         <div className="app-footer-brand">
-          <img src={techHallLogoDark} alt="Tech Hall" className="brand-wordmark footer-wordmark" />
-          <span className="app-footer-title">Tech Hall AI Lab</span>
+          <span className="app-footer-title app-footer-title-brand">Tech Hall AI Lab</span>
         </div>
         <div className="app-footer-copy">Laboratório de prática com IA para times</div>
       </div>
@@ -4766,9 +5067,23 @@ function LiveRunCard({ runState }) {
   );
 }
 
-function PromptConversation({ execs, pendingPrompt, runState }) {
+function AttachmentList({ attachments = [] }) {
+  if (!attachments.length) return null;
+  return (
+    <div className="prompt-attachment-list">
+      {attachments.map((attachment) => (
+        <div className={`prompt-attachment-chip is-${attachment.kind}`} key={attachment.id}>
+          <span>{attachment.name}</span>
+          <small>{attachment.sizeLabel}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState }) {
   const hasHistory = execs.length > 0;
-  const hasPending = Boolean(runState && pendingPrompt.trim());
+  const hasPending = Boolean(runState && (pendingPrompt.trim() || pendingAttachments.length));
   const threadRef = useRef(null);
   const outputSignal = runState?.displayedOutput || "";
 
@@ -4792,7 +5107,8 @@ function PromptConversation({ execs, pendingPrompt, runState }) {
                 <span>Você</span>
                 <span>{exec.isFreeInstruction ? "Instrução livre" : getActionLabel(exec.acao)}</span>
               </div>
-              <div className="prompt-thread-text">{exec.input}</div>
+              {exec.input ? <div className="prompt-thread-text">{exec.input}</div> : null}
+              <AttachmentList attachments={exec.attachments || []} />
             </div>
             <div className="prompt-thread-bubble is-assistant">
               <div className="prompt-thread-meta">
@@ -4813,7 +5129,8 @@ function PromptConversation({ execs, pendingPrompt, runState }) {
               <span>Você</span>
               <span>{runState?.selectedActionLabel || "Nova rodada"}</span>
             </div>
-            <div className="prompt-thread-text">{pendingPrompt}</div>
+            {pendingPrompt.trim() ? <div className="prompt-thread-text">{pendingPrompt}</div> : null}
+            <AttachmentList attachments={pendingAttachments} />
           </div>
           <div className="prompt-thread-bubble is-assistant">
             <div className="prompt-thread-meta">
@@ -5696,6 +6013,52 @@ function TeamScreenShareViewer({ event, screenShare, team }) {
         <span>·</span>
         <span>Apresentacao iniciada em {formatDateTime(screenShare.startedAt)}</span>
       </div>
+    </div>
+  );
+}
+
+function FacilitatorRoomMapDrawer({ event, onClose }) {
+  const studentOptions = getEventStudentOptions(event);
+  const presenceMap = event?.presenceMap || {};
+
+  return (
+    <div className="side-sheet-backdrop" onClick={onClose}>
+      <aside className="side-sheet side-sheet-right" onClick={(ev) => ev.stopPropagation()}>
+        <div className="side-sheet-header">
+          <div>
+            <div className="side-sheet-kicker">Sala</div>
+            <div className="side-sheet-title">Mapa da sala</div>
+          </div>
+          <button className="side-sheet-close" aria-label="Fechar mapa da sala" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <div className="side-sheet-body room-map-sheet-body">
+          <div className="room-map-sheet-event">{event?.name || "Evento"}</div>
+          {!studentOptions.length ? (
+            <div className="teams-empty">Ainda não há nomes disponíveis neste evento.</div>
+          ) : (
+            <div className="room-map-grid">
+              {studentOptions.map((student) => {
+                const presence = presenceMap?.[student.teamIdx];
+                const isLive = isPresenceLive(presence) && normalizeStudentName(presence?.memberName || "") === student.name;
+                return (
+                  <div className={`room-map-card${isLive ? " is-live" : ""}`} key={student.id}>
+                    <div className="room-map-card-icon-wrap">
+                      <div className="room-map-card-icon" aria-hidden="true">
+                        <Monitor strokeWidth={1.6} />
+                      </div>
+                      <span className={`room-map-presence-dot${isLive ? " is-live" : ""}`} aria-hidden="true" />
+                    </div>
+                    <div className="room-map-card-name">{student.name}</div>
+                    {student.showTeamName ? <div className="room-map-card-team">{student.teamName}</div> : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }

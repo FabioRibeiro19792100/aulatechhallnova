@@ -101,7 +101,14 @@ textarea{resize:vertical;min-height:104px}
   color:var(--text2);
 }
 .topbar-api-btn.is-connected{background:var(--green-light);border-color:var(--green-border);color:var(--green);font-weight:700}
-.topbar-tokens-btn{border-color:var(--border);background:#fff;color:var(--text2)}
+.topbar-tokens-btn,
+.topbar-roommap-btn{
+  border-width:1px;
+  border-color:rgba(15,23,42,.24);
+  background:#fff;
+  color:var(--text2);
+}
+.topbar-roommap-btn svg{width:14px;height:14px;stroke:currentColor}
 .topbar-help-btn{
   background:#166534;
   border-color:#22c55e;
@@ -175,6 +182,13 @@ textarea{resize:vertical;min-height:104px}
   font-weight:600;
   color:var(--text2);
   white-space:nowrap;
+}
+.app-footer-title-brand{
+  font-family:"Pixeled",Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:10px;
+  line-height:1;
+  letter-spacing:.01em;
+  color:var(--brand-charcoal);
 }
 .app-footer-copy{
   font-size:11px;
@@ -1302,6 +1316,83 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
 .side-sheet-body .token-rail-panel{
   border-radius:20px;
 }
+.room-map-sheet-body{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+.room-map-sheet-event{
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--text3);
+}
+.room-map-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:14px;
+}
+.room-map-card{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  min-height:164px;
+  padding:20px 18px;
+  border:1px solid rgba(15,23,42,.16);
+  background:#fff;
+  gap:10px;
+  text-align:center;
+}
+.room-map-card-icon-wrap{
+  position:relative;
+  display:inline-flex;
+  align-items:flex-end;
+  justify-content:center;
+  margin-bottom:2px;
+}
+.room-map-card-icon{
+  width:54px;
+  height:54px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:var(--surface2);
+  color:#111827;
+}
+.room-map-card-icon svg{width:28px;height:28px;stroke:currentColor}
+.room-map-presence-dot{
+  position:absolute;
+  right:-4px;
+  bottom:-4px;
+  width:11px;
+  height:11px;
+  border-radius:999px;
+  background:#cbd5e1;
+  border:2px solid #fff;
+}
+.room-map-presence-dot.is-live{background:#16a34a}
+.room-map-card-name{
+  font-size:18px;
+  line-height:1.15;
+  font-weight:500;
+  color:var(--text);
+  letter-spacing:-.02em;
+  text-align:center;
+}
+.room-map-card-team{
+  font-size:12px;
+  line-height:1.5;
+  color:var(--text2);
+  text-align:center;
+}
+.room-map-card.is-live{
+  border-color:rgba(22,163,74,.44);
+  background:#f6fff6;
+}
 .workspace-explain-shell .token-rail,
 .workspace-explain-shell .token-rail-panel{display:none}
 @keyframes sheetIn{
@@ -1649,6 +1740,64 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
     0 0 24px rgba(96,165,250,.16);
   overflow:hidden;
 }
+.composer-attachments{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  padding:10px 12px 0;
+}
+.composer-attachment-chip{
+  min-width:0;
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  padding:7px 9px;
+  border:1px solid rgba(203,213,225,.95);
+  border-radius:12px;
+  background:#fff;
+  max-width:100%;
+}
+.composer-attachment-copy{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+}
+.composer-attachment-copy span{
+  font-size:11px;
+  font-weight:500;
+  color:var(--text);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:240px;
+}
+.composer-attachment-copy small{
+  font-size:10px;
+  color:var(--text3);
+  line-height:1.35;
+}
+.composer-attachment-remove{
+  width:18px;
+  height:18px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--text3);
+  flex-shrink:0;
+}
+.composer-attachment-remove:hover{color:var(--text)}
+.visually-hidden-file-input{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0, 0, 0, 0);
+  white-space:nowrap;
+  border:0;
+}
 .prompt-thread{
   display:flex;
   flex-direction:column;
@@ -1702,12 +1851,39 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
 .prompt-thread-meta span:first-child{font-weight:700;color:var(--text2)}
 .prompt-thread-text{font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-word}
 .prompt-thread-bubble.is-user .prompt-thread-text{color:#fff}
+.prompt-attachment-list{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:2px;
+}
+.prompt-attachment-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.18);
+  color:#fff;
+  font-size:10px;
+  line-height:1.2;
+}
+.prompt-thread-bubble.is-assistant .prompt-attachment-chip{
+  background:#f8fafc;
+  border-color:rgba(203,213,225,.94);
+  color:var(--text2);
+}
+.prompt-attachment-chip small{
+  opacity:.82;
+  font-size:10px;
+}
 .prompt-thread-text.is-live{min-height:96px}
 .prompt-thread-actions{display:flex;justify-content:flex-end;margin-top:4px}
 .input-card textarea{
   min-height:56px;
   max-height:112px;
-  padding:6px 18px 10px;
+  padding:14px 18px 12px;
   line-height:1.6;
   border:none;
   background:transparent;
@@ -1744,6 +1920,22 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
   scrollbar-width:none;
 }
 .input-compose-meta::-webkit-scrollbar{display:none}
+.input-attach-btn{
+  height:34px;
+  padding:0 10px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  border:1px solid var(--border-md);
+  border-radius:999px;
+  background:#fff;
+  color:var(--text2);
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+.input-attach-btn:hover:not(:disabled){border-color:#94a3b8;color:var(--text)}
+.input-attach-btn:disabled{opacity:.5;cursor:not-allowed}
 .input-compact-control{
   display:flex;
   align-items:center;
@@ -1764,7 +1956,7 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
   height:34px
 }
 .input-model-select-compact{width:auto;min-width:0}
-.input-compose-meta .input-compact-control:first-child .input-model-select-compact{width:116px}
+.input-compose-meta .input-compact-control .input-model-select-compact{width:118px}
 .input-compose-meta .input-compact-control:last-child .input-model-select-compact{width:132px}
 .input-send-btn{
   margin-left:auto;

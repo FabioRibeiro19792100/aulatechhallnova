@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, CalendarDays, CircleAlert, Code2, FileText, LayoutDashboard, LifeBuoy, Layers3, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import techHallLogoDark from "../tech_hall_branding/tech_hall_preto.png";
+import techHallFooterIcon from "../tech_hall_branding/ícone_8.png";
 
 const FREE_ACTION_KEY = "__free_instruction__";
 const FREE_ACTION_LABEL = "Escrever minha própria instrução";
@@ -267,6 +268,10 @@ const PACK_LABELS = {
   recuperacao: "Recuperação",
 };
 
+function getMissionPackHeading(pack) {
+  return `MISSÕES ${String(PACK_LABELS[pack] || pack).toUpperCase()}`;
+}
+
 const MODE_LABELS = {
   "single-pass": "single-pass",
   "compare-modes": "comparação de modos",
@@ -292,21 +297,18 @@ const PERGUNTAS_REFLEXAO = [
   { id: "q1", texto: "O que a IA fez correspondeu ao que você esperava?", min: "muito abaixo", max: "muito acima" },
   { id: "q2", texto: "Consegue imaginar onde usaria isso no trabalho?", min: "nao consigo", max: "consigo claramente" },
   { id: "q3", texto: "Quão confortável você se sente usando IA para esse tipo de tarefa?", min: "desconfortável", max: "muito confortável" },
-  { id: "q4", texto: "Essa missão ficou clara do início ao fim?", min: "confusa", max: "muito clara" },
 ];
 
 const REFLECTION_TOPIC_LABELS = {
   q1: "Expectativa atendida",
   q2: "Aplicação no trabalho",
   q3: "Conforto com IA",
-  q4: "Clareza da missão",
 };
 
 const REFLECTION_TOPIC_SHORT_LABELS = {
   q1: "Expectativa",
   q2: "Aplicação",
   q3: "Conforto",
-  q4: "Clareza",
 };
 
 const MOCKS = {
@@ -569,6 +571,7 @@ function makeEvent({ name, desc, rawTeams, pack }) {
     missions,
     execucoes: {},
     reflexoes: {},
+    questionariosPendentes: {},
     conclusoes: {},
     preservedMissionUsage: {},
     helpRequests: [],
@@ -620,8 +623,50 @@ function getReflexao(evento, teamIdx, missionId) {
   return evento.reflexoes?.[`${teamIdx}__${missionId}`] || null;
 }
 
+function getQuestionarioPendenteEntry(evento, teamIdx, missionId) {
+  return evento.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+}
+
+function isQuestionarioPendente(evento, teamIdx, missionId) {
+  return Boolean(getQuestionarioPendenteEntry(evento, teamIdx, missionId));
+}
+
+function getQuestionarioPendenteSource(evento, teamIdx, missionId) {
+  const entry = getQuestionarioPendenteEntry(evento, teamIdx, missionId);
+  if (!entry) return null;
+  if (typeof entry === "string") return "facilitator";
+  return entry.source || "facilitator";
+}
+
+function getConclusaoEntry(evento, teamIdx, missionId) {
+  return evento.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+}
+
 function isConcluida(evento, teamIdx, missionId) {
-  return Boolean(evento.conclusoes?.[`${teamIdx}__${missionId}`]);
+  return Boolean(getConclusaoEntry(evento, teamIdx, missionId));
+}
+
+function getConclusaoSource(evento, teamIdx, missionId) {
+  const entry = getConclusaoEntry(evento, teamIdx, missionId);
+  if (!entry) return null;
+  if (typeof entry === "string") return "legacy";
+  return entry.source || "legacy";
+}
+
+function canFacilitatorReopenMissionForTeam(evento, teamIdx, missionId) {
+  const source = getConclusaoSource(evento, teamIdx, missionId);
+  return source === "facilitator" || source === "facilitator_no_evaluation";
+}
+
+function getMissionClosureStatus(evento, teamIdx, missionId) {
+  if (isConcluida(evento, teamIdx, missionId)) return "concluida";
+  if (isQuestionarioPendente(evento, teamIdx, missionId)) return "aguardando_questionario";
+  return "aberta";
+}
+
+function getFirstPendingMissionIndex(evento, teamIdx) {
+  if (!evento || teamIdx === null || teamIdx === undefined) return -1;
+  return (evento.missions || []).findIndex((mission) => isQuestionarioPendente(evento, teamIdx, mission.id));
 }
 
 function getMissionUsageKey(teamIdx, missionId) {
@@ -1271,6 +1316,22 @@ function buildReasoningDetails({ mission, input, acao, historyContext, promptApp
   };
 }
 
+function buildTechnicalAnalysisUnavailable({ apiConfigured, historyContext, reason = "" }) {
+  return {
+    unavailable: true,
+    analysisTarget: "latest_prompt",
+    usedHistoryContext: historyContext.length > 0,
+    historySignal: buildHistorySignal(historyContext),
+    sourceLabel: apiConfigured ? "Análise técnica indisponível" : "Análise técnica depende da API",
+    sourceType: apiConfigured ? "openai-unavailable" : "api-not-configured",
+    unavailableReason:
+      reason ||
+      (apiConfigured
+        ? "A resposta principal foi gerada, mas a análise pedagógica desta rodada não pôde ser retornada pela API."
+        : "Conecte a OpenAI para gerar a análise pedagógica desta rodada."),
+  };
+}
+
 function tryParseJson(text) {
   try {
     return JSON.parse(text);
@@ -1296,29 +1357,39 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
     .map((concept) => `- ${concept.name}: ${concept.explanation}`)
     .join("\n");
   const historySignal = buildHistorySignal(historyContext);
+  const historyBlock = historyContext.length
+    ? historyContext.map((item, index) => `Rodada ${index + 1}: ${item}`).join("\n\n")
+    : "Sem histórico anterior nesta missão.";
   const prompt = [
-    "Voce esta explicando para uma turma o mecanismo de resposta de uma IA.",
-    "Nao revele chain-of-thought bruto nem raciocinio interno literal.",
-    "Nao produza mini-aula motivacional, nao escreva texto ornamental e nao faça fechamento genérico.",
-    "Seja tecnico, curto, concreto e ancorado na resposta gerada.",
-    "Explique como a resposta foi construída, por que saiu assim e como o usuario pode extrair outras variacoes.",
-    "Retorne JSON valido com as chaves:",
-    "mechanismTitle, mechanismSummary, selectionLogic, whyThisAnswer, alternativeAnswerPaths, howToAskBetter, technicalTerms, bestPractices, strategy, consideredInput, actionInfluence, limitations",
-    "alternativeAnswerPaths deve ser um array curto de alternativas plausiveis.",
-    "howToAskBetter deve ser um array curto de instrucoes praticas para o usuario pedir outras respostas.",
-    "bestPractices deve ser um array curto de boas praticas operacionais.",
-    "technicalTerms deve ser um array de objetos com: term, meaning.",
-    "Nomeie termos tecnicos como saliencia, compressao semantica, tokenizacao, atencao, condicionamento por prompt, decoding ou outros relevantes para o caso.",
-    "Explique o mecanismo em linguagem acessivel, mas com precisao tecnica.",
+    "Você é um analisador pedagógico de prompts e respostas.",
+    "Gere uma análise técnica e didática da resposta produzida pela IA.",
+    "O objeto principal da análise é sempre o ÚLTIMO prompt enviado pelo usuário nesta rodada.",
+    "O histórico anterior da missão deve entrar apenas como contexto secundário de continuidade, nunca como pedido principal.",
+    "Diferencie claramente fatos explícitos do prompt atual, inferências sustentadas pelo contexto e suposições necessárias.",
+    "Não revele chain-of-thought bruto nem raciocínio interno literal.",
+    "Não produza texto ornamental, motivacional ou fechamento genérico.",
+    "Explique termos técnicos sem infantilizar a linguagem.",
+    "Retorne JSON válido com estas chaves:",
+    "objectiveInterpreted, strategyUsed, promptBreakdown, conceptsAndTerminologies, constructionProcess, limitationsAndGaps, refinementSuggestions, contextUse",
+    "objectiveInterpreted: string curta explicando a intenção principal interpretada do último prompt.",
+    "strategyUsed: string explicando como a IA abordou o pedido atual.",
+    "promptBreakdown: array de objetos { segment, function } quebrando o último prompt em partes e explicando a função de cada trecho.",
+    "conceptsAndTerminologies: array de objetos { term, meaning, relevance } com explicações didáticas e progressivas.",
+    "constructionProcess: objeto com arrays string chamados explicitRequests, inferredPoints, assumptionsMade, ambiguities.",
+    "limitationsAndGaps: array curto de lacunas ou limites que poderiam tornar a resposta mais precisa.",
+    "refinementSuggestions: array curto de melhorias no prompt para respostas mais consistentes, avançadas ou específicas.",
+    "contextUse: string curta explicando como o histórico anterior influenciou ou não a resposta, sem substituir o foco do último prompt.",
+    "Nomeie termos como saliência, compressão semântica, tokenização, atenção, condicionamento por prompt, decoding e outros que forem realmente úteis aqui.",
     `Missao: ${mission.name}`,
     `Categoria: ${mission.category}`,
     `Modo: ${MODE_LABELS[mission.mode] || mission.mode}`,
     isFreeInstructionAction(acao)
-      ? "A rodada foi feita em modo de instrucao livre, sem acao rapida predefinida."
-      : `Acao escolhida: ${getActionLabel(acao)}`,
-    `Sinal de historico: ${historySignal}`,
-    `Input do usuario:\n${input}`,
-    `Resposta da IA:\n${output}`,
+      ? "A rodada foi feita em modo de instrução livre, sem ação rápida predefinida."
+      : `Ação escolhida: ${getActionLabel(acao)}`,
+    `Sinal de histórico: ${historySignal}`,
+    `Último prompt do usuário (foco principal):\n${input}`,
+    `Histórico anterior da missão (apenas contexto secundário):\n${historyBlock}`,
+    `Resposta da IA para esta rodada:\n${output}`,
     conceptGuide ? `Conceitos sugeridos para esta missao:\n${conceptGuide}` : "",
   ]
     .filter(Boolean)
@@ -1344,6 +1415,17 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
   return {
     ...parsed,
     sourceType: "openai-guided",
+    sourceLabel: "Análise pedagógica gerada com OpenAI",
+    analysisTarget: "latest_prompt",
+    usedHistoryContext: historyContext.length > 0,
+    historySignal,
+    usage: {
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      totalTokens: result.inputTokens + result.outputTokens,
+      cost: estimateCost(model, result.inputTokens, result.outputTokens),
+      model,
+    },
   };
 }
 
@@ -1477,11 +1559,11 @@ function executarMock({ mission, input, acao, model, planningMode, historyContex
   };
 }
 
-function Modal({ open, children, onClose, small = false, dismissible = true }) {
+function Modal({ open, children, onClose, small = false, dismissible = true, className = "" }) {
   if (!open) return null;
   return (
     <div className="overlay open" onClick={dismissible ? onClose : undefined}>
-      <div className={`modal${small ? " modal-small" : ""}`} onClick={(event) => event.stopPropagation()}>
+      <div className={`modal${small ? " modal-small" : ""}${className ? ` ${className}` : ""}`} onClick={(event) => event.stopPropagation()}>
         {children}
       </div>
     </div>
@@ -1556,6 +1638,7 @@ function App() {
   const [helpMessage, setHelpMessage] = useState("");
   const [reflectionComment, setReflectionComment] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
+  const [missionFeedbackOpen, setMissionFeedbackOpen] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [roomMapOpen, setRoomMapOpen] = useState(false);
   const [activeStudentName, setActiveStudentName] = useState("");
@@ -1698,12 +1781,21 @@ function App() {
       : getExecucoes(teamEvent, timeTeamIdx, currentMission.id)
     : [];
   const currentReflexao = currentMission && teamEvent && !isTrainingEvent ? getReflexao(teamEvent, timeTeamIdx, currentMission.id) : null;
+  const currentQuestionarioPendente = currentMission && teamEvent && !isTrainingEvent ? isQuestionarioPendente(teamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentQuestionarioPendenteSource = currentMission && teamEvent && !isTrainingEvent
+    ? getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id)
+    : null;
   const currentConcluida = currentMission && teamEvent && !isTrainingEvent ? isConcluida(teamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentConclusaoSource = currentMission && teamEvent && !isTrainingEvent
+    ? getConclusaoSource(teamEvent, timeTeamIdx, currentMission.id)
+    : null;
+  const currentMissionStatus = currentMission && teamEvent && !isTrainingEvent ? getMissionClosureStatus(teamEvent, timeTeamIdx, currentMission.id) : "aberta";
+  const latestCurrentExec = currentExecs.length ? currentExecs[currentExecs.length - 1] : null;
   const readingStage = Boolean(missionFlow.exec);
   const hasMissionHistory = currentMission && teamEvent
     ? isTrainingEvent
       ? currentExecs.length > 0
-      : currentExecs.length > 0 || Boolean(currentReflexao) || currentConcluida
+      : currentExecs.length > 0 || Boolean(currentReflexao) || currentQuestionarioPendente || currentConcluida
     : false;
   const preservedUsage = currentMission && teamEvent && !isTrainingEvent ? getPreservedMissionUsage(teamEvent, timeTeamIdx, currentMission.id) : null;
   const currentHelpRequests = currentMission && teamEvent
@@ -1720,23 +1812,64 @@ function App() {
     if (!currentMission) {
       setMissionInput("");
       setRunState(null);
-    setMissionFlow({ stage: "idle", exec: null });
-    setHistoryOpen(false);
-    setHelpOpen(false);
-    setHelpMessage("");
-    setReflectionComment("");
+      setMissionFlow({ stage: "idle", exec: null });
+      setHistoryOpen(false);
+      setHelpOpen(false);
+      setHelpMessage("");
+      setReflectionAnswers({});
+      setReflectionComment("");
+      setMissionAttachments([]);
+      return;
+    }
+    setMissionInput("");
     setMissionAttachments([]);
-    return;
-  }
-  setMissionInput("");
-  setMissionAttachments([]);
-  setRunError("");
+    setRunError("");
     setHistoryOpen(false);
     setHelpOpen(false);
     setHelpMessage("");
+    setReflectionAnswers({});
     setReflectionComment("");
     setMissionMenuOpen(null);
   }, [timeMissionIdx, timeEventId]);
+
+  useEffect(() => {
+    if (!currentMission) return;
+    if (isTrainingEvent) {
+      setMissionFlow({
+        stage: latestCurrentExec ? "cot_aberto" : "idle",
+        exec: latestCurrentExec || null,
+      });
+      return;
+    }
+    if (currentQuestionarioPendente) {
+      setReflectionAnswers({});
+      setReflectionComment("");
+      setMissionFlow({
+        stage: "questionario_final",
+        exec: latestCurrentExec || null,
+      });
+      return;
+    }
+    if (currentConcluida) {
+      setMissionFlow({
+        stage: "concluida",
+        exec: latestCurrentExec || null,
+      });
+      return;
+    }
+    setMissionFlow({
+      stage: latestCurrentExec ? "cot_aberto" : "idle",
+      exec: latestCurrentExec || null,
+    });
+  }, [currentConcluida, currentMission?.id, currentQuestionarioPendente, isTrainingEvent, latestCurrentExec]);
+
+  useEffect(() => {
+    if (!teamEvent || timeTeamIdx === null || isTrainingEvent) return;
+    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
+    if (pendingMissionIdx >= 0 && timeMissionIdx !== pendingMissionIdx) {
+      setTimeMissionIdx(pendingMissionIdx);
+    }
+  }, [isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
     if (!selectedEvent) {
@@ -2113,6 +2246,7 @@ function App() {
               teams,
               execucoes: {},
               reflexoes: {},
+              questionariosPendentes: {},
               conclusoes: {},
               preservedMissionUsage: {},
               helpRequests: [],
@@ -2166,7 +2300,27 @@ function App() {
         if (event.id !== eventId) return event;
         const teams = [...event.teams];
         teams.splice(index, 1);
-        return { ...event, teams };
+        const filterMissionKeyMap = (map = {}) =>
+          Object.fromEntries(
+            Object.entries(map).filter(([key]) => {
+              const teamIdx = Number(`${key}`.split("__")[0]);
+              return teamIdx !== index;
+            }),
+          );
+        return {
+          ...event,
+          teams,
+          execucoes: filterMissionKeyMap(event.execucoes),
+          reflexoes: filterMissionKeyMap(event.reflexoes),
+          questionariosPendentes: filterMissionKeyMap(event.questionariosPendentes),
+          conclusoes: filterMissionKeyMap(event.conclusoes),
+          preservedMissionUsage: filterMissionKeyMap(event.preservedMissionUsage),
+          helpRequests: (event.helpRequests || []).filter((request) => request.teamIdx !== index),
+          trainingRuns: Object.fromEntries(
+            Object.entries(event.trainingRuns || {}).filter(([key]) => Number(key) !== index),
+          ),
+          trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== index),
+        };
       }),
     );
     showToast("Time removido");
@@ -2207,8 +2361,22 @@ function App() {
       current.map((event) => {
         if (event.id !== eventId) return event;
         const missions = [...event.missions];
+        const removedMission = missions[index];
         missions.splice(index, 1);
-        return { ...event, missions };
+        const filterMissionIdMap = (map = {}) =>
+          Object.fromEntries(
+            Object.entries(map).filter(([key]) => !`${key}`.endsWith(`__${removedMission?.id}`)),
+          );
+        return {
+          ...event,
+          missions,
+          execucoes: filterMissionIdMap(event.execucoes),
+          reflexoes: filterMissionIdMap(event.reflexoes),
+          questionariosPendentes: filterMissionIdMap(event.questionariosPendentes),
+          conclusoes: filterMissionIdMap(event.conclusoes),
+          preservedMissionUsage: filterMissionIdMap(event.preservedMissionUsage),
+          helpRequests: (event.helpRequests || []).filter((request) => request.missionId !== removedMission?.id),
+        };
       }),
     );
     showToast("Missao removida");
@@ -2285,13 +2453,15 @@ function App() {
   function handleEscolherTime(index, memberName = "") {
     const selectedEvent = events.find((event) => event.id === timeEventId) || null;
     const eventMode = selectedEvent ? getEventMode(selectedEvent) : MISSIONS_MODE_EVENT;
+    const pendingMissionIdx =
+      selectedEvent && eventMode !== TRAINING_MODE_EVENT ? getFirstPendingMissionIndex(selectedEvent, index) : -1;
     const firstUnlockedMissionIdx =
       selectedEvent && eventMode !== TRAINING_MODE_EVENT
         ? selectedEvent.missions.findIndex((mission) => mission.unlocked)
         : -1;
     setActiveStudentName(normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "");
     setTimeTeamIdx(index);
-    setTimeMissionIdx(firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null);
+    setTimeMissionIdx(pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null);
     setScreen("workspace");
   }
 
@@ -2315,6 +2485,13 @@ function App() {
   }
 
   function handleSelectMission(index) {
+    if (teamEvent && timeTeamIdx !== null) {
+      const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
+      if (pendingMissionIdx >= 0 && pendingMissionIdx !== index) {
+        setTimeMissionIdx(pendingMissionIdx);
+        return;
+      }
+    }
     setTimeMissionIdx(index);
   }
 
@@ -2350,6 +2527,12 @@ function App() {
         if (event.id !== eventId) return event;
         const key = `${teamIdx}__${missionId}`;
         const submittedAt = new Date().toISOString();
+        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
+        const pendingSource =
+          typeof questionariosPendentes[key] === "object" && questionariosPendentes[key]
+            ? questionariosPendentes[key].source
+            : "team";
+        delete questionariosPendentes[key];
         return {
           ...event,
           reflexoes: {
@@ -2365,10 +2548,155 @@ function App() {
               ts: submittedAt,
             },
           },
-          conclusoes: { ...(event.conclusoes || {}), [key]: submittedAt },
+          questionariosPendentes,
+          conclusoes: {
+            ...(event.conclusoes || {}),
+            [key]: {
+              closedAt: submittedAt,
+              source: pendingSource === "team" ? "team" : "facilitator",
+            },
+          },
         };
       }),
     );
+  }
+
+  function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
+    if (!teamIndexes.length) return;
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const pendingMap = { ...(event.questionariosPendentes || {}) };
+        teamIndexes.forEach((teamIdx) => {
+          const key = `${teamIdx}__${missionId}`;
+          if (!event.conclusoes?.[key]) {
+            pendingMap[key] = {
+              openedAt: new Date().toISOString(),
+              source,
+            };
+          }
+        });
+        return {
+          ...event,
+          questionariosPendentes: pendingMap,
+        };
+      }),
+    );
+  }
+
+  function handleTeamCloseMission() {
+    if (!teamEvent || timeTeamIdx === null || !currentMission || isTrainingEvent) return;
+    openMissionQuestionnaireForTeams(teamEvent.id, currentMission.id, [timeTeamIdx], "team");
+    setReflectionAnswers({});
+    setReflectionComment("");
+    setMissionFlow((current) => ({ ...current, stage: "questionario_final" }));
+    setMissionInput("");
+    setMissionAttachments([]);
+    showToast("Missão encerrada para este time");
+  }
+
+  function handleCancelTeamMissionClosure() {
+    if (!teamEvent || timeTeamIdx === null || !currentMission || isTrainingEvent) return;
+    if (getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id) !== "team") return;
+    const key = `${timeTeamIdx}__${currentMission.id}`;
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== teamEvent.id) return event;
+        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
+        delete questionariosPendentes[key];
+        return {
+          ...event,
+          questionariosPendentes,
+        };
+      }),
+    );
+    setReflectionAnswers({});
+    setReflectionComment("");
+    setMissionFlow((current) => ({ ...current, stage: current.exec ? current.stage : "idle" }));
+    showToast("Encerramento cancelado");
+  }
+
+  function handleFacilitatorCloseMission(eventId, missionId) {
+    const event = events.find((item) => item.id === eventId);
+    if (!event) return;
+    const teamIndexes = event.teams
+      .map((_, teamIdx) => teamIdx)
+      .filter((teamIdx) => getMissionClosureStatus(event, teamIdx, missionId) === "aberta");
+    if (!teamIndexes.length) {
+      showToast("Todos os times desta missão já foram encerrados");
+      return;
+    }
+    openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, "facilitator");
+    showToast("Questionário liberado para os times ainda abertos");
+  }
+
+  function handleFacilitatorCloseMissionWithoutEvaluation(eventId, missionId) {
+    const event = events.find((item) => item.id === eventId);
+    if (!event) return;
+    const teamIndexes = event.teams
+      .map((_, teamIdx) => teamIdx)
+      .filter((teamIdx) => !isConcluida(event, teamIdx, missionId));
+    if (!teamIndexes.length) {
+      showToast("Todos os times desta missão já foram concluídos");
+      return;
+    }
+    const concludedAt = new Date().toISOString();
+    updateEvents((current) =>
+      current.map((item) => {
+        if (item.id !== eventId) return item;
+        const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
+        const conclusoes = { ...(item.conclusoes || {}) };
+        teamIndexes.forEach((teamIdx) => {
+          const key = `${teamIdx}__${missionId}`;
+          delete questionariosPendentes[key];
+          conclusoes[key] = {
+            closedAt: concludedAt,
+            source: "facilitator_no_evaluation",
+          };
+        });
+        return {
+          ...item,
+          questionariosPendentes,
+          conclusoes,
+        };
+      }),
+    );
+    showToast("Missão encerrada sem avaliação para os times restantes");
+  }
+
+  function handleFacilitatorReopenMission(eventId, missionId) {
+    const event = events.find((item) => item.id === eventId);
+    if (!event) return;
+    const teamIndexes = event.teams
+      .map((_, teamIdx) => teamIdx)
+      .filter((teamIdx) => canFacilitatorReopenMissionForTeam(event, teamIdx, missionId));
+    if (!teamIndexes.length) {
+      showToast("Nenhum time elegível para reabertura nesta missão");
+      return;
+    }
+    updateEvents((current) =>
+      current.map((item) => {
+        if (item.id !== eventId) return item;
+        const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
+        const conclusoes = { ...(item.conclusoes || {}) };
+        const reflexoes = { ...(item.reflexoes || {}) };
+        teamIndexes.forEach((teamIdx) => {
+          const key = `${teamIdx}__${missionId}`;
+          delete questionariosPendentes[key];
+          delete conclusoes[key];
+          if (getConclusaoSource(item, teamIdx, missionId) === "facilitator") {
+            delete reflexoes[key];
+          }
+        });
+        return {
+          ...item,
+          questionariosPendentes,
+          conclusoes,
+          reflexoes,
+        };
+      }),
+    );
+    showToast("Missão reaberta para os times fechados pelo facilitador");
   }
 
   function handleOpenHelp() {
@@ -2522,8 +2850,12 @@ function App() {
         input: acc.input + (exec.inputTokens || 0),
         output: acc.output + (exec.outputTokens || 0),
         cost: acc.cost + (exec.custo || 0),
+        explanationTotal: acc.explanationTotal + (exec.technicalAnalysisUsage?.totalTokens || 0),
+        explanationInput: acc.explanationInput + (exec.technicalAnalysisUsage?.inputTokens || 0),
+        explanationOutput: acc.explanationOutput + (exec.technicalAnalysisUsage?.outputTokens || 0),
+        explanationCost: acc.explanationCost + (exec.technicalAnalysisUsage?.cost || 0),
       }),
-      { total: 0, input: 0, output: 0, cost: 0 },
+      { total: 0, input: 0, output: 0, cost: 0, explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0 },
     );
 
     updateEvents((current) =>
@@ -2531,12 +2863,23 @@ function App() {
         if (event.id !== teamEvent.id) return event;
         const execucoes = { ...(event.execucoes || {}) };
         const reflexoes = { ...(event.reflexoes || {}) };
+        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
         const conclusoes = { ...(event.conclusoes || {}) };
         const preservedMissionUsage = { ...(event.preservedMissionUsage || {}) };
-        const currentPreserved = preservedMissionUsage[key] || { total: 0, input: 0, output: 0, cost: 0 };
+        const currentPreserved = preservedMissionUsage[key] || {
+          total: 0,
+          input: 0,
+          output: 0,
+          cost: 0,
+          explanationTotal: 0,
+          explanationInput: 0,
+          explanationOutput: 0,
+          explanationCost: 0,
+        };
 
         delete execucoes[key];
         delete reflexoes[key];
+        delete questionariosPendentes[key];
         delete conclusoes[key];
 
         preservedMissionUsage[key] = {
@@ -2544,12 +2887,17 @@ function App() {
           input: currentPreserved.input + removedTotals.input,
           output: currentPreserved.output + removedTotals.output,
           cost: currentPreserved.cost + removedTotals.cost,
+          explanationTotal: currentPreserved.explanationTotal + removedTotals.explanationTotal,
+          explanationInput: currentPreserved.explanationInput + removedTotals.explanationInput,
+          explanationOutput: currentPreserved.explanationOutput + removedTotals.explanationOutput,
+          explanationCost: currentPreserved.explanationCost + removedTotals.explanationCost,
         };
 
         return {
           ...event,
           execucoes,
           reflexoes,
+          questionariosPendentes,
           conclusoes,
           preservedMissionUsage,
         };
@@ -2588,6 +2936,7 @@ function App() {
 
   async function handleExecutarMissao() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
+    if (!isTrainingEvent && currentMissionStatus !== "aberta") return;
     const input = missionInput.trim();
     const attachments = missionAttachments;
     const acao = FREE_ACTION_KEY;
@@ -2665,27 +3014,6 @@ function App() {
             historyContext,
           });
 
-      const guidedReasoningPromise = apiConfigured
-        ? gerarExplicacaoGuiadaIA({
-            apiKey: store.apiKey,
-            model: store.model,
-            mission: currentMission,
-            input,
-            acao,
-            output: result.output,
-            historyContext,
-          }).catch(() => null)
-        : Promise.resolve(null);
-
-      const reasoningDetails = buildReasoningDetails({
-        mission: currentMission,
-        input,
-        acao,
-        historyContext,
-        promptApplied: result.promptApplied,
-        apiConfigured,
-      });
-
       setRunState((current) =>
         current
           ? {
@@ -2696,7 +3024,7 @@ function App() {
               inputTokens: result.inputTokens,
               outputTokens: 0,
               custo: result.custo,
-              reasoningDetails,
+              reasoningDetails: null,
               processingSteps: current.processingSteps.map((step, stepIndex) => ({
                 ...step,
                 status: stepIndex < 2 ? "done" : stepIndex === 2 ? "active" : "pending",
@@ -2739,29 +3067,24 @@ function App() {
         await sleep(350);
       }
 
-      const guidedReasoning = await guidedReasoningPromise;
-      const finalReasoningDetails = {
-        ...reasoningDetails,
-        ...(guidedReasoning || {}),
-        sourceLabel: guidedReasoning
-          ? "Explicacao pedagogica gerada com OpenAI"
-          : apiConfigured
-            ? "Explicacao pedagogica em fallback local"
-            : "Explicacao pedagogica em simulacao local",
-        sourceType: guidedReasoning
-          ? "openai-guided"
-          : apiConfigured
-            ? "openai-fallback"
-            : "local-fallback",
-        conceptDetails:
-          guidedReasoning?.conceptDetails?.length
-            ? guidedReasoning.conceptDetails
-            : buildConceptDetails(currentMission, acao, result.output),
-      };
+      const guidedReasoning = apiConfigured
+        ? await gerarExplicacaoGuiadaIA({
+            apiKey: store.apiKey,
+            model: result.effectiveModel || store.model,
+            mission: currentMission,
+            input,
+            acao,
+            output: result.output,
+            historyContext,
+          }).catch(() => null)
+        : null;
+      const finalReasoningDetails =
+        guidedReasoning ||
+        buildTechnicalAnalysisUnavailable({
+          apiConfigured,
+          historyContext,
+        });
       const iterationNumber = currentExecs.length + 1;
-      const conceptSummary =
-        finalReasoningDetails.conceptSummary ||
-        `Conceitos abordados: ${currentMission.category}, ${MODE_LABELS[currentMission.mode] || currentMission.mode}, ${getActionLabel(acao).toLowerCase()}.`;
       const execRecord = {
         id: `run_${Date.now()}`,
         ts: new Date().toISOString(),
@@ -2771,18 +3094,24 @@ function App() {
         actionMode: isFreeInstructionAction(acao) ? "free" : "preset",
         isFreeInstruction: isFreeInstructionAction(acao),
         output: result.output,
-        explicacao: finalReasoningDetails.strategy,
-        reasoningSummary: finalReasoningDetails.summary,
-        reasoningDetails: {
-          ...finalReasoningDetails,
-          conceptSummary,
+        explicacao: finalReasoningDetails.objectiveInterpreted || finalReasoningDetails.unavailableReason || "",
+        reasoningSummary: finalReasoningDetails.strategyUsed || finalReasoningDetails.objectiveInterpreted || finalReasoningDetails.unavailableReason || "",
+        reasoningDetails: finalReasoningDetails,
+        technicalAnalysis: finalReasoningDetails,
+        technicalAnalysisUsage: guidedReasoning?.usage || {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          cost: 0,
+          model: result.effectiveModel || store.model,
         },
         processingSteps: buildRunSteps(apiConfigured).map((step) => ({ ...step, status: "done" })),
         simulationMode: apiConfigured ? "openai-live" : "mock-stream",
         promptApplied: result.promptApplied,
         usedHistory: historyContext.length > 0,
         historySignal: buildHistorySignal(historyContext),
-        conceptSummary,
+        analysisTarget: "latest_prompt",
+        usedHistoryContext: historyContext.length > 0,
         iterationNumber,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
@@ -2827,6 +3156,8 @@ function App() {
       reflectionAnswers,
       reflectionComment.trim(),
     );
+    setReflectionAnswers({});
+    setReflectionComment("");
     setMissionFlow((current) => ({ ...current, stage: "concluida" }));
     showToast("Reflexao enviada");
   }
@@ -3109,6 +3440,7 @@ function App() {
                 name: mission.name,
                 runs: execs.length,
                 concluded: Boolean(reflection),
+                closureStatus: getMissionClosureStatus(evento, teamIdx, mission.id),
                 reflection,
                 helpOpen: teamHelpOpenRequests.filter((request) => request.missionId === mission.id).length,
                 lastRunAt: execs.length ? execs[execs.length - 1].ts : null,
@@ -3186,8 +3518,14 @@ function App() {
                           </div>
                           <div className="team-mission-side">
                             <div className="team-mission-status">
-                              <span className={`team-inline-pill${missionItem.concluded ? " is-complete" : missionItem.runs ? "" : " is-muted"}`}>
-                                {missionItem.concluded ? "feito" : missionItem.runs ? "em andamento" : "pendente"}
+                              <span className={`team-inline-pill${missionItem.closureStatus === "concluida" ? " is-complete" : missionItem.closureStatus === "aguardando_questionario" ? " is-alert" : missionItem.runs ? "" : " is-muted"}`}>
+                                {missionItem.closureStatus === "concluida"
+                                  ? "feito"
+                                  : missionItem.closureStatus === "aguardando_questionario"
+                                    ? "questionário"
+                                    : missionItem.runs
+                                      ? "em andamento"
+                                      : "pendente"}
                               </span>
                               {missionItem.helpOpen ? (
                                 <span
@@ -3212,11 +3550,11 @@ function App() {
                                 {Object.entries(missionItem.reflection.respostas || {}).map(([key, value]) => (
                                   <span className="mission-feedback-chip is-rating" key={`${missionItem.id}-${key}`}>
                                     <strong>{getReflectionTopicShortLabel(key)}</strong>
-                                    <span className="mission-feedback-score" aria-label={`${value} de 5`}>
-                                      {value}/5
-                                    </span>
-                                  </span>
-                                ))}
+                                              <span className="mission-feedback-score" aria-label={`${Number(value).toFixed(1)} de 5`}>
+                                                    {Number(value).toFixed(1)}/5
+                                                  </span>
+                                                </span>
+                                              ))}
                               </div>
                               {missionItem.reflection.comment ? (
                                 <div className="team-admin-feedback-comment">{missionItem.reflection.comment}</div>
@@ -3242,10 +3580,13 @@ function App() {
                   let missionRuns = 0;
                   let missionConcluded = 0;
                   const missionHelpOpen = openHelpRequests.filter((request) => request.missionId === mission.id).length;
+                  const missionHasOpenTeams = evento.teams.some((_, teamIdx) => getMissionClosureStatus(evento, teamIdx, mission.id) === "aberta");
+                  const missionHasReopenableTeams = evento.teams.some((_, teamIdx) => canFacilitatorReopenMissionForTeam(evento, teamIdx, mission.id));
 
                   const teamRows = evento.teams.map((teamItem, teamIdx) => {
                     const execs = getExecucoes(evento, teamIdx, mission.id);
                     const reflection = (evento.reflexoes || {})[`${teamIdx}__${mission.id}`];
+                    const closureStatus = getMissionClosureStatus(evento, teamIdx, mission.id);
                     const helpOpen = openHelpRequests.filter((request) => request.teamIdx === teamIdx && request.missionId === mission.id).length;
                     const teamTokens = execs.reduce((sum, execucao) => sum + (execucao.tokens || 0), 0);
                     const teamCusto = execs.reduce((sum, execucao) => sum + (execucao.custo || 0), 0);
@@ -3256,6 +3597,7 @@ function App() {
                     return {
                       teamName: teamItem.name,
                       reflection,
+                      closureStatus,
                       helpOpen,
                       runs: execs.length,
                     };
@@ -3278,6 +3620,47 @@ function App() {
                             <span className="team-help-indicator-count">{missionHelpOpen}</span>
                           </span>
                         ) : null}
+                        <div className="mission-head-actions">
+                          <button
+                            className="mission-close-btn"
+                            type="button"
+                            onClick={() =>
+                              missionHasOpenTeams
+                                ? openConfirm(
+                                    "Encerrar missão",
+                                    `Abrir o questionário final para todos os times ainda abertos na missão "${mission.name}"?`,
+                                    () => handleFacilitatorCloseMission(evento.id, mission.id),
+                                    { confirmTone: "primary" },
+                                  )
+                                : missionHasReopenableTeams
+                                  ? openConfirm(
+                                      "Reabrir missão",
+                                      `Reabrir a missão "${mission.name}" apenas para os times que foram fechados pelo facilitador?`,
+                                      () => handleFacilitatorReopenMission(evento.id, mission.id),
+                                      { confirmTone: "primary" },
+                                    )
+                                  : null
+                            }
+                            disabled={!missionHasOpenTeams && !missionHasReopenableTeams}
+                          >
+                            {missionHasOpenTeams ? "Encerrar missão" : "Reabrir missão"}
+                          </button>
+                          <button
+                            className="mission-close-btn is-secondary-action"
+                            type="button"
+                            onClick={() =>
+                              openConfirm(
+                                "Encerrar sem avaliação",
+                                `Concluir a missão "${mission.name}" para os times restantes sem abrir questionário?`,
+                                () => handleFacilitatorCloseMissionWithoutEvaluation(evento.id, mission.id),
+                                { confirmTone: "primary" },
+                            )
+                          }
+                            disabled={!missionHasOpenTeams}
+                          >
+                            Encerrar sem avaliação
+                          </button>
+                        </div>
                       </div>
                       <div className="mission-admin-metrics">
                         <div className="team-admin-metric">
@@ -3304,8 +3687,14 @@ function App() {
                               <div className="mission-team-top">
                                 <div className="mission-team-name">{teamRow.teamName}</div>
                                 <div className="team-mission-status">
-                                  <span className={`team-inline-pill${teamRow.reflection ? " is-complete" : teamRow.runs ? "" : " is-muted"}`}>
-                                    {teamRow.reflection ? "feito" : teamRow.runs ? "em andamento" : "pendente"}
+                                  <span className={`team-inline-pill${teamRow.closureStatus === "concluida" ? " is-complete" : teamRow.closureStatus === "aguardando_questionario" ? " is-alert" : teamRow.runs ? "" : " is-muted"}`}>
+                                    {teamRow.closureStatus === "concluida"
+                                      ? "feito"
+                                      : teamRow.closureStatus === "aguardando_questionario"
+                                        ? "questionário"
+                                        : teamRow.runs
+                                          ? "em andamento"
+                                          : "pendente"}
                                   </span>
                                   {teamRow.helpOpen ? (
                                     <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedidos de ajuda abertos nesta missao`}>
@@ -3783,23 +4172,6 @@ function App() {
                           </div>
                         </div>
                       </div>
-                      <div className="event-item-detail-block">
-                        <EventCardSectionLabel icon="code">Código de acesso</EventCardSectionLabel>
-                        <div className="key-inline-row">
-                          <div className="key-display">{event.id}</div>
-                          <button
-                            className="icon-copy-btn"
-                            aria-label="Copiar código do evento"
-                            title="Copiar código"
-                            onClick={() => {
-                              navigator.clipboard.writeText(event.id);
-                              showToast("Código copiado");
-                            }}
-                          >
-                            ⧉
-                          </button>
-                        </div>
-                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -3870,98 +4242,204 @@ function App() {
                                 <span>{PACK_LABELS[pack] || pack}</span>
                                 <span className={`pack-badge pack-${pack}`}>{missions.length} missões</span>
                               </div>
-                              {missions.map((mission) => (
-                                <div className="mission-row-wrap" key={`${mission.id}-${mission._idx}`}>
-                                <div className="mission-row">
-                                  <div className="mission-main">
-                                    <div className="mission-row-header">
-                                      <span className="mission-num">{mission.num || ""}</span>
-                                      <button
-                                        className={`mission-toggle mission-toggle-inline${mission.unlocked ? " is-on" : ""}`}
-                                        onClick={() => handleToggleMission(selectedEvent.id, mission._idx, !mission.unlocked)}
-                                        aria-label={mission.unlocked ? `Desligar missao ${mission.name}` : `Ligar missao ${mission.name}`}
-                                      >
-                                        <span className="mission-toggle-track">
-                                          <span className="mission-toggle-thumb" />
-                                        </span>
-                                      </button>
-                                      <span className="mname">{mission.name}</span>
-                                      <span className={`mode-badge ${MODE_CLASS[mission.mode] || "mode-single"}`}>
-                                        {MODE_LABELS[mission.mode] || mission.mode}
-                                      </span>
-                                    </div>
-                                    <div className="mcat">{mission.category}</div>
-                                    {mission.desc ? <div className="mdesc">{mission.desc}</div> : null}
-                                    <div className="mission-inline-stats">
-                                      <span>{getMissionReflections(selectedEvent, mission.id).length} feedback(s)</span>
-                                      <span>
-                                        {selectedEvent.teams.filter((_, teamIdx) => isConcluida(selectedEvent, teamIdx, mission.id)).length} time(s) concluíram
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="mission-actions">
-                                    <div className="mission-overflow">
-                                      <button
-                                        className={`mission-overflow-trigger${missionMenuOpen === `${mission.id}-${mission._idx}` ? " is-open" : ""}`}
-                                        onClick={() =>
-                                          setMissionMenuOpen((current) =>
-                                            current === `${mission.id}-${mission._idx}` ? null : `${mission.id}-${mission._idx}`,
-                                          )
-                                        }
-                                        aria-label={`Abrir menu da missao ${mission.name}`}
-                                      >
-                                        ⋯
-                                      </button>
-                                      {missionMenuOpen === `${mission.id}-${mission._idx}` ? (
-                                        <div className="mission-overflow-menu">
+                              {missions.map((mission) => {
+                                const reflections = getMissionReflections(selectedEvent, mission.id);
+                                const feedbackKey = `${selectedEvent.id}__${mission.id}`;
+                                const feedbackOpen = Boolean(missionFeedbackOpen[feedbackKey]);
+                                const missionHasOpenTeams = selectedEvent.teams.some((_, teamIdx) => getMissionClosureStatus(selectedEvent, teamIdx, mission.id) === "aberta");
+                                const missionHasReopenableTeams = selectedEvent.teams.some((_, teamIdx) => canFacilitatorReopenMissionForTeam(selectedEvent, teamIdx, mission.id));
+                                const topicAverages = PERGUNTAS_REFLEXAO.map((question) => {
+                                  const values = reflections
+                                    .map((reflection) => Number(reflection.respostas?.[question.id] || 0))
+                                    .filter(Boolean);
+                                  const average = values.length
+                                    ? values.reduce((sum, value) => sum + value, 0) / values.length
+                                    : 0;
+                                  return {
+                                    id: question.id,
+                                    label: getReflectionTopicShortLabel(question.id),
+                                    average,
+                                  };
+                                });
+                                const scoredTopics = topicAverages.filter((item) => item.average > 0);
+                                const overallAverage = scoredTopics.length
+                                  ? scoredTopics.reduce((sum, item) => sum + item.average, 0) / scoredTopics.length
+                                  : 0;
+
+                                return (
+                                  <div className="mission-row-wrap" key={`${mission.id}-${mission._idx}`}>
+                                    <div className="mission-row">
+                                      <div className="mission-main">
+                                        <div className="mission-row-header">
+                                          <span className="mission-num">{mission.num || ""}</span>
                                           <button
-                                            className="mission-overflow-item mission-overflow-item-danger"
-                                            onClick={() => {
-                                              setMissionMenuOpen(null);
-                                              openDeleteConfirm({
-                                                eventId: selectedEvent.id,
-                                                title: "Remover missão",
-                                                body: `A missão "${mission.name}" será removida do evento. Para continuar, digite o código do evento como senha de segurança.`,
-                                                onConfirm: () => handleRemoveMission(selectedEvent.id, mission._idx),
-                                              });
-                                            }}
+                                            className={`mission-toggle mission-toggle-inline${mission.unlocked ? " is-on" : ""}`}
+                                            onClick={() => handleToggleMission(selectedEvent.id, mission._idx, !mission.unlocked)}
+                                            aria-label={mission.unlocked ? `Desligar missao ${mission.name}` : `Ligar missao ${mission.name}`}
                                           >
-                                            Excluir missão
+                                            <span className="mission-toggle-track">
+                                              <span className="mission-toggle-thumb" />
+                                            </span>
                                           </button>
+                                          <span className="mname">{mission.name}</span>
+                                          <span className={`mode-badge ${MODE_CLASS[mission.mode] || "mode-single"}`}>
+                                            {MODE_LABELS[mission.mode] || mission.mode}
+                                          </span>
                                         </div>
-                                      ) : null}
+                                        <div className="mcat">{mission.category}</div>
+                                        {mission.desc ? <div className="mdesc">{mission.desc}</div> : null}
+                                        <div className="mission-inline-stats">
+                                          <span>{reflections.length} feedback(s)</span>
+                                          <span>
+                                            {selectedEvent.teams.filter((_, teamIdx) => isConcluida(selectedEvent, teamIdx, mission.id)).length} time(s) concluíram
+                                          </span>
+                                        </div>
+                                        {reflections.length ? (
+                                          <div className="mission-feedback-list">
+                                            <div className="mission-feedback-card is-summary">
+                                              <div className="mission-feedback-head">
+                                                <div>
+                                                  <div className="mission-feedback-team">Média geral das avaliações</div>
+                                                  <div className="mission-feedback-meta">{reflections.length} time(s) responderam</div>
+                                                </div>
+                                                <div className="mission-feedback-overall-score" aria-label={`${overallAverage.toFixed(1)} de 5`}>
+                                                  {overallAverage ? `${overallAverage.toFixed(1)}/5` : "-"}
+                                                </div>
+                                              </div>
+                                              {scoredTopics.length ? (
+                                                <div className="mission-feedback-bars">
+                                                  {scoredTopics.map((item) => (
+                                                    <div className="mission-feedback-bar-row" key={item.id}>
+                                                      <div className="mission-feedback-bar-head">
+                                                        <strong>{item.label}</strong>
+                                                        <span className="mission-feedback-score" aria-label={`${item.average.toFixed(1)} de 5`}>
+                                                          {item.average.toFixed(1)}/5
+                                                        </span>
+                                                      </div>
+                                                      <div className="mission-feedback-bar-track" aria-hidden="true">
+                                                        <div
+                                                          className="mission-feedback-bar-fill"
+                                                          style={{ width: `${(item.average / 5) * 100}%` }}
+                                                        />
+                                                      </div>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              ) : null}
+                                              <div className="mission-feedback-actions">
+                                                <button
+                                                  className="mission-feedback-toggle"
+                                                  type="button"
+                                                  onClick={() =>
+                                                    setMissionFeedbackOpen((current) => ({
+                                                      ...current,
+                                                      [feedbackKey]: !current[feedbackKey],
+                                                    }))
+                                                  }
+                                                >
+                                                  {feedbackOpen ? "Ocultar times" : "Ver times"}
+                                                </button>
+                                              </div>
+                                            </div>
+                                            {feedbackOpen
+                                              ? reflections.map((reflection) => (
+                                                  <div className="mission-feedback-card" key={`${reflection.teamIdx}-${reflection.submittedAt || reflection.ts}`}>
+                                                    <div className="mission-feedback-head">
+                                                      <div className="mission-feedback-team">{selectedEvent.teams[reflection.teamIdx]?.name || `Time ${reflection.teamIdx + 1}`}</div>
+                                                      <div className="mission-feedback-meta">{formatDateTime(reflection.submittedAt || reflection.ts)}</div>
+                                                    </div>
+                                                    <div className="mission-feedback-scores is-inline">
+                                                      {Object.entries(reflection.respostas || {}).map(([key, value]) => (
+                                                        <span className="mission-feedback-chip is-rating" key={key}>
+                                                          <strong>{getReflectionTopicShortLabel(key)}</strong>
+                                                          <span className="mission-feedback-score" aria-label={`${Number(value).toFixed(1)} de 5`}>
+                                                            {Number(value).toFixed(1)}/5
+                                                          </span>
+                                                        </span>
+                                                      ))}
+                                                    </div>
+                                                    {reflection.comment ? <div className="mission-feedback-comment">{reflection.comment}</div> : null}
+                                                  </div>
+                                                ))
+                                              : null}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                      <div className="mission-actions">
+                                        <button
+                                          className="mission-close-btn"
+                                          type="button"
+                                          onClick={() =>
+                                            missionHasOpenTeams
+                                              ? openConfirm(
+                                                  "Encerrar missão",
+                                                  `Abrir o questionário final para todos os times ainda abertos na missão "${mission.name}"?`,
+                                                  () => handleFacilitatorCloseMission(selectedEvent.id, mission.id),
+                                                  { confirmTone: "primary" },
+                                                )
+                                              : missionHasReopenableTeams
+                                                ? openConfirm(
+                                                    "Reabrir missão",
+                                                    `Reabrir a missão "${mission.name}" apenas para os times que foram fechados pelo facilitador?`,
+                                                    () => handleFacilitatorReopenMission(selectedEvent.id, mission.id),
+                                                    { confirmTone: "primary" },
+                                                  )
+                                                : null
+                                          }
+                                          disabled={!missionHasOpenTeams && !missionHasReopenableTeams}
+                                        >
+                                          {missionHasOpenTeams ? "Encerrar missão" : "Reabrir missão"}
+                                        </button>
+                                        <div className="mission-overflow">
+                                          <button
+                                            className={`mission-overflow-trigger${missionMenuOpen === `${mission.id}-${mission._idx}` ? " is-open" : ""}`}
+                                            onClick={() =>
+                                              setMissionMenuOpen((current) =>
+                                                current === `${mission.id}-${mission._idx}` ? null : `${mission.id}-${mission._idx}`,
+                                              )
+                                            }
+                                            aria-label={`Abrir menu da missao ${mission.name}`}
+                                          >
+                                            ⋯
+                                          </button>
+                                          {missionMenuOpen === `${mission.id}-${mission._idx}` ? (
+                                            <div className="mission-overflow-menu">
+                                              <button
+                                                className="mission-overflow-item"
+                                                onClick={() => {
+                                                  setMissionMenuOpen(null);
+                                                  openConfirm(
+                                                    "Encerrar sem avaliação",
+                                                    `Concluir a missão "${mission.name}" para os times restantes sem abrir questionário?`,
+                                                    () => handleFacilitatorCloseMissionWithoutEvaluation(selectedEvent.id, mission.id),
+                                                    { confirmTone: "primary" },
+                                                  );
+                                                }}
+                                              >
+                                                Encerrar sem avaliação
+                                              </button>
+                                              <button
+                                                className="mission-overflow-item mission-overflow-item-danger"
+                                                onClick={() => {
+                                                  setMissionMenuOpen(null);
+                                                  openDeleteConfirm({
+                                                    eventId: selectedEvent.id,
+                                                    title: "Remover missão",
+                                                    body: `A missão "${mission.name}" será removida do evento. Para continuar, digite o código do evento como senha de segurança.`,
+                                                    onConfirm: () => handleRemoveMission(selectedEvent.id, mission._idx),
+                                                  });
+                                                }}
+                                              >
+                                                Excluir missão
+                                              </button>
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                                {getMissionReflections(selectedEvent, mission.id).length ? (
-                                  <div className="mission-feedback-list">
-                                    {getMissionReflections(selectedEvent, mission.id).map((reflection) => (
-                                      <div className="mission-feedback-card" key={`${reflection.teamIdx}-${reflection.submittedAt || reflection.ts}`}>
-                                        <div className="mission-feedback-head">
-                                          <div className="mission-feedback-team">{selectedEvent.teams[reflection.teamIdx]?.name || `Time ${reflection.teamIdx + 1}`}</div>
-                                          <div className="mission-feedback-meta">{formatDateTime(reflection.submittedAt || reflection.ts)}</div>
-                                        </div>
-                                        <div className="mission-feedback-scores is-inline">
-                                          {Object.entries(reflection.respostas || {}).map(([key, value]) => (
-                                            <span className="mission-feedback-chip is-rating" key={key}>
-                                              <strong>{getReflectionTopicShortLabel(key)}</strong>
-                                              <span className="mission-feedback-stars" aria-label={`${value} de 5`}>
-                                                {[1, 2, 3, 4, 5].map((score) => (
-                                                  <span className="star" key={score}>
-                                                    {score <= value ? "✦" : "✧"}
-                                                  </span>
-                                                ))}
-                                              </span>
-                                            </span>
-                                          ))}
-                                        </div>
-                                        {reflection.comment ? <div className="mission-feedback-comment">{reflection.comment}</div> : null}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           );
                         })
@@ -4153,13 +4631,23 @@ function App() {
                           <span className="ws-pack-label-icon" aria-hidden="true">
                             <Layers3 size={15} strokeWidth={1.6} />
                           </span>
-                          <span>{PACK_LABELS[pack] || pack}</span>
+                          <span>{getMissionPackHeading(pack)}</span>
                         </div>
                         {missions.map((mission) => {
                           const locked = !mission.unlocked;
-                          const concluida = isConcluida(teamEvent, timeTeamIdx, mission.id);
+                          const missionStatus = getMissionClosureStatus(teamEvent, timeTeamIdx, mission.id);
+                          const concluida = missionStatus === "concluida";
+                          const aguardandoQuestionario = missionStatus === "aguardando_questionario";
                           const execs = getExecucoes(teamEvent, timeTeamIdx, mission.id);
-                          const meta = concluida ? "feito" : locked ? "bloqueada" : execs.length ? "em andamento" : "liberada";
+                          const meta = concluida
+                            ? "feito"
+                            : aguardandoQuestionario
+                              ? "questionário"
+                              : locked
+                                ? "bloqueada"
+                                : execs.length
+                                  ? "em andamento"
+                                  : "liberada";
                           const isCurrentMission = timeMissionIdx === mission._idx;
                           const canResetMission = isCurrentMission && hasMissionHistory;
                           return (
@@ -4176,7 +4664,7 @@ function App() {
                                     {mission.name}
                                   </div>
                                   <span
-                                    className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : " is-open"}`}
+                                    className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : aguardandoQuestionario ? " is-open" : " is-open"}`}
                                     aria-label={meta}
                                     title={meta}
                                   />
@@ -4251,7 +4739,7 @@ function App() {
                     </div>
                   </div>
                   <div className="workspace-chat-body">
-                    {!currentConcluida ? (
+                    {(!currentConcluida && !currentQuestionarioPendente) ? (
                       <div className="input-card input-card-chat">
                         <div className="prompt-composer">
                           <PromptConversation
@@ -4260,6 +4748,25 @@ function App() {
                             pendingAttachments={missionAttachments}
                             runState={running ? runState : null}
                           />
+                          {!isTrainingEvent ? (
+                            <div className="prompt-composer-top-actions">
+                              <button
+                                className="mission-close-btn is-compact"
+                                type="button"
+                                onClick={() =>
+                                  openConfirm(
+                                    "Encerrar missão",
+                                    "Ao encerrar, este time para de conversar nesta missão e entra direto no questionário final. Deseja continuar?",
+                                    handleTeamCloseMission,
+                                    { confirmTone: "primary" },
+                                  )
+                                }
+                                disabled={running}
+                              >
+                                Encerrar missão
+                              </button>
+                            </div>
+                          ) : null}
                           <div className="prompt-entry-shell">
                             {missionAttachments.length ? (
                               <div className="composer-attachments">
@@ -4353,10 +4860,12 @@ function App() {
                       </div>
                     ) : null}
 
-                    {!isTrainingEvent && currentConcluida ? (
-                      <div className="done-inline-banner">
-                        Missão concluída pelo seu time.
-                        <span className="done-sub">Aguarde a próxima missão ser liberada pelo facilitador.</span>
+                    {!isTrainingEvent && currentQuestionarioPendente ? (
+                      <div className="done-inline-banner is-pending-survey">
+                        {currentQuestionarioPendenteSource === "team"
+                          ? "Missão encerrada para este time."
+                          : "Missão encerrada pelo facilitador para este time."}
+                        <span className="done-sub">Preencha o questionário final para concluir esta missão.</span>
                       </div>
                     ) : null}
 
@@ -4366,15 +4875,26 @@ function App() {
                           stage={missionFlow.stage}
                           reflectionAnswers={reflectionAnswers}
                           reflectionComment={reflectionComment}
+                          canClose={currentQuestionarioPendenteSource === "team"}
+                          onClose={handleCancelTeamMissionClosure}
                           onSelectAnswer={(questionId, score) =>
                             setReflectionAnswers((current) => ({ ...current, [questionId]: score }))
                           }
                           onChangeComment={setReflectionComment}
                           onSubmitReflection={handleSaveReflection}
-                          onCloseCompleted={() => setMissionFlow({ stage: "idle", exec: null })}
                         />
 
-                        {currentConcluida && currentReflexao ? <ReflectionSummary reflexao={currentReflexao} /> : null}
+                        {currentConcluida ? (
+                          <div className="workspace-finish-state">
+                            <div className="done-inline-banner">
+                              {currentConclusaoSource === "team"
+                                ? "Missão concluída pelo seu time."
+                                : "Missão encerrada pelo facilitador para este time."}
+                              <span className="done-sub">Aguarde a próxima missão ser liberada pelo facilitador.</span>
+                            </div>
+                            {currentReflexao ? <ReflectionSummary reflexao={currentReflexao} /> : null}
+                          </div>
+                        ) : null}
                       </>
                     ) : null}
                   </div>
@@ -4750,7 +5270,7 @@ function App() {
             return (
               <div key={pack}>
                 <div className="pack-header">
-                  <span>{PACK_LABELS[pack]}</span>
+                  <span>{getMissionPackHeading(pack)}</span>
                 </div>
                 {missions.map((mission) => (
                   <label className="catalog-row" key={mission.id}>
@@ -4875,10 +5395,13 @@ function AppFooter({ compact = false }) {
   return (
     <footer className={`app-footer${compact ? " is-compact" : ""}`}>
       <div className="app-footer-inner">
-        <div className="app-footer-brand">
-          <span className="app-footer-title app-footer-title-brand">Tech Hall AI Lab</span>
+        <div className="app-footer-copy-block">
+          <div className="app-footer-brand">
+            <span className="app-footer-title app-footer-title-brand">Tech Hall AI Lab</span>
+          </div>
+          <div className="app-footer-copy">Laboratório de prática com IA para times</div>
         </div>
-        <div className="app-footer-copy">Laboratório de prática com IA para times</div>
+        <img className="app-footer-corner-icon" src={techHallFooterIcon} alt="" aria-hidden="true" />
       </div>
     </footer>
   );
@@ -5223,67 +5746,129 @@ function LearningSlide({ index, kicker, title, subtitle, accent = "blue", childr
 }
 
 function MissionReadingPanel({ exec }) {
-  const details = exec.reasoningDetails || {};
-  const keyIdeas = [details.mechanismSummary || details.summary || exec.reasoningSummary || exec.explicacao].filter(Boolean);
-  const mechanismItems = [details.selectionLogic, details.actionInfluence, details.consideredInput].filter(Boolean);
-  const limitItems = [details.whyThisAnswer || details.strategy, details.limitations].filter(Boolean);
-  const improveItems = details.howToAskBetter?.length ? details.howToAskBetter : details.bestPractices || [];
+  const details = exec.technicalAnalysis || exec.reasoningDetails || {};
+  const promptBreakdown = Array.isArray(details.promptBreakdown) ? details.promptBreakdown : [];
+  const concepts = Array.isArray(details.conceptsAndTerminologies) ? details.conceptsAndTerminologies : [];
+  const construction = details.constructionProcess || {};
+  const constructionGroups = [
+    { label: "Pedido explícito", items: construction.explicitRequests || [] },
+    { label: "Inferido", items: construction.inferredPoints || [] },
+    { label: "Assumido", items: construction.assumptionsMade || [] },
+    { label: "Ambiguidades", items: construction.ambiguities || [] },
+  ].filter((group) => Array.isArray(group.items) && group.items.length);
+  const limitations = Array.isArray(details.limitationsAndGaps) ? details.limitationsAndGaps : [];
+  const suggestions = Array.isArray(details.refinementSuggestions) ? details.refinementSuggestions : [];
 
   return (
     <section className="tech-reading-panel">
       <div className="tech-reading-header">
-        <div className="tech-reading-kicker">Rodada {exec.iterationNumber || "-"}</div>
+        <div className="tech-reading-kicker">Leitura da última rodada</div>
         <div className="tech-reading-title">Explicação técnica</div>
         <div className="tech-reading-meta">
-          <span>{exec.tokens?.toLocaleString() || 0} tokens</span>
+          <span>Rodada {exec.iterationNumber || "-"}</span>
+          <span>{exec.tokens?.toLocaleString() || 0} tokens na resposta</span>
+          {exec.technicalAnalysisUsage?.totalTokens ? <span>{exec.technicalAnalysisUsage.totalTokens.toLocaleString()} tokens na análise</span> : null}
           {details.sourceLabel ? <span>{details.sourceLabel}</span> : null}
         </div>
       </div>
 
       <div className="tech-reading-body">
-        {exec.historySignal ? (
-          <div className="tech-reading-banner">{exec.historySignal}</div>
-        ) : null}
-
-        {keyIdeas.length ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Resumo técnico</div>
-            <div className="tech-reading-copy">{keyIdeas[0]}</div>
+        {details.unavailable ? (
+          <div className="tech-reading-unavailable">
+            <div className="tech-reading-block-label">Análise indisponível</div>
+            <div className="tech-reading-copy">{details.unavailableReason}</div>
           </div>
         ) : null}
 
-        {mechanismItems.length ? (
+        {!details.unavailable && exec.historySignal ? (
+          <div className="tech-reading-banner">{exec.historySignal}</div>
+        ) : null}
+
+        {!details.unavailable && details.objectiveInterpreted ? (
           <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Mecanismo</div>
+            <div className="tech-reading-block-label">Objetivo interpretado</div>
+            <div className="tech-reading-copy">{details.objectiveInterpreted}</div>
+          </div>
+        ) : null}
+
+        {!details.unavailable && (details.strategyUsed || details.contextUse) ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Estratégia utilizada</div>
             <div className="tech-reading-list">
-              {mechanismItems.map((item, index) => (
-                <div className="tech-reading-item" key={`mechanism-${index}`}>
+              {details.strategyUsed ? (
+                <div className="tech-reading-item">
                   <span className="tech-reading-item-bullet" />
-                  <span>{item}</span>
+                  <span>{details.strategyUsed}</span>
+                </div>
+              ) : null}
+              {details.contextUse ? (
+                <div className="tech-reading-item">
+                  <span className="tech-reading-item-bullet" />
+                  <span>{details.contextUse}</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {!details.unavailable && promptBreakdown.length ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Decomposição do prompt</div>
+            <div className="tech-reading-list">
+              {promptBreakdown.map((item, index) => (
+                <div className="tech-reading-item tech-reading-item-stack" key={`${item.segment}-${index}`}>
+                  <span className="tech-reading-item-bullet" />
+                  <span>
+                    <strong>{item.segment}</strong>
+                    {item.function ? `: ${item.function}` : ""}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
         ) : null}
 
-        {details.technicalTerms?.length ? (
+        {!details.unavailable && concepts.length ? (
           <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Termos</div>
-            <div className="tech-reading-tags">
-              {details.technicalTerms.map((item, index) => (
-                <span className="tech-reading-tag" key={`${item.term}-${index}`}>
-                  {item.term}
-                </span>
+            <div className="tech-reading-block-label">Conceitos e terminologias</div>
+            <div className="tech-reading-concept-list">
+              {concepts.map((item, index) => (
+                <div className="tech-reading-concept" key={`${item.term}-${index}`}>
+                  <strong>{item.term}</strong>
+                  <span>{item.meaning}</span>
+                  {item.relevance ? <small>{item.relevance}</small> : null}
+                </div>
               ))}
             </div>
           </div>
         ) : null}
 
-        {limitItems.length ? (
+        {!details.unavailable && constructionGroups.length ? (
           <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Critérios e limites</div>
+            <div className="tech-reading-block-label">Processo de construção</div>
+            <div className="tech-reading-process-grid">
+              {constructionGroups.map((group) => (
+                <div className="tech-reading-process-group" key={group.label}>
+                  <div className="tech-reading-process-label">{group.label}</div>
+                  <div className="tech-reading-list">
+                    {group.items.map((item, index) => (
+                      <div className="tech-reading-item" key={`${group.label}-${index}`}>
+                        <span className="tech-reading-item-bullet" />
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {!details.unavailable && limitations.length ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Limitações e lacunas</div>
             <div className="tech-reading-list">
-              {limitItems.map((item, index) => (
+              {limitations.map((item, index) => (
                 <div className="tech-reading-item" key={`limits-${index}`}>
                   <span className="tech-reading-item-bullet" />
                   <span>{item}</span>
@@ -5293,24 +5878,17 @@ function MissionReadingPanel({ exec }) {
           </div>
         ) : null}
 
-        {improveItems.length ? (
+        {!details.unavailable && suggestions.length ? (
           <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Como extrair melhor</div>
+            <div className="tech-reading-block-label">Sugestões de refinamento</div>
             <div className="tech-reading-list">
-              {improveItems.map((item, index) => (
+              {suggestions.map((item, index) => (
                 <div className="tech-reading-item" key={`improve-${index}`}>
                   <span className="tech-reading-item-bullet" />
                   <span>{item}</span>
                 </div>
               ))}
             </div>
-          </div>
-        ) : null}
-
-        {exec.promptApplied ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Prompt aplicado</div>
-            <div className="tech-reading-prompt">{exec.promptApplied}</div>
           </div>
         ) : null}
       </div>
@@ -5322,22 +5900,28 @@ function MissionClosurePanel({
   stage,
   reflectionAnswers,
   reflectionComment,
+  canClose = false,
+  onClose,
   onSelectAnswer,
   onChangeComment,
   onSubmitReflection,
-  onCloseCompleted,
 }) {
-  if (!["questionario_final", "concluida"].includes(stage)) return null;
+  if (stage !== "questionario_final") return null;
 
-  if (stage === "questionario_final") {
-    return (
-      <section className="reading-panel mission-inline-panel">
+  return (
+    <Modal open small={false} dismissible={canClose} onClose={canClose ? onClose : undefined} className="mission-closure-modal-shell">
+      <section className="reading-panel mission-inline-panel mission-closure-modal">
         <div className="reading-panel-header">
           <div>
-            <div className="reading-panel-kicker">Fechamento</div>
+            <div className="reading-panel-kicker">Avaliação</div>
             <div className="reading-panel-title">Concluir missão</div>
-            <div className="reading-panel-sub">Responda as 4 perguntas para fechar a atividade do time.</div>
+            <div className="reading-panel-sub">Responda as 3 perguntas para fechar a atividade do time.</div>
           </div>
+          {canClose ? (
+            <button className="mission-closure-close" type="button" aria-label="Fechar avaliação" onClick={onClose}>
+              <X size={16} strokeWidth={1.9} />
+            </button>
+          ) : null}
         </div>
         <div className="mission-inline-panel-body">
           {PERGUNTAS_REFLEXAO.map((question) => (
@@ -5370,31 +5954,12 @@ function MissionClosurePanel({
           </div>
           <div className="mission-inline-actions">
             <button className="btn btn-green" onClick={onSubmitReflection}>
-              Enviar reflexão
+              Enviar avaliação
             </button>
           </div>
         </div>
       </section>
-    );
-  }
-
-  return (
-    <section className="reading-panel mission-inline-panel">
-      <div className="reading-panel-header">
-        <div>
-          <div className="reading-panel-kicker">Encerrado</div>
-          <div className="reading-panel-title">Missão concluída</div>
-          <div className="reading-panel-sub">Questionário enviado. Esta missão foi encerrada para o time atual.</div>
-        </div>
-      </div>
-      <div className="mission-inline-panel-body">
-        <div className="mission-inline-actions">
-          <button className="btn btn-primary" onClick={onCloseCompleted}>
-            Fechar
-          </button>
-        </div>
-      </div>
-    </section>
+    </Modal>
   );
 }
 
@@ -5533,36 +6098,54 @@ function OutputCard({ exec, compact = false }) {
 function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage }) {
   const totals = execs.reduce(
     (acc, exec) => ({
-      total: acc.total + (exec.tokens || 0),
-      input: acc.input + (exec.inputTokens || 0),
-      output: acc.output + (exec.outputTokens || 0),
-      cost: acc.cost + (exec.custo || 0),
+      responseTotal: acc.responseTotal + (exec.tokens || 0),
+      responseInput: acc.responseInput + (exec.inputTokens || 0),
+      responseOutput: acc.responseOutput + (exec.outputTokens || 0),
+      responseCost: acc.responseCost + (exec.custo || 0),
+      analysisTotal: acc.analysisTotal + (exec.technicalAnalysisUsage?.totalTokens || 0),
+      analysisInput: acc.analysisInput + (exec.technicalAnalysisUsage?.inputTokens || 0),
+      analysisOutput: acc.analysisOutput + (exec.technicalAnalysisUsage?.outputTokens || 0),
+      analysisCost: acc.analysisCost + (exec.technicalAnalysisUsage?.cost || 0),
     }),
-    { total: 0, input: 0, output: 0, cost: 0 },
+    { responseTotal: 0, responseInput: 0, responseOutput: 0, responseCost: 0, analysisTotal: 0, analysisInput: 0, analysisOutput: 0, analysisCost: 0 },
   );
   const liveOutput = runState?.displayedOutput || "";
   const liveOutputTokens = liveOutput ? Math.max(0, Math.round(liveOutput.length / 3.8)) : 0;
   const currentRun = runState
     ? {
-        input: runState.inputTokens || 0,
-        output: runState.outputTokens || liveOutputTokens,
-        total: (runState.inputTokens || 0) + (runState.outputTokens || liveOutputTokens),
-        cost: runState.custo || 0,
+        responseInput: runState.inputTokens || 0,
+        responseOutput: runState.outputTokens || liveOutputTokens,
+        responseTotal: (runState.inputTokens || 0) + (runState.outputTokens || liveOutputTokens),
+        responseCost: runState.custo || 0,
+        analysisInput: 0,
+        analysisOutput: 0,
+        analysisTotal: 0,
+        analysisCost: 0,
       }
     : execs.length
       ? {
-          input: execs[execs.length - 1].inputTokens || 0,
-          output: execs[execs.length - 1].outputTokens || 0,
-          total: execs[execs.length - 1].tokens || 0,
-          cost: execs[execs.length - 1].custo || 0,
+          responseInput: execs[execs.length - 1].inputTokens || 0,
+          responseOutput: execs[execs.length - 1].outputTokens || 0,
+          responseTotal: execs[execs.length - 1].tokens || 0,
+          responseCost: execs[execs.length - 1].custo || 0,
+          analysisInput: execs[execs.length - 1].technicalAnalysisUsage?.inputTokens || 0,
+          analysisOutput: execs[execs.length - 1].technicalAnalysisUsage?.outputTokens || 0,
+          analysisTotal: execs[execs.length - 1].technicalAnalysisUsage?.totalTokens || 0,
+          analysisCost: execs[execs.length - 1].technicalAnalysisUsage?.cost || 0,
         }
-      : { input: 0, output: 0, total: 0, cost: 0 };
+      : { responseInput: 0, responseOutput: 0, responseTotal: 0, responseCost: 0, analysisInput: 0, analysisOutput: 0, analysisTotal: 0, analysisCost: 0 };
   const combinedTotals = {
-    total: totals.total + (preservedUsage?.total || 0),
-    input: totals.input + (preservedUsage?.input || 0),
-    output: totals.output + (preservedUsage?.output || 0),
-    cost: totals.cost + (preservedUsage?.cost || 0),
+    responseTotal: totals.responseTotal + (preservedUsage?.total || 0),
+    responseInput: totals.responseInput + (preservedUsage?.input || 0),
+    responseOutput: totals.responseOutput + (preservedUsage?.output || 0),
+    responseCost: totals.responseCost + (preservedUsage?.cost || 0),
+    analysisTotal: totals.analysisTotal + (preservedUsage?.explanationTotal || 0),
+    analysisInput: totals.analysisInput + (preservedUsage?.explanationInput || 0),
+    analysisOutput: totals.analysisOutput + (preservedUsage?.explanationOutput || 0),
+    analysisCost: totals.analysisCost + (preservedUsage?.explanationCost || 0),
   };
+  const grandTotalTokens = combinedTotals.responseTotal + combinedTotals.analysisTotal;
+  const grandTotalCost = combinedTotals.responseCost + combinedTotals.analysisCost;
 
   return (
     <aside className="token-rail">
@@ -5579,20 +6162,33 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage })
           <div className="token-rail-label">Totais acumulados</div>
           <div className="token-rail-summary">
             <div className="token-summary-item token-summary-primary">
-              <span>Total</span>
-              <strong>{combinedTotals.total.toLocaleString()} tok</strong>
+              <span>Total geral</span>
+              <strong>{grandTotalTokens.toLocaleString()} tok</strong>
             </div>
             <div className="token-summary-item">
-              <span>Input</span>
-              <strong>{combinedTotals.input.toLocaleString()}</strong>
+              <span>Resposta principal</span>
+              <strong>{combinedTotals.responseTotal.toLocaleString()} tok</strong>
             </div>
             <div className="token-summary-item">
-              <span>Output</span>
-              <strong>{combinedTotals.output.toLocaleString()}</strong>
+              <span>Explicação técnica</span>
+              <strong>{combinedTotals.analysisTotal.toLocaleString()} tok</strong>
             </div>
             <div className="token-summary-item token-summary-cost">
-              <span>Custo</span>
-              <strong>${combinedTotals.cost.toFixed(4)}</strong>
+              <span>Custo total</span>
+              <strong>${grandTotalCost.toFixed(4)}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="token-rail-block">
+          <div className="token-rail-label">Última rodada</div>
+          <div className="token-rail-summary">
+            <div className="token-summary-item">
+              <span>Resposta principal</span>
+              <strong>{currentRun.responseTotal.toLocaleString()} tok · ${currentRun.responseCost.toFixed(4)}</strong>
+            </div>
+            <div className="token-summary-item">
+              <span>Explicação técnica</span>
+              <strong>{currentRun.analysisTotal.toLocaleString()} tok · ${currentRun.analysisCost.toFixed(4)}</strong>
             </div>
           </div>
         </div>
@@ -5607,10 +6203,16 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage })
                     <span>{exec.isFreeInstruction ? "Instrucao livre" : getActionLabel(exec.acao)}</span>
                   </div>
                   <div className="token-log-meta">
-                    <span>{(exec.tokens || 0).toLocaleString()} tok</span>
-                    <span>in {((exec.inputTokens || 0)).toLocaleString()}</span>
-                    <span>out {((exec.outputTokens || 0)).toLocaleString()}</span>
+                    <span>resposta {(exec.tokens || 0).toLocaleString()} tok</span>
+                    <span>in {(exec.inputTokens || 0).toLocaleString()}</span>
+                    <span>out {(exec.outputTokens || 0).toLocaleString()}</span>
                     <span>${(exec.custo || 0).toFixed(4)}</span>
+                  </div>
+                  <div className="token-log-meta">
+                    <span>explicação {(exec.technicalAnalysisUsage?.totalTokens || 0).toLocaleString()} tok</span>
+                    <span>in {(exec.technicalAnalysisUsage?.inputTokens || 0).toLocaleString()}</span>
+                    <span>out {(exec.technicalAnalysisUsage?.outputTokens || 0).toLocaleString()}</span>
+                    <span>${(exec.technicalAnalysisUsage?.cost || 0).toFixed(4)}</span>
                   </div>
                 </div>
               ))}

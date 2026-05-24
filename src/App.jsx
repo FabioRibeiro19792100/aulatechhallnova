@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, CalendarDays, CircleAlert, Code2, FileText, LayoutDashboard, LifeBuoy, Layers3, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import techHallLogoDark from "../tech_hall_branding/tech_hall_preto.png";
 import techHallFooterIcon from "../tech_hall_branding/ícone_8.png";
@@ -9,7 +9,21 @@ const FREE_ACTION_LABEL = "Escrever minha própria instrução";
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
 const TRAINING_THREAD_ID = "__training__";
+const CHAT_AI_MODE = "chat";
+const CODING_AI_MODE = "coding";
+const CODING_AI_MODEL = "gpt-5-mini";
 const PRESENCE_STALE_MS = 45000;
+const BRAND_LOADER_DURATION_MS = 700;
+const TIMER_NOTICE_TTL_MS = 30000;
+const TIMER_LOCK_TTL_MS = 15000;
+const FACILITATOR_TOOL_VIEWS = {
+  MENU: "menu",
+  CONFIG: "config",
+  BROADCAST: "broadcast",
+  SCREEN: "screen",
+  TIMER: "timer",
+  ROOM_MAP: "room-map",
+};
 const MAX_ATTACHMENT_COUNT = 3;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 12000;
@@ -17,10 +31,9 @@ const ATTACHMENT_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp";
 const TRAINING_MISSION = {
   id: TRAINING_THREAD_ID,
   num: 0,
-  pack: "livre",
+  aiMode: CHAT_AI_MODE,
   name: "Modo treino",
   category: "livre",
-  mode: "single-pass",
   desc: "Laboratório livre para explorar prompts sem catálogo de missões.",
   situacao: "Use este espaço para experimentar perguntas, reformulações e conversas livres com a IA.",
   instrucao: "Escreva o prompt livremente. Você pode iterar, testar variações e pedir ajuda ao facilitador quando quiser.",
@@ -29,6 +42,19 @@ const TRAINING_MISSION = {
   systemPrompt:
     "Voce e um assistente para laboratorio livre de IA. Responda de forma util, clara e honesta, sem inventar contexto ausente. Se o pedido estiver vago, ajude a melhorar o prompt antes de responder.",
 };
+
+const AI_MODE_LABELS = {
+  [CHAT_AI_MODE]: "Chat",
+  [CODING_AI_MODE]: "Coding",
+};
+
+const AI_MODE_PROMPTS = {
+  [CHAT_AI_MODE]: "",
+  [CODING_AI_MODE]:
+    "Voce esta em modo coding. Priorize codigo funcional, debugging, arquitetura, refatoracao, exemplos praticos e explicacoes tecnicas orientadas a implementacao. Quando fizer sentido, responda com passos concretos, trechos de codigo, trade-offs e cuidados de manutencao.",
+};
+
+const FIXED_MISSION_TEMPLATE = "fixed-v2";
 
 function EventCardSectionLabel({ icon, children }) {
   const Icon =
@@ -63,230 +89,42 @@ function FacilitatorTabLabel({ tab }) {
   );
 }
 
-const CATALOGO = [
+const FIXED_MISSIONS_CATALOG = [
   {
-    id: "m01",
+    id: "mission_general_chat",
     num: 1,
-    pack: "core",
-    name: "Reestruturar informação",
-    category: "síntese",
-    mode: "single-pass",
-    desc: "Texto bagunçado vira material útil para decisão.",
+    aiMode: CHAT_AI_MODE,
+    name: "Análise geral",
+    category: "chat",
+    desc: "Missão ampla para análise, síntese, interpretação, revisão crítica e estruturação de informação.",
     situacao:
-      "Seu time recebeu notas brutas de uma reunião. O material está disperso e cheio de redundâncias. O diretor precisa de um resumo executivo até o fim do dia.",
+      "Use esta missão quando o time precisar pensar, resumir, comparar, organizar ideias, revisar uma resposta ou transformar material disperso em algo útil para decisão.",
     instrucao:
-      "Cole as notas, o briefing ou o texto que você quer transformar. Escolha a ação que melhor descreve o que você precisa.",
+      "Escreva o pedido livremente e contextualize o objetivo, o destinatário e o formato esperado da resposta. A IA vai atuar como parceira de análise geral.",
     placeholder:
-      "Notas da reunião:\n- João: prazo está apertado\n- Fernanda: problema com fornecedor\n- Pendente: aprovação antes de seguir",
-    acoes: ["Resumir", "Extrair pontos principais", "Gerar plano de ação"],
+      "Cole seu contexto, pergunta, notas, briefing, resposta de IA ou material bruto. Ex.: \"Preciso transformar estas anotações em um resumo executivo com próximos passos.\"",
+    acoes: [],
     systemPrompt:
-      "Voce e um assistente de sintese executiva. Transforme o material em algo util para decisao. Nao invente nada que nao esteja no material. Sinalize ambiguidades.",
+      "Voce e um assistente de analise geral. Ajude a sintetizar, comparar, interpretar, organizar e revisar informacoes com clareza estrutural. Nao invente fatos ausentes. Diferencie o que esta explicito do que e inferencia. Quando fizer sentido, sugira uma forma melhor de formular o pedido.",
   },
   {
-    id: "m02",
+    id: "mission_programming_coding",
     num: 2,
-    pack: "core",
-    name: "Conversar com dados",
-    category: "análise",
-    mode: "single-pass",
-    desc: "Aprenda a diferença entre observar dados e inventar explicações.",
+    aiMode: CODING_AI_MODE,
+    name: "Programação",
+    category: "coding",
+    desc: "Missão dedicada a código, debugging, arquitetura, refatoração e exemplos práticos.",
     situacao:
-      "Sua empresa coletou dados de uso dos ultimos 3 meses. O time precisa entender o que os dados realmente mostram antes de apresentar para a diretoria.",
+      "Use esta missão quando o time precisar programar, depurar, revisar arquitetura, refatorar código ou transformar uma ideia técnica em implementação concreta.",
     instrucao:
-      "Cole o CSV ou descreva a tabela. Escolha o que você quer que a IA faça com eles.",
-    placeholder: "mes, usuarios, conversoes\njan, 1200, 85\nfev, 1380, 91\nmar, 1290, 72",
-    acoes: ["Identificar padroes", "Encontrar anomalias", "Gerar hipoteses", "Sugerir grafico"],
-    systemPrompt:
-      "Voce e um assistente de analise de dados. Separe FATOS OBSERVADOS de HIPOTESES. Nunca afirme causalidade sem evidencia. Aponte limitacoes da amostra.",
-  },
-  {
-    id: "m03",
-    num: 3,
-    pack: "core",
-    name: "Criar um mock de solução",
-    category: "produção",
-    mode: "single-pass",
-    desc: "Ideia vaga vira estrutura de produto.",
-    situacao:
-      "O time tem uma ideia de produto ainda vaga. Antes de apresentar para o cliente, precisam transforma-la em algo que da para mostrar e discutir.",
-    instrucao: "Descreva o problema, quem vai usar e o que o produto deve fazer.",
+      "Descreva o problema técnico, cole código quando existir e diga o resultado esperado. A IA vai responder priorizando implementação, debugging e decisões de engenharia.",
     placeholder:
-      "App para restaurantes controlarem estoque. O dono precisa saber o que esta acabando antes de acabar, sem planilha manual.",
-    acoes: ["Gerar fluxo de telas", "Descrever funcionalidades", "Gerar wireframe textual"],
+      "Cole o código, o erro, a arquitetura ou o requisito. Ex.: \"Este componente React renderiza duas vezes e quebra o estado. Quero entender a causa e corrigir com uma solução limpa.\"",
+    acoes: [],
     systemPrompt:
-      "Voce e um assistente de especificacao de produto. Transforme a descricao em artefatos concretos. Marque com [SUPOSICAO] tudo que assumiu mas nao foi dito.",
-  },
-  {
-    id: "m04",
-    num: 4,
-    pack: "core",
-    name: "Classificar e decidir",
-    category: "triagem",
-    mode: "single-pass",
-    desc: "A IA classifica com critério e aponta onde humano precisa revisar.",
-    situacao:
-      "O suporte recebeu varios chamados. O time precisa tria-los por prioridade antes da reuniao.",
-    instrucao: "Cole os casos que precisam ser classificados.",
-    placeholder:
-      "Chamado 001: sistema fora do ar para todos\nChamado 002: usuario esqueceu a senha\nChamado 003: relatorio com erro afeta fechamento\nChamado 004: duvida sobre exportar PDF",
-    acoes: ["Classificar prioridade", "Justificar classificacao", "Apontar incertezas"],
-    systemPrompt:
-      "Voce e um assistente de triagem. Para cada caso: classifique, justifique, indique certeza. Quando certeza for baixa: REVISAO HUMANA NECESSARIA.",
-  },
-  {
-    id: "m05",
-    num: 5,
-    pack: "core",
-    name: "Testar limites",
-    category: "diagnóstico",
-    mode: "single-pass",
-    desc: "Pedidos ruins revelam onde a IA alucina ou finge certeza.",
-    situacao:
-      "O time precisa entender quando a IA falha. A melhor forma e provocando com pedidos fracos ou ambiguos.",
-    instrucao:
-      "Escreva um pedido vago, contraditorio ou que falta informacao. Observe o que a IA faz.",
-    placeholder: "Me diz o que devo fazer com o projeto.",
-    acoes: ["Gerar resposta", "Apontar lacunas", "Pedir esclarecimento"],
-    systemPrompt:
-      "Voce e um assistente honesto sobre seus limites. Tente responder, mas marque onde faltam informacoes: [SEM BASE]. Liste interpretacoes possiveis. Nunca invente.",
-  },
-  {
-    id: "m06",
-    num: 6,
-    pack: "pesquisa",
-    name: "Buscar contexto com RAG",
-    category: "recuperação",
-    mode: "rag",
-    desc: "A IA recupera trechos de um acervo antes de responder.",
-    situacao:
-      "O time precisa de uma resposta baseada em documentos reais da empresa, nao em conhecimento geral da IA.",
-    instrucao:
-      "Faca uma pergunta que deveria ser respondida com base em documentos internos.",
-    placeholder: "Qual e o processo correto para aprovar um novo fornecedor?",
-    acoes: ["Recuperar trechos", "Responder com base no acervo", "Citar evidencias", "Apontar lacunas"],
-    systemPrompt:
-      "Voce e um assistente com acervo. Formato obrigatorio:\n[TRECHOS USADOS]: ...\n[RESPOSTA]: so com base no acervo\n[LACUNAS]: o que o acervo nao cobre",
-  },
-  {
-    id: "m07",
-    num: 7,
-    pack: "pesquisa",
-    name: "Comparar sem RAG vs com RAG",
-    category: "comparação",
-    mode: "compare-modes",
-    desc: "A mesma pergunta roda duas vezes. O time compara rastreabilidade e risco.",
-    situacao:
-      "O time precisa ver concretamente o que muda quando a IA tem contexto vs. quando nao tem.",
-    instrucao: "Escreva uma pergunta que poderia ser respondida de duas formas.",
-    placeholder: "Qual é a política da empresa para reembolso de despesas de viagem?",
-    acoes: ["Responder sem contexto", "Responder com contexto", "Comparar precisao", "Comparar rastreabilidade"],
-    systemPrompt:
-      "Responda a pergunta duas vezes:\n[SEM CONTEXTO]: so memoria geral\n[COM CONTEXTO]: como se tivesse documento interno\n[COMPARACAO]: qualidade, rastreabilidade, risco",
-  },
-  {
-    id: "m08",
-    num: 8,
-    pack: "avancado",
-    name: "Usar ferramenta para decidir",
-    category: "orquestração",
-    mode: "tool-assisted",
-    desc: "A IA identifica que precisa consultar um recurso antes de responder.",
-    situacao:
-      "O time precisa de uma recomendacao que depende de informacao atual que a IA nao tem na memoria.",
-    instrucao:
-      "Descreva um objetivo que depende de informação de algum sistema externo.",
-    placeholder: "Preciso saber se temos capacidade para iniciar o projeto X no próximo mês.",
-    acoes: ["Decidir se precisa ferramenta", "Consultar recurso", "Sintetizar resultado"],
-    systemPrompt:
-      "Formato:\n[DECISAO DE FERRAMENTA] precisa/nao - motivo\n[CONSULTA SIMULADA] sistema + resultado\n[SINTESE FINAL] recomendacao baseada na consulta",
-  },
-  {
-    id: "m09",
-    num: 9,
-    pack: "recuperacao",
-    name: "Avaliar e revisar resposta de IA",
-    category: "revisão crítica",
-    mode: "single-pass",
-    desc: "O time aprende a julgar uma resposta, nao so gera-la.",
-    situacao:
-      "Um colega usou IA para redigir uma analise. O time precisa avaliar se e confiavel e propor melhorias.",
-    instrucao: "Cole a resposta de IA que você quer avaliar.",
-    placeholder: "Cole aqui a resposta de IA que quer avaliar...",
-    acoes: ["Identificar fragilidades", "Dar nota por critério", "Sugerir revisão"],
-    systemPrompt:
-      "Avalie: [SUPORTE] tem base? [RISCO] pode enganar? [CLAREZA] e precisa? Nota 1-5 com justificativa. Proponha versao melhorada do ponto mais fragil.",
-  },
-  {
-    id: "m10",
-    num: 10,
-    pack: "recuperacao",
-    name: "Definir guardrails operacionais",
-    category: "governança",
-    mode: "single-pass",
-    desc: "Regra operacional muda o comportamento da IA. Recusar bem também é correto.",
-    situacao:
-      "O time esta desenhando um assistente de IA interno e precisa testar se ele respeita politicas.",
-    instrucao:
-      "Descreva o cenario e a politica. Depois escreva um pedido que testa essa politica.",
-    placeholder:
-      "Politica: assistente nao pode acessar dados de clientes sem aprovacao.\nPedido: me mostra os dados do cliente Joao Silva.",
-    acoes: ["Responder sob restricao", "Recusar quando necessario", "Escalonar para humano"],
-    systemPrompt:
-      "Politica fornecida e vinculante. Se violacao: RECUSADO - motivo. Se julgamento humano: ESCALONAR - para quem e por que.",
-  },
-  {
-    id: "m11",
-    num: 11,
-    pack: "avancado",
-    name: "Comparar modelos de LLM",
-    category: "arquitetura",
-    mode: "compare-models",
-    desc: "A mesma tarefa roda em dois modelos. O time compara custo, qualidade e adequação.",
-    situacao:
-      "O time precisa decidir qual modelo usar em producao. A escolha afeta custo, velocidade e qualidade.",
-    instrucao: "Escreva a tarefa que voce quer rodar nos dois modelos.",
-    placeholder: "Analise os pros e contras de migrar nosso sistema de autenticacao de JWT para OAuth 2.0.",
-    acoes: ["Comparar saidas", "Comparar custo", "Comparar robustez"],
-    systemPrompt:
-      "Formato:\n[MODELO A - gpt-4.1-mini]: resposta\n[MODELO B - gpt-4.1]: resposta\n[COMPARACAO]: qualidade, nuance, custo, recomendacao",
+      "Voce e um assistente de programacao. Priorize codigo, debugging, arquitetura, refatoracao, explicacoes tecnicas e exemplos praticos. Mostre implementacoes concretas, riscos e trade-offs quando isso ajudar a resolver o problema.",
   },
 ];
-
-const PACKS = {
-  core: CATALOGO.filter((m) => m.pack === "core"),
-  pesquisa: CATALOGO.filter((m) => m.pack === "pesquisa"),
-  avancado: CATALOGO.filter((m) => m.pack === "avancado"),
-  recuperacao: CATALOGO.filter((m) => m.pack === "recuperacao"),
-  todos: CATALOGO,
-  nenhum: [],
-};
-
-const PACK_LABELS = {
-  core: "Core",
-  pesquisa: "Pesquisa",
-  avancado: "Avançado",
-  recuperacao: "Recuperação",
-};
-
-function getMissionPackHeading(pack) {
-  return `MISSÕES ${String(PACK_LABELS[pack] || pack).toUpperCase()}`;
-}
-
-const MODE_LABELS = {
-  "single-pass": "single-pass",
-  "compare-modes": "comparação de modos",
-  "compare-models": "comparação de modelos",
-  rag: "RAG",
-  "tool-assisted": "ferramenta",
-};
-
-const MODE_CLASS = {
-  "single-pass": "mode-single",
-  "compare-modes": "mode-compare",
-  "compare-models": "mode-compare",
-  rag: "mode-rag",
-  "tool-assisted": "mode-tool",
-};
 
 const PLANNING_MODE_PROMPTS = {
   off: "",
@@ -312,66 +150,17 @@ const REFLECTION_TOPIC_SHORT_LABELS = {
 };
 
 const MOCKS = {
-  m01: (input, acao) =>
-    acao === "Resumir"
-      ? "SINTESE EXECUTIVA\n\nPontos centrais:\n- Tensao entre planejado e executado.\n- Dependencias nao resolvidas entre areas.\n- Prazo pressupoe recursos nao confirmados.\n\nO que foi preservado: estrutura de decisao.\nO que foi simplificado: detalhes operacionais."
-      : acao === "Extrair pontos principais"
-        ? "PONTOS PRINCIPAIS\n\n1. Falta criterio compartilhado para priorizacao.\n2. Tres stakeholders com expectativas conflitantes.\n3. Prazo sem base em capacidade real.\n4. Decisao bloqueada ha duas semanas.\n\n[SEM BASE EXPLICITA]: responsavel final nao identificado."
-        : "PLANO DE ACAO\n\nProximas 48h\n- Agendar alinhamento para definir criterio de priorizacao.\n- Documentar decisoes pendentes.\n\nProxima semana\n- Revisar prazo com base na capacidade real.",
-  m02: (_, acao) =>
-    acao === "Identificar padroes"
-      ? "FATOS OBSERVADOS\n- Crescimento inicial seguido de queda abrupta.\n- Dois registros fogem da media.\n\nHIPOTESES\n[HIPOTESE] Crescimento pode ser sazonalidade - base insuficiente para confirmar.\n\nLIMITACAO: amostra pequena."
-      : acao === "Encontrar anomalias"
-        ? "ANOMALIAS\n\nRegistro A: 3,4x acima da media. Verificar na fonte.\nRegistro B: valor negativo - se dominio nao permite, e erro.\n\n[SEM BASE]: nao e possivel determinar causa sem investigacao."
-        : acao === "Gerar hipoteses"
-          ? "HIPOTESES\n\n[H1] Base tem dois segmentos distintos.\n[H2] Queda apos pico indica saturacao.\n[H3] Outliers representam subgrupo proprio.\n\nNenhuma confirmada sem dados adicionais."
-          : "VISUALIZACAO\n\n1. Grafico de dispersao - relacao entre variaveis.\n2. Box plot - distribuicoes + outliers.\n3. Linha do tempo - se houver dimensao temporal.",
-  m03: (_, acao) =>
-    acao === "Gerar fluxo de telas"
-      ? "FLUXO DE TELAS\n\n1. Entrada -> autenticacao\n2. Dashboard -> visao geral\n3. Criacao -> formulario\n4. Revisao -> confirmacao\n5. Resultado -> sucesso + proximos passos\n\n[SUPOSICAO]: usuario autenticado. Se publico, fluxo muda."
-      : acao === "Descrever funcionalidades"
-        ? "FUNCIONALIDADES\n\nP0 - Essenciais\n- Cadastro e autenticacao\n- Criacao e edicao\n- Listagem com filtro\n\nP1 - Importantes\n- Notificacoes de status\n- Historico de alteracoes\n\n[SUPOSICAO]: priorizacao baseada na descricao."
-        : "WIREFRAME\n\n+--------------------------+\n| [LOGO] [Usuario] [Sair] |\n+--------------------------+\n| Filtros | Lista         |\n| [Tipo]  | Item A [Ver]  |\n| [Status]| Item B [Ver]  |\n|         | [+ Criar novo]|\n+--------------------------+",
-  m04: (_, acao) =>
-    acao === "Classificar prioridade"
-      ? "CLASSIFICACAO\n\nCaso 1 - CRITICO · certeza alta\nCaso 2 - MEDIO · certeza media\nCaso 3 - BAIXO · certeza alta\nCaso 4 - REVISAO HUMANA NECESSARIA\n  Justificativa: informacoes contraditorias."
-      : acao === "Justificar classificacao"
-        ? "JUSTIFICATIVAS\n\nCaso 1: alta severidade + prazo vencido -> URGENTE\nCaso 2: severidade moderada, margem de tempo -> NORMAL\nCaso 3: funcionalidade nao critica -> BAIXO\n\nAtencao: criterios foram inferidos do contexto."
-        : "INCERTEZAS\n\nCaso 2: impacto local ou sistemico - requer investigacao.\nCaso 4: contradicao entre descricao e historico.\n\nRecomendacao: incerteza media ou alta exige revisao humana.",
-  m05: (input) =>
-    `RESPOSTA INICIAL\n\n"${input.slice(0, 60)}..."\n\nPARTES SEM BASE [SEM BASE]\n- Contexto de uso nao especificado.\n- Destinatario nao identificado.\n- Criterio de sucesso ausente.\n\nINTERPRETACOES POSSIVEIS\n1. Resposta pratica e direta.\n2. Analise com pros e contras.\n3. Estrutura para pensar o problema.\n\nO QUE EU PERGUNTARIA ANTES\n- Para quem e essa resposta?\n- Em qual contexto vai ser usada?`,
-  m06: () =>
-    "[TRECHOS USADOS]\n- \"validacao deve ocorrer antes da publicacao\" (Protocolo, secao 3.2)\n- \"responsavel tecnico pode autorizar em excecoes\" (Manual, p. 14)\n\n[RESPOSTA]\nO procedimento correto e validar antes de publicar. A excecao exige autorizacao explicita.\n\n[LACUNAS]\n- Acervo nao cobre revalidacao apos alteracao parcial.\n- Sem definicao de \"alteracao significativa\".",
-  m07: () =>
-    "[SEM CONTEXTO]\nResposta generica baseada em conhecimento geral. Pode nao refletir o contexto especifico.\n[RISCO]: alta probabilidade de nao se aplicar ao caso.\n\n[COM CONTEXTO]\nBaseado nos documentos: a abordagem B e recomendada - nao a A, mais comum na literatura geral.\n[TRECHOS USADOS]: secao 2.1 + tabela p. 8.\n\n[COMPARACAO]\nQualidade: resposta com contexto e mais especifica.\nRastreabilidade: sem contexto, origem e inverificavel.\nRisco: resposta generica pode induzir decisao errada com aparencia de confianca.",
-  m08: () =>
-    "[DECISAO DE FERRAMENTA] precisa\nJustificativa: informacao atual nao esta na minha memoria.\n\n[CONSULTA SIMULADA]\nSistema: gestao de capacidade\nResultado: 2 recursos disponiveis, 1 em 3 dias, 1 indisponivel.\n\n[SINTESE FINAL]\nIniciar com os 2 disponiveis. Replanejar o terceiro. O quarto exige decisao explicita.",
-  m09: (_, acao) =>
-    acao === "Identificar fragilidades"
-      ? "FRAGILIDADES\n\n1. Afirmacao principal sem evidencia - inferencia como fato.\n2. Tom de certeza desproporcional.\n3. Contradicao entre paragrafos 2 e 4.\n4. Ignora o caso de excecao mais obvio."
-      : acao === "Dar nota por criterio"
-        ? "AVALIACAO\n\n[SUPORTE] 2/5 - pouca ancoragem em evidencias.\n[RISCO] 3/5 - risco moderado de induzir decisao errada.\n[CLAREZA] 4/5 - bem estruturada, problema e o conteudo.\n\nMEDIA: 3/5"
-        : "REVISAO\n\nOriginal: \"X e sempre mais eficaz.\"\nRevisado: \"X teve melhor desempenho neste contexto. Nao e possivel generalizar sem ampliar a amostra.\"\n\nPrincipio: separe observacao de generalizacao.",
-  m10: (input) =>
-    input.toLowerCase().includes("sem aprovacao") || input.toLowerCase().includes("acesso direto")
-      ? "RECUSADO - politica nao permite esta solicitacao.\nMotivo: acesso a dados fora do escopo autorizado.\n\nESCALONAR -> responsavel tecnico\nContexto: pedido + motivo da recusa + aprovacao necessaria."
-      : "RESPOSTA SOB RESTRICAO\n\nDentro dos limites:\n- Confirmo que o processo esta dentro do escopo.\n- Oriento sobre proximos passos dentro da politica.\n- Nao acesso dados fora do perimetro autorizado.\n\nSe necessitar alem da politica: ESCALONAR.",
-  m11: () =>
-    "[MODELO A - gpt-4.1-mini]\nResposta direta. Cobre pontos principais sem aprofundamento.\n\n[MODELO B - gpt-4.1]\nMais detalhada. Identifica casos de borda. Explicita suposicoes.\n\n[COMPARACAO]\nQualidade: gpt-4.1 superior em raciocinio.\nCusto: gpt-4.1-mini ~5x mais barato por token.\nRecomendacao: gpt-4.1-mini para volume; gpt-4.1 para decisoes high-stakes.",
+  mission_general_chat: (input) =>
+    `ANÁLISE GERAL\n\nLeitura principal:\n- Objetivo central identificado a partir do pedido.\n- Pontos prioritários organizados para resposta útil.\n- Lacunas ou ambiguidades marcadas quando faltou contexto.\n\nPróximo passo sugerido:\n- Refinar o pedido com destinatário, formato e critério de prioridade.\n\nTrecho de contexto recebido:\n"${input.slice(0, 140)}${input.length > 140 ? "..." : ""}"`,
+  mission_programming_coding: (input) =>
+    `RESPOSTA DE PROGRAMAÇÃO\n\nDiagnóstico inicial:\n- Identifiquei o problema técnico principal no pedido.\n- Priorizaria uma solução implementável, com explicação de trade-offs.\n- Se o contexto estiver incompleto, começo pelo caminho mais seguro e explicito as suposições.\n\nAbordagem prática:\n1. Isolar a causa provável.\n2. Propor correção concreta.\n3. Explicar impacto em arquitetura, manutenção e debugging.\n\nTrecho do pedido técnico:\n"${input.slice(0, 140)}${input.length > 140 ? "..." : ""}"`,
 };
 
 const EXPLICACOES = {
-  m01: "Estrategia: compressao com preservacao de estrutura decisoria.\n\nO modelo recebeu um system prompt orientado para sintese executiva. A acao escolhida determinou o formato de saida esperado.\n\nO que fez: identificou blocos com maior densidade decisoria, descartou repeticoes e organizou hierarquicamente.\n\nRisco: a sintese pode parecer mais clara do que o material original justificava.",
-  m02: "Estrategia: leitura analitica com separacao obrigatoria entre fato e hipotese.\n\nO system prompt forca o modelo a nao misturar observacao com inferencia.\n\nRisco principal: modelos tendem a afirmar padroes com mais confianca do que os dados permitem.",
-  m03: "Estrategia: transformacao de linguagem vaga em estrutura operacional.\n\nO modelo foi orientado a produzir artefatos concretos, nao analise.\n\nPor que [SUPOSICAO] importa: suposicoes nao explicitadas viram requisitos silenciosos.",
-  m04: "Estrategia: triagem com criterio explicito e sinalizacao de incerteza.\n\nO system prompt instruiu o modelo a nunca omitir incerteza para parecer mais preciso.",
-  m05: "Estrategia: resposta parcial com exposicao explicita de lacunas.\n\nO comportamento mais valioso aqui e mostrar por que nao consegue responder bem.",
-  m06: "Estrategia: retrieve-then-generate - recuperacao antes da geracao.\n\nO modelo separou o que veio do acervo do que veio de inferencia geral.",
-  m07: "Estrategia: execucao paralela com comparacao explicita.\n\nO mesmo pedido foi respondido com premissas diferentes para tornar visivel o que muda.",
-  m08: "Estrategia: orquestracao - decidir antes de responder.\n\nO modelo foi instruido a nao responder direto quando a resposta depende de informacao atual.",
-  m09: "Estrategia: avaliacao critica com criterios estruturados.\n\nO modelo foi posicionado como avaliador, nao como gerador.",
-  m10: "Estrategia: resposta sob restricao com comportamento de recusa explicito.\n\nA politica foi tratada como vinculante - nao como sugestao.",
-  m11: "Estrategia: execucao dupla com comparacao estruturada.\n\nO que ensina: 'melhor modelo' nao existe de forma absoluta.",
+  mission_general_chat:
+    "Estratégia: leitura ampla e organizada do pedido, com foco em síntese, clareza estrutural e utilidade para decisão. A IA prioriza o que parece central, explicita ambiguidades e evita inventar fatos que não apareceram no material.",
+  mission_programming_coding:
+    "Estratégia: abordagem orientada a implementação. A IA lê o pedido como problema técnico, prioriza debugging, arquitetura, refatoração e exemplos concretos, e tenta responder com passos reproduzíveis e decisões de engenharia justificadas.",
 };
 
 const STORE = "techhall:v3";
@@ -405,60 +194,15 @@ function buildRunSteps(apiConfigured) {
   }));
 }
 const MISSION_CONCEPTS = {
-  m01: [
-    { name: "Sintese executiva", explanation: "Condensa material extenso em uma resposta curta e orientada a decisao." },
-    { name: "Priorizacao de sinais", explanation: "Separa fatos centrais de detalhes secundarios para destacar o que move a decisao." },
-    { name: "Ambiguidade controlada", explanation: "Sinaliza lacunas e evita preencher informacoes que nao estavam no material." },
+  mission_general_chat: [
+    { name: "Sintese", explanation: "Condensa contexto extenso em uma resposta mais clara e utilizável." },
+    { name: "Estruturação", explanation: "Organiza o pedido em blocos lógicos para melhorar entendimento e decisão." },
+    { name: "Ambiguidade controlada", explanation: "Explicita lacunas e evita preencher informação ausente como se fosse fato." },
   ],
-  m02: [
-    { name: "Separacao entre fato e hipotese", explanation: "Distingue observacoes diretamente suportadas pelos dados de interpretacoes possiveis." },
-    { name: "Leitura exploratoria", explanation: "Busca padroes, anomalias e limites da amostra antes de qualquer conclusao forte." },
-    { name: "Risco de causalidade", explanation: "Evita tratar correlacao ou tendencia aparente como explicacao causal comprovada." },
-  ],
-  m03: [
-    { name: "Estruturacao de produto", explanation: "Transforma uma ideia vaga em componentes concretos como fluxo, funcionalidades e interface." },
-    { name: "Suposicoes explicitas", explanation: "Destaca pontos inferidos para nao confundir interpretacao com requisito confirmado." },
-    { name: "Abstracao aplicada", explanation: "Traduz o problema de negocio em artefatos mais palpaveis para discussao." },
-  ],
-  m04: [
-    { name: "Triagem por criterio", explanation: "Classifica itens segundo regras de impacto, urgencia e confianca da avaliacao." },
-    { name: "Sinalizacao de incerteza", explanation: "Mostra onde a classificacao depende de contexto insuficiente ou contraditorio." },
-    { name: "Escalonamento humano", explanation: "Indica quando a automacao nao deveria fechar a decisao sozinha." },
-  ],
-  m05: [
-    { name: "Deteccao de lacunas", explanation: "Identifica o que falta no pedido para produzir uma resposta robusta." },
-    { name: "Gestao de ambiguidade", explanation: "Explora interpretacoes possiveis em vez de fingir precisao onde nao existe." },
-    { name: "Calibracao de confianca", explanation: "Ajusta o tom da resposta ao nivel real de base disponivel." },
-  ],
-  m06: [
-    { name: "RAG", explanation: "Recupera trechos de um acervo antes de formular a resposta final." },
-    { name: "Ancoragem em evidencias", explanation: "Relaciona a resposta a trechos concretos em vez de usar memoria geral." },
-    { name: "Cobertura documental", explanation: "Explica o que o acervo cobre e onde ainda ha lacunas." },
-  ],
-  m07: [
-    { name: "Comparacao de modos", explanation: "Contrasta resposta de memoria com resposta orientada por contexto recuperado." },
-    { name: "Rastreabilidade", explanation: "Avalia se a origem da resposta e verificavel ou apenas plausivel." },
-    { name: "Risco operacional", explanation: "Mostra como a ausencia de contexto aumenta chance de erro convincente." },
-  ],
-  m08: [
-    { name: "Orquestracao", explanation: "Decide se a resposta exige consulta externa antes de sintetizar uma recomendacao." },
-    { name: "Uso de ferramenta", explanation: "Simula a consulta de um sistema ou fonte operacional para reduzir incerteza." },
-    { name: "Decisao contextual", explanation: "Combina resultado da consulta com objetivo do usuario para orientar a acao." },
-  ],
-  m09: [
-    { name: "Revisao critica", explanation: "Avalia qualidade, suporte e risco de uma resposta produzida por IA." },
-    { name: "Diagnostico de fragilidades", explanation: "Localiza exageros, saltos logicos e falta de evidencias." },
-    { name: "Reescrita guiada", explanation: "Propõe uma versao melhor do trecho mais fraco." },
-  ],
-  m10: [
-    { name: "Guardrails", explanation: "Aplica restricoes operacionais que limitam o comportamento permitido da IA." },
-    { name: "Recusa justificada", explanation: "Quando a politica e violada, a resposta deve explicar a recusa de forma clara." },
-    { name: "Escalonamento", explanation: "Indica quando a decisao deve migrar da IA para um humano responsavel." },
-  ],
-  m11: [
-    { name: "Comparacao de modelos", explanation: "Contrasta qualidade, custo e profundidade entre modelos diferentes." },
-    { name: "Adequacao ao caso", explanation: "Mostra que o melhor modelo depende da tarefa e do nivel de risco." },
-    { name: "Trade-off custo vs qualidade", explanation: "Explica o equilibrio entre robustez analitica e eficiencia operacional." },
+  mission_programming_coding: [
+    { name: "Debugging", explanation: "Isola a causa provável de um erro antes de propor correção." },
+    { name: "Refatoração", explanation: "Melhora clareza, manutenção e robustez sem alterar o objetivo funcional." },
+    { name: "Trade-off técnico", explanation: "Explica custo, risco e benefício das escolhas de implementação." },
   ],
 };
 
@@ -556,17 +300,21 @@ function buildTeamsFromStudents(students, mode, teamCount = 0) {
   return groups;
 }
 
-function makeEvent({ name, desc, rawTeams, pack }) {
+function makeEvent({ name, desc, rawTeams }) {
   const teams = rawTeams
     ? rawTeams.split(",").map((item) => item.trim()).filter(Boolean).map((team) => makeTeam(team))
     : [];
-  const missions = (PACKS[pack] || []).map((mission) => ({ ...mission, unlocked: false }));
+  const missions = buildFixedMissionList().map((mission, index) => ({
+    ...mission,
+    unlocked: index === 0,
+  }));
   return {
     id: `ev_${Date.now()}`,
     name,
     desc,
     status: "draft",
     eventMode: MISSIONS_MODE_EVENT,
+    missionTemplate: FIXED_MISSION_TEMPLATE,
     teams,
     missions,
     execucoes: {},
@@ -577,6 +325,14 @@ function makeEvent({ name, desc, rawTeams, pack }) {
     helpRequests: [],
     trainingRuns: {},
     trainingHelpRequests: [],
+    announcements: [],
+    sessionTimer: {
+      active: false,
+      startedAt: null,
+      endsAt: null,
+      durationMs: 0,
+    },
+    sessionTimerNotice: null,
     presenceMap: {},
     screenShare: {
       active: false,
@@ -594,14 +350,13 @@ function makeDevLabEvent() {
     name: "Lab de teste",
     desc: "Ambiente rapido para validar fluxo local",
     rawTeams: "Time 1",
-    pack: "core",
   });
   return {
     ...event,
     status: "open",
     eventMode: MISSIONS_MODE_EVENT,
     missions: event.missions.map((mission, index) => ({
-      ...mission,
+      ...normalizeMission(mission),
       unlocked: index === 0,
     })),
   };
@@ -690,6 +445,118 @@ function getHelpRequests(evento, teamIdx, missionId) {
 
 function getTrainingHelpRequests(evento, teamIdx = null) {
   return (evento.trainingHelpRequests || []).filter((request) => teamIdx === null || request.teamIdx === teamIdx);
+}
+
+function getEventAnnouncements(evento) {
+  const directAnnouncements = Array.isArray(evento?.announcements) ? evento.announcements : [];
+  const legacyAnnouncement =
+    directAnnouncements.length === 0 && evento?.announcement?.message?.trim()
+      ? [
+          {
+            ...evento.announcement,
+            id: evento.announcement.id || `announcement_legacy_${evento.id || Date.now()}`,
+            createdAt: evento.announcement.createdAt || new Date().toISOString(),
+            message: evento.announcement.message.trim(),
+            dismissedBy: evento.announcement.dismissedBy || {},
+            readBy: evento.announcement.readBy || {},
+          },
+        ]
+      : [];
+
+  return [...directAnnouncements, ...legacyAnnouncement]
+    .map((announcement) => ({
+      ...announcement,
+      message: `${announcement.message || ""}`.trim(),
+      createdAt: announcement.createdAt || new Date().toISOString(),
+      dismissedBy: announcement.dismissedBy || {},
+      readBy: announcement.readBy || {},
+    }))
+    .filter((announcement) => announcement.message)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+function getUnreadAnnouncementsForTeam(evento, teamIdx) {
+  if (teamIdx === null || teamIdx === undefined) return [];
+  return getEventAnnouncements(evento).filter((announcement) => !announcement.readBy?.[teamIdx]);
+}
+
+function getLatestUnreadAnnouncementForTeam(evento, teamIdx) {
+  const unread = getUnreadAnnouncementsForTeam(evento, teamIdx);
+  return unread.length ? unread[unread.length - 1] : null;
+}
+
+function isAnnouncementDismissedForTeam(evento, teamIdx, announcementId) {
+  if (teamIdx === null || teamIdx === undefined || !announcementId) return false;
+  const announcement = getEventAnnouncements(evento).find((item) => item.id === announcementId);
+  if (!announcement) return false;
+  return Boolean(announcement.dismissedBy?.[teamIdx]);
+}
+
+function getSessionTimer(evento) {
+  return {
+    active: false,
+    startedAt: null,
+    endsAt: null,
+    durationMs: 0,
+    ...(evento?.sessionTimer || {}),
+  };
+}
+
+function getSessionTimerNotice(evento, now = Date.now()) {
+  const notice = evento?.sessionTimerNotice;
+  if (!notice?.message || !notice?.createdAt || notice.dismissedAt) return null;
+  const age = now - new Date(notice.createdAt).getTime();
+  if (age >= TIMER_NOTICE_TTL_MS) return null;
+  return {
+    ...notice,
+    expiresInMs: Math.max(0, TIMER_NOTICE_TTL_MS - age),
+  };
+}
+
+function getSessionTimerRemainingMs(evento, now = Date.now()) {
+  const timer = getSessionTimer(evento);
+  if (!timer.active || !timer.endsAt) return 0;
+  return Math.max(0, new Date(timer.endsAt).getTime() - now);
+}
+
+function isSessionTimerRunning(evento, now = Date.now()) {
+  const timer = getSessionTimer(evento);
+  return Boolean(timer.active && timer.endsAt && getSessionTimerRemainingMs(evento, now) > 0);
+}
+
+function isSessionTimerExpired(evento, now = Date.now()) {
+  const timer = getSessionTimer(evento);
+  return Boolean(timer.active && timer.endsAt && getSessionTimerRemainingMs(evento, now) <= 0);
+}
+
+function isSessionTimerLockActive(evento, now = Date.now()) {
+  const timer = getSessionTimer(evento);
+  if (!timer.active || !timer.endsAt) return false;
+  const endsAtMs = new Date(timer.endsAt).getTime();
+  if (endsAtMs > now) return false;
+  return now - endsAtMs < TIMER_LOCK_TTL_MS;
+}
+
+function formatCountdown(ms = 0) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function parseTimerInputToMs(rawValue) {
+  const value = `${rawValue || ""}`.trim();
+  if (!value) return null;
+  const mmssMatch = value.match(/^(\d{1,3}):([0-5]\d)$/);
+  if (mmssMatch) {
+    const minutes = Number(mmssMatch[1]);
+    const seconds = Number(mmssMatch[2]);
+    const totalMs = (minutes * 60 + seconds) * 1000;
+    return totalMs > 0 ? totalMs : null;
+  }
+  const asMinutes = Number(value);
+  if (!Number.isFinite(asMinutes) || asMinutes <= 0) return null;
+  return Math.round(asMinutes * 60 * 1000);
 }
 
 function getEventStudentOptions(evento) {
@@ -1000,6 +867,70 @@ function getFileExtension(name = "") {
   return match?.[1] || "";
 }
 
+function getMissionAiMode(mission) {
+  return mission?.aiMode === CODING_AI_MODE ? CODING_AI_MODE : CHAT_AI_MODE;
+}
+
+function normalizeMission(mission) {
+  return {
+    ...mission,
+    aiMode: getMissionAiMode(mission),
+  };
+}
+
+function isFixedMissionsEvent(event) {
+  return event?.missionTemplate === FIXED_MISSION_TEMPLATE;
+}
+
+function buildFixedMissionList() {
+  return FIXED_MISSIONS_CATALOG.map((mission, index) => ({
+    ...normalizeMission(mission),
+    unlocked: index === 0,
+  }));
+}
+
+function migrateEventToFixedMissions(event) {
+  if (!event) return event;
+
+  const announcements = getEventAnnouncements(event);
+  const baseEvent = {
+    ...event,
+    announcements,
+    announcement: null,
+    sessionTimerNotice: event.sessionTimerNotice || null,
+  };
+
+  if (getEventMode(baseEvent) !== MISSIONS_MODE_EVENT || isFixedMissionsEvent(baseEvent)) {
+    return baseEvent;
+  }
+
+  return {
+    ...baseEvent,
+    missionTemplate: FIXED_MISSION_TEMPLATE,
+    legacyMissionArchive: baseEvent.legacyMissionArchive || {
+      migratedAt: new Date().toISOString(),
+      missions: baseEvent.missions || [],
+      execucoes: baseEvent.execucoes || {},
+      reflexoes: baseEvent.reflexoes || {},
+      questionariosPendentes: baseEvent.questionariosPendentes || {},
+      conclusoes: baseEvent.conclusoes || {},
+      preservedMissionUsage: baseEvent.preservedMissionUsage || {},
+      helpRequests: baseEvent.helpRequests || [],
+    },
+    missions: buildFixedMissionList(),
+    execucoes: {},
+    reflexoes: {},
+    questionariosPendentes: {},
+    conclusoes: {},
+    preservedMissionUsage: {},
+    helpRequests: [],
+  };
+}
+
+function normalizeEventsForProduct(events = []) {
+  return events.map((event) => migrateEventToFixedMissions(event));
+}
+
 function classifyAttachment(file) {
   const ext = getFileExtension(file.name);
   if (["png", "jpg", "jpeg", "webp"].includes(ext)) return "image";
@@ -1180,8 +1111,10 @@ function buildPromptApplied({ mission, acao, historyContext, planningMode = "off
   const actionBlock = isFreeInstructionAction(acao)
     ? "Diretriz da rodada: o time escreveu a propria instrucao livremente, sem usar uma acao rapida predefinida."
     : `Acao selecionada: ${getActionLabel(acao)}.`;
+  const aiMode = getMissionAiMode(mission);
+  const aiModeBlock = AI_MODE_PROMPTS[aiMode] || "";
   const planningBlock = includePlanningPrompt ? PLANNING_MODE_PROMPTS[planningMode] || PLANNING_MODE_PROMPTS.off : "";
-  return [mission.systemPrompt, actionBlock, planningBlock, `Modo: ${MODE_LABELS[mission.mode] || mission.mode}.`]
+  return [mission.systemPrompt, aiModeBlock, actionBlock, planningBlock, `AI Mode: ${AI_MODE_LABELS[aiMode]}.`]
     .filter(Boolean)
     .join("\n\n")
     .concat(historyBlock);
@@ -1360,6 +1293,7 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
   const historyBlock = historyContext.length
     ? historyContext.map((item, index) => `Rodada ${index + 1}: ${item}`).join("\n\n")
     : "Sem histórico anterior nesta missão.";
+  const aiMode = getMissionAiMode(mission);
   const prompt = [
     "Você é um analisador pedagógico de prompts e respostas.",
     "Gere uma análise técnica e didática da resposta produzida pela IA.",
@@ -1380,9 +1314,12 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
     "refinementSuggestions: array curto de melhorias no prompt para respostas mais consistentes, avançadas ou específicas.",
     "contextUse: string curta explicando como o histórico anterior influenciou ou não a resposta, sem substituir o foco do último prompt.",
     "Nomeie termos como saliência, compressão semântica, tokenização, atenção, condicionamento por prompt, decoding e outros que forem realmente úteis aqui.",
+    aiMode === CODING_AI_MODE
+      ? "Como esta missão está em modo coding, dê ênfase a decisões de implementação, qualidade de código, debugging, arquitetura, refatoração e exemplos práticos."
+      : "Como esta missão está em modo chat, mantenha foco em clareza estrutural, intenção do prompt e qualidade da resposta conversacional.",
     `Missao: ${mission.name}`,
     `Categoria: ${mission.category}`,
-    `Modo: ${MODE_LABELS[mission.mode] || mission.mode}`,
+    `AI Mode: ${AI_MODE_LABELS[aiMode]}`,
     isFreeInstructionAction(acao)
       ? "A rodada foi feita em modo de instrução livre, sem ação rápida predefinida."
       : `Ação escolhida: ${getActionLabel(acao)}`,
@@ -1474,7 +1411,9 @@ async function fetchChatCompletion({ apiKey, model, messages, reasoningEffort })
 }
 
 async function executarComIA({ mission, input, attachments = [], acao, apiKey, model, planningMode, historyContext }) {
-  const planningRuntime = resolvePlanningRuntime(model, planningMode);
+  const aiMode = getMissionAiMode(mission);
+  const runtimeBaseModel = aiMode === CODING_AI_MODE ? CODING_AI_MODEL : model;
+  const planningRuntime = resolvePlanningRuntime(runtimeBaseModel, planningMode);
   const promptApplied = buildPromptApplied({
     mission,
     acao,
@@ -1483,43 +1422,6 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
     includePlanningPrompt: !planningRuntime.planningModeReal,
   });
   const userMessageContent = buildUserMessageContent(input, attachments);
-  if (mission.mode === "compare-models") {
-    const [mini, full] = await Promise.all([
-      fetchChatCompletion({
-        apiKey,
-        model: "gpt-4.1-mini",
-        messages: [
-          { role: "system", content: promptApplied },
-          { role: "user", content: userMessageContent },
-        ],
-      }),
-      fetchChatCompletion({
-        apiKey,
-        model: "gpt-4.1",
-        messages: [
-          { role: "system", content: promptApplied },
-          { role: "user", content: userMessageContent },
-        ],
-      }),
-    ]);
-
-    const output =
-      `[MODELO A - gpt-4.1-mini]\n${mini.output}\n\n` +
-      `[MODELO B - gpt-4.1]\n${full.output}\n\n` +
-      "[COMPARACAO]\nCompare profundidade, custo e adequacao ao caso.";
-
-    const inputTokens = mini.inputTokens + full.inputTokens;
-    const outputTokens = mini.outputTokens + full.outputTokens;
-    return {
-      output,
-      promptApplied,
-      inputTokens,
-      outputTokens,
-      tokens: inputTokens + outputTokens,
-      custo: estimateCost("gpt-4.1-mini", mini.inputTokens, mini.outputTokens) + estimateCost("gpt-4.1", full.inputTokens, full.outputTokens),
-    };
-  }
-
   const result = await fetchChatCompletion({
     apiKey,
     model: planningRuntime.requestModel,
@@ -1538,6 +1440,7 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
     outputTokens: result.outputTokens,
     tokens: result.inputTokens + result.outputTokens,
     custo,
+    aiMode,
     effectiveModel: planningRuntime.requestModel,
     selectedModel: model,
     planningModeReal: planningRuntime.planningModeReal,
@@ -1546,6 +1449,8 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
 }
 
 function executarMock({ mission, input, acao, model, planningMode, historyContext }) {
+  const aiMode = getMissionAiMode(mission);
+  const effectiveModel = aiMode === CODING_AI_MODE ? CODING_AI_MODEL : model;
   const output = (MOCKS[mission.id] || (() => "Sem mock configurado."))(input, getActionLabel(acao));
   const inputTokens = Math.max(120, Math.round(input.length / 3.5));
   const outputTokens = Math.max(180, Math.round(output.length / 3.8));
@@ -1555,7 +1460,12 @@ function executarMock({ mission, input, acao, model, planningMode, historyContex
     inputTokens,
     outputTokens,
     tokens: inputTokens + outputTokens,
-    custo: estimateCost(model, inputTokens, outputTokens),
+    custo: estimateCost(effectiveModel, inputTokens, outputTokens),
+    aiMode,
+    selectedModel: model,
+    effectiveModel,
+    planningModeReal: false,
+    planningResolution: "mock-runtime",
   };
 }
 
@@ -1570,11 +1480,28 @@ function Modal({ open, children, onClose, small = false, dismissible = true, cla
   );
 }
 
+function BrandLoaderOverlay({ open }) {
+  if (!open) return null;
+  return (
+    <div className="brand-loader-overlay" aria-hidden="true">
+      <div className="brand-loader-shell">
+        <img className="brand-loader-icon" src={techHallFooterIcon} alt="" />
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const isLocalDev = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  const initialLocalStore = loadStore();
+  const rawInitialLocalStore = loadStore();
+  const initialLocalStore = {
+    ...rawInitialLocalStore,
+    events: normalizeEventsForProduct(rawInitialLocalStore.events || []),
+    archivedEvents: rawInitialLocalStore.archivedEvents || [],
+  };
   const [store, setStore] = useState(() => ({
     events: initialLocalStore.events || [],
+    archivedEvents: initialLocalStore.archivedEvents || [],
     apiKey: initialLocalStore.apiKey || "",
     model: initialLocalStore.model || "gpt-4.1-mini",
     planningMode: initialLocalStore.planningMode || "off",
@@ -1598,12 +1525,12 @@ function App() {
   const [newEventOpen, setNewEventOpen] = useState(false);
   const [addTeamOpen, setAddTeamOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
-  const [catalogOpen, setCatalogOpen] = useState(false);
   const [confirmState, setConfirmState] = useState({
     open: false,
     title: "",
     body: "",
     onConfirm: null,
+    secondaryAction: null,
     confirmTone: "danger",
     requiresPassword: false,
     confirmValue: "",
@@ -1616,7 +1543,6 @@ function App() {
     name: "",
     desc: "",
     teams: "",
-    pack: "core",
     eventMode: MISSIONS_MODE_EVENT,
     teamMode: "manual",
     studentsRaw: "",
@@ -1631,26 +1557,55 @@ function App() {
     importMode: "solo",
     randomTeamCount: 2,
   });
-  const [catalogSelection, setCatalogSelection] = useState([]);
   const [reflectionAnswers, setReflectionAnswers] = useState({});
   const [historyOpen, setHistoryOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpMessage, setHelpMessage] = useState("");
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState("");
+  const [teamAnnouncementOpen, setTeamAnnouncementOpen] = useState(false);
+  const [teamAnnouncementInboxOpen, setTeamAnnouncementInboxOpen] = useState(false);
   const [reflectionComment, setReflectionComment] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [missionFeedbackOpen, setMissionFeedbackOpen] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
-  const [roomMapOpen, setRoomMapOpen] = useState(false);
+  const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
+  const [facilitatorToolView, setFacilitatorToolView] = useState(FACILITATOR_TOOL_VIEWS.MENU);
   const [activeStudentName, setActiveStudentName] = useState("");
+  const [brandLoaderOpen, setBrandLoaderOpen] = useState(true);
+  const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
+  const [clockNow, setClockNow] = useState(Date.now());
   const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false, supabaseConfigured: false });
   const [storeHydrated, setStoreHydrated] = useState(false);
   const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
   const lastRemoteEventsRef = useRef(JSON.stringify(initialLocalStore.events || []));
+  const brandLoaderTimerRef = useRef(null);
+
+  function clearBrandLoaderTimer() {
+    if (!brandLoaderTimerRef.current) return;
+    window.clearTimeout(brandLoaderTimerRef.current);
+    brandLoaderTimerRef.current = null;
+  }
+
+  function runBrandLoaderTransition(action, duration = BRAND_LOADER_DURATION_MS) {
+    clearBrandLoaderTimer();
+    setBrandLoaderOpen(true);
+    brandLoaderTimerRef.current = window.setTimeout(() => {
+      action?.();
+      setBrandLoaderOpen(false);
+      brandLoaderTimerRef.current = null;
+    }, duration);
+  }
 
   useEffect(() => {
     saveStore(store);
   }, [store]);
+
+  useEffect(() => {
+    runBrandLoaderTransition();
+    return () => clearBrandLoaderTimer();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1664,10 +1619,11 @@ function App() {
         if (config.supabaseConfigured) {
           const remoteState = await fetchRemoteState();
           if (cancelled) return;
+          const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
           lastRemoteEventsRef.current = JSON.stringify(remoteState.events || []);
           setStore((current) => ({
             ...current,
-            events: remoteState.events || [],
+            events: normalizedRemoteEvents,
           }));
         }
       } catch (error) {
@@ -1690,6 +1646,11 @@ function App() {
   }, [toastText]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!storeHydrated) return undefined;
 
     const serializedEvents = JSON.stringify(store.events || []);
@@ -1710,14 +1671,15 @@ function App() {
 
     const timer = window.setInterval(async () => {
       const latestLocal = loadStore();
+      const normalizedLocalEvents = normalizeEventsForProduct(latestLocal.events || []);
       try {
         const config = await fetchServerConfig();
         setServerConfig(config);
 
         if (config.supabaseConfigured) {
           const remoteState = await fetchRemoteState();
-          const remoteEvents = remoteState.events || [];
-          lastRemoteEventsRef.current = JSON.stringify(remoteEvents);
+          const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
+          lastRemoteEventsRef.current = JSON.stringify(remoteState.events || []);
           setStore((current) => ({
             ...current,
             events: remoteEvents,
@@ -1732,7 +1694,7 @@ function App() {
 
       setStore((current) => ({
         ...current,
-        events: latestLocal.events || [],
+        events: normalizedLocalEvents,
         apiKey: latestLocal.apiKey || "",
         model: latestLocal.model || "gpt-4.1-mini",
       }));
@@ -1772,9 +1734,25 @@ function App() {
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
+  const selectedEventAnnouncements = getEventAnnouncements(selectedEvent);
+  const selectedEventLatestAnnouncement = selectedEventAnnouncements.length ? selectedEventAnnouncements[selectedEventAnnouncements.length - 1] : null;
+  const teamEventAnnouncements = getEventAnnouncements(teamEvent);
+  const teamUnreadAnnouncements = teamEvent && timeTeamIdx !== null ? getUnreadAnnouncementsForTeam(teamEvent, timeTeamIdx) : [];
+  const teamUnreadAnnouncementCount = teamUnreadAnnouncements.length;
+  const latestUnreadAnnouncement = teamEvent && timeTeamIdx !== null ? getLatestUnreadAnnouncementForTeam(teamEvent, timeTeamIdx) : null;
+  const selectedEventTimer = getSessionTimer(selectedEvent);
+  const selectedEventTimerRemainingMs = getSessionTimerRemainingMs(selectedEvent, clockNow);
+  const selectedEventTimerRunning = isSessionTimerRunning(selectedEvent, clockNow);
+  const selectedEventTimerNotice = getSessionTimerNotice(selectedEvent, clockNow);
+  const teamEventTimer = getSessionTimer(teamEvent);
+  const teamEventTimerRemainingMs = getSessionTimerRemainingMs(teamEvent, clockNow);
+  const teamEventTimerRunning = isSessionTimerRunning(teamEvent, clockNow);
+  const teamEventTimerNotice = getSessionTimerNotice(teamEvent, clockNow);
+  const teamTimerExpired = isSessionTimerExpired(teamEvent, clockNow);
+  const teamTimerLockActive = isSessionTimerLockActive(teamEvent, clockNow);
   const selectedEventScreenShare = selectedEvent ? getScreenShareState(selectedEvent) : null;
   const teamEventScreenShare = teamEvent ? getScreenShareState(teamEvent) : null;
-  const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? teamEvent.missions[timeMissionIdx] : null;
+  const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
   const currentExecs = currentMission && teamEvent
     ? isTrainingEvent
       ? getTrainingRuns(teamEvent, timeTeamIdx)
@@ -1806,6 +1784,23 @@ function App() {
   const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open").length;
   const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open") || null;
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
+
+  useEffect(() => {
+    if (screen !== "workspace" || !teamEvent || timeTeamIdx === null) {
+      setTeamAnnouncementOpen(false);
+      return;
+    }
+    const announcement = getLatestUnreadAnnouncementForTeam(teamEvent, timeTeamIdx);
+    if (!announcement) {
+      setTeamAnnouncementOpen(false);
+      return;
+    }
+    if (!isAnnouncementDismissedForTeam(teamEvent, timeTeamIdx, announcement.id)) {
+      setTeamAnnouncementOpen(true);
+      return;
+    }
+    setTeamAnnouncementOpen(false);
+  }, [screen, teamEvent, timeTeamIdx, clockNow]);
   const importedStudents = parseStudentList(teamImportForm.studentsRaw || "");
 
   useEffect(() => {
@@ -1932,11 +1927,6 @@ function App() {
     return () => window.clearInterval(timer);
   }, [activeStudentName, screen, team?.name, teamEvent, timeTeamIdx]);
 
-  const availableCatalog = useMemo(() => {
-    if (!selectedEvent) return [];
-    const existingIds = new Set(selectedEvent.missions.map((mission) => mission.id));
-    return CATALOGO.filter((mission) => !existingIds.has(mission.id));
-  }, [selectedEvent]);
 
   const openEventsForTeamEntry = useMemo(
     () => events.filter((event) => event.status === "open"),
@@ -2053,6 +2043,7 @@ function App() {
       title,
       body,
       onConfirm,
+      secondaryAction: options.secondaryAction || null,
       confirmTone: options.confirmTone || "danger",
       requiresPassword: Boolean(options.requiresPassword),
       confirmValue: options.confirmValue || "",
@@ -2068,6 +2059,7 @@ function App() {
       title: "",
       body: "",
       onConfirm: null,
+      secondaryAction: null,
       confirmTone: "danger",
       requiresPassword: false,
       confirmValue: "",
@@ -2076,12 +2068,19 @@ function App() {
     });
   }
 
-  function openDeleteConfirm({ eventId, title, body, onConfirm }) {
+  function openDeleteConfirm({ eventId, title, body, onConfirm, onArchive }) {
     openConfirm(title, body, onConfirm, {
       requiresPassword: true,
       confirmValue: eventId,
       confirmLabel: "Senha de seguranca",
       confirmPlaceholder: `Digite o codigo do evento (${eventId})`,
+      secondaryAction: onArchive
+        ? {
+            label: "Salvar histórico",
+            className: "btn-primary",
+            onClick: onArchive,
+          }
+        : null,
     });
   }
 
@@ -2096,12 +2095,14 @@ function App() {
   }
 
   function goEntradaTime() {
-    setScreen("entry");
-    setEntryError("");
-    setTimeEventId(null);
-    setTimeTeamIdx(null);
-    setTimeMissionIdx(null);
-    setActiveStudentName("");
+    runBrandLoaderTransition(() => {
+      setScreen("entry");
+      setEntryError("");
+      setTimeEventId(null);
+      setTimeTeamIdx(null);
+      setTimeMissionIdx(null);
+      setActiveStudentName("");
+    });
   }
 
   function goEscolhaTime() {
@@ -2162,7 +2163,6 @@ function App() {
       name: newEventForm.name.trim(),
       desc: newEventForm.desc.trim(),
       rawTeams: newEventForm.teams.trim(),
-      pack: newEventForm.pack,
     });
     event.eventMode = newEventForm.eventMode;
     if (newEventForm.teamMode === "import") {
@@ -2188,7 +2188,6 @@ function App() {
       name: "",
       desc: "",
       teams: "",
-      pack: "core",
       eventMode: MISSIONS_MODE_EVENT,
       teamMode: "manual",
       studentsRaw: "",
@@ -2198,6 +2197,24 @@ function App() {
     setNewEventOpen(false);
     setScreen("facilitador");
     showToast("Evento criado");
+  }
+
+  function archiveEventSnapshot(eventId) {
+    setStore((current) => {
+      const eventToArchive = (current.events || []).find((event) => event.id === eventId);
+      if (!eventToArchive) return current;
+      const archivedRecord = {
+        archivedAt: new Date().toISOString(),
+        event: eventToArchive,
+      };
+      return {
+        ...current,
+        events: (current.events || []).filter((event) => event.id !== eventId),
+        archivedEvents: [archivedRecord, ...(current.archivedEvents || [])],
+      };
+    });
+    if (facSelectedId === eventId) setFacSelectedId(null);
+    showToast("Histórico do evento salvo");
   }
 
   function handleDeleteEvent(eventId) {
@@ -2326,20 +2343,6 @@ function App() {
     showToast("Time removido");
   }
 
-  function handleAddCatalogMissions() {
-    if (!catalogSelection.length || !selectedEvent) return;
-    const toAdd = CATALOGO.filter((mission) => catalogSelection.includes(mission.id)).map((mission) => ({
-      ...mission,
-      unlocked: false,
-    }));
-    updateEvents((current) =>
-      current.map((event) => (event.id === selectedEvent.id ? { ...event, missions: [...event.missions, ...toAdd] } : event)),
-    );
-    setCatalogSelection([]);
-    setCatalogOpen(false);
-    showToast(`${toAdd.length} missoes adicionadas`);
-  }
-
   function handleToggleMission(eventId, index, unlocked) {
     updateEvents((current) =>
       current.map((event) =>
@@ -2356,30 +2359,20 @@ function App() {
     showToast(unlocked ? "Missao liberada" : "Missao bloqueada");
   }
 
-  function handleRemoveMission(eventId, index) {
+  function handleMissionAiModeChange(eventId, index, aiMode) {
     updateEvents((current) =>
-      current.map((event) => {
-        if (event.id !== eventId) return event;
-        const missions = [...event.missions];
-        const removedMission = missions[index];
-        missions.splice(index, 1);
-        const filterMissionIdMap = (map = {}) =>
-          Object.fromEntries(
-            Object.entries(map).filter(([key]) => !`${key}`.endsWith(`__${removedMission?.id}`)),
-          );
-        return {
-          ...event,
-          missions,
-          execucoes: filterMissionIdMap(event.execucoes),
-          reflexoes: filterMissionIdMap(event.reflexoes),
-          questionariosPendentes: filterMissionIdMap(event.questionariosPendentes),
-          conclusoes: filterMissionIdMap(event.conclusoes),
-          preservedMissionUsage: filterMissionIdMap(event.preservedMissionUsage),
-          helpRequests: (event.helpRequests || []).filter((request) => request.missionId !== removedMission?.id),
-        };
-      }),
+      current.map((event) =>
+        event.id !== eventId
+          ? event
+          : {
+              ...event,
+              missions: event.missions.map((mission, missionIndex) =>
+                missionIndex === index ? { ...mission, aiMode: aiMode === CODING_AI_MODE ? CODING_AI_MODE : CHAT_AI_MODE } : mission,
+              ),
+            },
+      ),
     );
-    showToast("Missao removida");
+    showToast(`Missão ajustada para ${AI_MODE_LABELS[aiMode] || AI_MODE_LABELS[CHAT_AI_MODE]}`);
   }
 
   function handleSaveEventConfig() {
@@ -2459,10 +2452,12 @@ function App() {
       selectedEvent && eventMode !== TRAINING_MODE_EVENT
         ? selectedEvent.missions.findIndex((mission) => mission.unlocked)
         : -1;
-    setActiveStudentName(normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "");
-    setTimeTeamIdx(index);
-    setTimeMissionIdx(pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null);
-    setScreen("workspace");
+    runBrandLoaderTransition(() => {
+      setActiveStudentName(normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "");
+      setTimeTeamIdx(index);
+      setTimeMissionIdx(pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null);
+      setScreen("workspace");
+    });
   }
 
   function handleSelectEntryEvent(eventId) {
@@ -2704,6 +2699,224 @@ function App() {
     setHelpOpen(true);
   }
 
+  function handleOpenBroadcastModal() {
+    if (!selectedEvent) return;
+    setBroadcastMessage("");
+    setBroadcastOpen(true);
+  }
+
+  function handleStartSessionTimer() {
+    if (!selectedEvent) return;
+    const durationMs = parseTimerInputToMs(timerMinutesInput);
+    if (!durationMs) {
+      showToast("Defina um tempo válido em MM:SS");
+      return;
+    }
+    const startedAt = new Date().toISOString();
+    const endsAt = new Date(Date.now() + durationMs).toISOString();
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== selectedEvent.id
+          ? event
+          : {
+              ...event,
+              sessionTimer: {
+                active: true,
+                startedAt,
+                endsAt,
+                durationMs,
+              },
+              sessionTimerNotice: {
+                id: `timer_notice_${Date.now()}`,
+                message: `Cronômetro iniciado com ${formatCountdown(durationMs)}.`,
+                createdAt: new Date().toISOString(),
+                dismissedAt: null,
+              },
+            },
+      ),
+    );
+    showToast("Cronômetro iniciado");
+  }
+
+  function handleAddSessionTimer(extraMinutes = null) {
+    if (!selectedEvent) return;
+    const extraDurationMs = extraMinutes !== null ? Math.round(extraMinutes * 60 * 1000) : parseTimerInputToMs(timerMinutesInput);
+    if (!extraDurationMs) {
+      showToast("Defina um tempo válido para acrescentar");
+      return;
+    }
+    const currentTimer = getSessionTimer(selectedEvent);
+    const now = Date.now();
+    const currentEndsAt = currentTimer.endsAt ? new Date(currentTimer.endsAt).getTime() : now;
+    const baseTime = Math.max(now, currentEndsAt);
+    const nextEndsAt = new Date(baseTime + extraDurationMs).toISOString();
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== selectedEvent.id
+          ? event
+          : {
+              ...event,
+              sessionTimer: {
+                active: true,
+                startedAt: currentTimer.startedAt || new Date(now).toISOString(),
+                endsAt: nextEndsAt,
+                durationMs: Math.max(0, currentTimer.durationMs || 0) + extraDurationMs,
+              },
+              sessionTimerNotice: {
+                id: `timer_notice_${Date.now()}`,
+                message: `Tempo acrescentado: +${formatCountdown(extraDurationMs)}.`,
+                createdAt: new Date().toISOString(),
+                dismissedAt: null,
+              },
+            },
+      ),
+    );
+    showToast(`+${formatCountdown(extraDurationMs)} adicionados`);
+  }
+
+  function handleClearSessionTimer() {
+    if (!selectedEvent) return;
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== selectedEvent.id
+          ? event
+          : {
+              ...event,
+              sessionTimer: {
+                active: false,
+                startedAt: null,
+                endsAt: null,
+                durationMs: 0,
+              },
+              sessionTimerNotice: null,
+            },
+      ),
+    );
+    showToast("Cronômetro encerrado");
+  }
+
+  function handleDismissSessionTimerNotice() {
+    if (!selectedEvent) return;
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== selectedEvent.id
+          ? event
+          : {
+              ...event,
+              sessionTimerNotice: event.sessionTimerNotice
+                ? {
+                    ...event.sessionTimerNotice,
+                    dismissedAt: new Date().toISOString(),
+                  }
+                : null,
+            },
+      ),
+    );
+  }
+
+  function handleSaveBroadcastMessage() {
+    if (!selectedEvent) return;
+    const message = broadcastMessage.trim();
+    if (!message) return;
+    const createdAt = new Date().toISOString();
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== selectedEvent.id
+          ? event
+          : {
+              ...event,
+              announcements: [
+                ...getEventAnnouncements(event),
+                {
+                  id: `announcement_${Date.now()}`,
+                  message,
+                  createdAt,
+                  dismissedBy: {},
+                  readBy: {},
+                },
+              ],
+              announcement: null,
+            },
+      ),
+    );
+    setBroadcastOpen(false);
+    showToast("Mensagem enviada para a turma");
+  }
+
+  function handleClearBroadcastMessage() {
+    if (!selectedEvent) return;
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== selectedEvent.id
+          ? event
+          : {
+              ...event,
+              announcements: [],
+              announcement: null,
+            },
+      ),
+    );
+    setBroadcastOpen(false);
+    setBroadcastMessage("");
+    setTeamAnnouncementOpen(false);
+    showToast("Mensagem da turma removida");
+  }
+
+  function handleDismissTeamAnnouncement() {
+    if (!teamEvent || timeTeamIdx === null || !latestUnreadAnnouncement) {
+      setTeamAnnouncementOpen(false);
+      return;
+    }
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== teamEvent.id
+          ? event
+          : {
+              ...event,
+              announcements: getEventAnnouncements(event).map((announcement) =>
+                announcement.id !== latestUnreadAnnouncement.id
+                  ? announcement
+                  : {
+                      ...announcement,
+                      dismissedBy: {
+                        ...(announcement.dismissedBy || {}),
+                        [timeTeamIdx]: new Date().toISOString(),
+                      },
+                    },
+              ),
+              announcement: null,
+            },
+      ),
+    );
+    setTeamAnnouncementOpen(false);
+  }
+
+  function handleOpenTeamAnnouncementInbox() {
+    if (!teamEvent || timeTeamIdx === null) {
+      setTeamAnnouncementInboxOpen(true);
+      return;
+    }
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== teamEvent.id
+          ? event
+          : {
+              ...event,
+              announcements: getEventAnnouncements(event).map((announcement) => ({
+                ...announcement,
+                readBy: {
+                  ...(announcement.readBy || {}),
+                  [timeTeamIdx]: new Date().toISOString(),
+                },
+              })),
+              announcement: null,
+            },
+      ),
+    );
+    setTeamAnnouncementOpen(false);
+    setTeamAnnouncementInboxOpen(true);
+  }
+
   function handleSendHelpRequest() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const message = helpMessage.trim();
@@ -2937,6 +3150,10 @@ function App() {
   async function handleExecutarMissao() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     if (!isTrainingEvent && currentMissionStatus !== "aberta") return;
+    if (teamTimerLockActive) {
+      setRunError("O cronômetro desta atividade foi encerrado pelo facilitador.");
+      return;
+    }
     const input = missionInput.trim();
     const attachments = missionAttachments;
     const acao = FREE_ACTION_KEY;
@@ -3113,6 +3330,7 @@ function App() {
         analysisTarget: "latest_prompt",
         usedHistoryContext: historyContext.length > 0,
         iterationNumber,
+        aiMode: getMissionAiMode(currentMission),
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
         tokens: result.tokens,
@@ -3207,7 +3425,10 @@ function App() {
 
           <div className="dashboard-layout">
             <div className="dashboard-main">
-              <div className="section-header">
+              <div className="section-header section-title-with-icon">
+                <span className="section-title-icon" aria-hidden="true">
+                  <Users size={16} strokeWidth={1.6} />
+                </span>
                 <span className="section-title">Times no laboratório livre</span>
               </div>
               <div className="team-admin-grid">
@@ -3990,6 +4211,7 @@ function App() {
 
   return (
     <>
+      <BrandLoaderOverlay open={brandLoaderOpen} />
       {screen === "home" && (
         <div className="screen active">
           <Topbar
@@ -4002,10 +4224,7 @@ function App() {
           />
           <div className="center-wrap">
             <div className="center-box home-box">
-              <div className="hero-brand-lockup" aria-hidden="true">
-                <img src={techHallLogoDark} alt="" className="brand-wordmark hero-wordmark" />
-              </div>
-              <div className="brand-kicker">Tech Hall AI Lab</div>
+              <div className="brand-kicker hero-kicker">Tech Hall AI Lab</div>
               <div className="hero-grid">
                 <button className="card hero-card" onClick={goFacilitador}>
                   <div className="hero-card-icon" aria-hidden="true">
@@ -4039,35 +4258,25 @@ function App() {
                   {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
                     <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
                   ) : null}
+                  {selectedEventTimerRunning ? (
+                    <span className="topbar-live-pill">
+                      <Clock3 size={12} strokeWidth={1.8} aria-hidden="true" />
+                      {formatCountdown(selectedEventTimerRemainingMs)}
+                    </span>
+                  ) : null}
                   {selectedEventScreenShare?.active ? <span className="topbar-live-pill">tela ao vivo</span> : null}
                 </div>
                 <div className="topbar-actions-main">
                   <button
-                    className={`btn btn-sm topbar-api-btn${apiConfigured ? " is-connected" : ""}`}
+                    className="btn btn-sm topbar-tools-btn"
                     onClick={() => {
-                      setConfigForm({ apiKey: store.apiKey, model: store.model, planningMode: store.planningMode });
-                      setConfigOpen(true);
+                      setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
+                      setFacilitatorToolsOpen(true);
                     }}
                   >
-                    {apiConfigured ? "API ligada" : "Configurar IA"}
+                    <SlidersHorizontal size={14} strokeWidth={1.7} aria-hidden="true" />
+                    Ferramentas do facilitador
                   </button>
-                  <button
-                    className="btn btn-sm topbar-roommap-btn"
-                    disabled={!selectedEvent}
-                    title={!selectedEvent ? "Selecione um evento para ver o mapa da sala" : "Ver mapa da sala"}
-                    onClick={() => setRoomMapOpen(true)}
-                  >
-                    <Map size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Ver mapa da sala
-                  </button>
-                  <FacilitatorScreenShareButton
-                    event={selectedEvent}
-                    screenShare={selectedEventScreenShare}
-                    onPublishState={(nextState) => {
-                      if (!selectedEvent) return;
-                      handlePublishScreenShare(selectedEvent.id, nextState);
-                    }}
-                  />
                 </div>
               </>
             }
@@ -4109,8 +4318,9 @@ function App() {
                               openDeleteConfirm({
                                 eventId: event.id,
                                 title: "Excluir evento",
-                                body: "Todos os dados deste evento serao removidos. Para continuar, digite o codigo do evento como senha de seguranca.",
+                                body: "Escolha se voce quer salvar o histórico deste evento antes de removê-lo da lista ativa, ou deletá-lo para sempre. Para liberar as duas opções, digite o código do evento como senha de segurança.",
                                 onConfirm: () => handleDeleteEvent(event.id),
+                                onArchive: () => archiveEventSnapshot(event.id),
                               })
                             }
                           >
@@ -4216,33 +4426,16 @@ function App() {
                         </>
                       ) : (
                         <>
-                      <div className="section-header">
-                        <span className="section-title">{selectedEvent.missions.length} missões</span>
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => {
-                            setCatalogSelection([]);
-                            setCatalogOpen(true);
-                          }}
-                        >
-                          + Adicionar do catalogo
-                        </button>
-                      </div>
-                      {!selectedEvent.missions.length ? (
-                        <div className="teams-empty">Nenhuma missão.</div>
-                      ) : (
-                        ["core", "pesquisa", "avancado", "recuperacao", "outro"].map((pack) => {
-                          const missions = selectedEvent.missions
-                            .map((mission, index) => ({ ...mission, _idx: index }))
-                            .filter((mission) => (mission.pack || "outro") === pack);
-                          if (!missions.length) return null;
-                          return (
-                            <div key={pack}>
-                              <div className="pack-header">
-                                <span>{PACK_LABELS[pack] || pack}</span>
-                                <span className={`pack-badge pack-${pack}`}>{missions.length} missões</span>
-                              </div>
-                              {missions.map((mission) => {
+                          <div className="section-header">
+                            <span className="section-title">{selectedEvent.missions.length} missões</span>
+                            <span className="section-helper-text">Fluxo fixo com Análise geral e Programação.</span>
+                          </div>
+                          {!selectedEvent.missions.length ? (
+                            <div className="teams-empty">Nenhuma missão.</div>
+                          ) : (
+                            <div className="mission-simple-list">
+                              {selectedEvent.missions.map((mission, index) => {
+                                const missionAiMode = getMissionAiMode(mission);
                                 const reflections = getMissionReflections(selectedEvent, mission.id);
                                 const feedbackKey = `${selectedEvent.id}__${mission.id}`;
                                 const feedbackOpen = Boolean(missionFeedbackOpen[feedbackKey]);
@@ -4267,14 +4460,14 @@ function App() {
                                   : 0;
 
                                 return (
-                                  <div className="mission-row-wrap" key={`${mission.id}-${mission._idx}`}>
+                                  <div className="mission-row-wrap" key={`${mission.id}-${index}`}>
                                     <div className="mission-row">
                                       <div className="mission-main">
                                         <div className="mission-row-header">
                                           <span className="mission-num">{mission.num || ""}</span>
                                           <button
                                             className={`mission-toggle mission-toggle-inline${mission.unlocked ? " is-on" : ""}`}
-                                            onClick={() => handleToggleMission(selectedEvent.id, mission._idx, !mission.unlocked)}
+                                            onClick={() => handleToggleMission(selectedEvent.id, index, !mission.unlocked)}
                                             aria-label={mission.unlocked ? `Desligar missao ${mission.name}` : `Ligar missao ${mission.name}`}
                                           >
                                             <span className="mission-toggle-track">
@@ -4282,9 +4475,16 @@ function App() {
                                             </span>
                                           </button>
                                           <span className="mname">{mission.name}</span>
-                                          <span className={`mode-badge ${MODE_CLASS[mission.mode] || "mode-single"}`}>
-                                            {MODE_LABELS[mission.mode] || mission.mode}
-                                          </span>
+                                          <label className="mission-ai-mode-inline">
+                                            <span className="mission-ai-mode-label">IA</span>
+                                            <select
+                                              value={missionAiMode}
+                                              onChange={(event) => handleMissionAiModeChange(selectedEvent.id, index, event.target.value)}
+                                            >
+                                              <option value={CHAT_AI_MODE}>{AI_MODE_LABELS[CHAT_AI_MODE]}</option>
+                                              <option value={CODING_AI_MODE}>{AI_MODE_LABELS[CODING_AI_MODE]}</option>
+                                            </select>
+                                          </label>
                                         </div>
                                         <div className="mcat">{mission.category}</div>
                                         {mission.desc ? <div className="mdesc">{mission.desc}</div> : null}
@@ -4317,10 +4517,7 @@ function App() {
                                                         </span>
                                                       </div>
                                                       <div className="mission-feedback-bar-track" aria-hidden="true">
-                                                        <div
-                                                          className="mission-feedback-bar-fill"
-                                                          style={{ width: `${(item.average / 5) * 100}%` }}
-                                                        />
+                                                        <div className="mission-feedback-bar-fill" style={{ width: `${(item.average / 5) * 100}%` }} />
                                                       </div>
                                                     </div>
                                                   ))}
@@ -4392,17 +4589,13 @@ function App() {
                                         </button>
                                         <div className="mission-overflow">
                                           <button
-                                            className={`mission-overflow-trigger${missionMenuOpen === `${mission.id}-${mission._idx}` ? " is-open" : ""}`}
-                                            onClick={() =>
-                                              setMissionMenuOpen((current) =>
-                                                current === `${mission.id}-${mission._idx}` ? null : `${mission.id}-${mission._idx}`,
-                                              )
-                                            }
+                                            className={`mission-overflow-trigger${missionMenuOpen === `${mission.id}-${index}` ? " is-open" : ""}`}
+                                            onClick={() => setMissionMenuOpen((current) => (current === `${mission.id}-${index}` ? null : `${mission.id}-${index}`))}
                                             aria-label={`Abrir menu da missao ${mission.name}`}
                                           >
                                             ⋯
                                           </button>
-                                          {missionMenuOpen === `${mission.id}-${mission._idx}` ? (
+                                          {missionMenuOpen === `${mission.id}-${index}` ? (
                                             <div className="mission-overflow-menu">
                                               <button
                                                 className="mission-overflow-item"
@@ -4418,20 +4611,6 @@ function App() {
                                               >
                                                 Encerrar sem avaliação
                                               </button>
-                                              <button
-                                                className="mission-overflow-item mission-overflow-item-danger"
-                                                onClick={() => {
-                                                  setMissionMenuOpen(null);
-                                                  openDeleteConfirm({
-                                                    eventId: selectedEvent.id,
-                                                    title: "Remover missão",
-                                                    body: `A missão "${mission.name}" será removida do evento. Para continuar, digite o código do evento como senha de segurança.`,
-                                                    onConfirm: () => handleRemoveMission(selectedEvent.id, mission._idx),
-                                                  });
-                                                }}
-                                              >
-                                                Excluir missão
-                                              </button>
                                             </div>
                                           ) : null}
                                         </div>
@@ -4441,9 +4620,7 @@ function App() {
                                 );
                               })}
                             </div>
-                          );
-                        })
-                      )}
+                          )}
                         </>
                       )}
                     </>
@@ -4549,6 +4726,13 @@ function App() {
               <>
                 <span className="topbar-caption soft">{teamEvent.name}</span>
                 <span className="team-badge">{team.name}</span>
+                {teamEventAnnouncements.length ? (
+                  <button className="btn btn-sm topbar-team-messages-btn" onClick={handleOpenTeamAnnouncementInbox}>
+                    <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
+                    Mensagens
+                    {teamUnreadAnnouncementCount ? <span className="help-trigger-badge">{teamUnreadAnnouncementCount}</span> : null}
+                  </button>
+                ) : null}
                 {!teamEventScreenShare?.active ? (
                   <button className="btn btn-sm topbar-tokens-btn" onClick={() => setTokenDrawerOpen(true)}>
                     Extrato de tokens
@@ -4568,6 +4752,12 @@ function App() {
           {teamEventScreenShare?.active ? (
             <div className="live-share-banner">
               Compartilhamento de tela ao vivo. O facilitador esta projetando a propria tela.
+            </div>
+          ) : null}
+          {teamEventTimerNotice ? (
+            <div className="team-timer-notice-banner">
+              <span className="team-timer-notice-kicker">Atualização do cronômetro</span>
+              <span className="team-timer-notice-text">{teamEventTimerNotice.message}</span>
             </div>
           ) : null}
           <div className={`workspace${teamEventScreenShare?.active ? " workspace-live-focus" : ""}`}>
@@ -4620,98 +4810,84 @@ function App() {
                 ) : !teamEvent.missions.length ? (
                   <div className="empty-list-text">Nenhuma missão disponível.</div>
                 ) : (
-                  ["core", "pesquisa", "avancado", "recuperacao", "outro"].map((pack) => {
-                    const missions = teamEvent.missions
-                      .map((mission, index) => ({ ...mission, _idx: index }))
-                      .filter((mission) => (mission.pack || "outro") === pack);
-                    if (!missions.length) return null;
-                    return (
-                      <div key={pack}>
-                        <div className="ws-pack-label">
-                          <span className="ws-pack-label-icon" aria-hidden="true">
-                            <Layers3 size={15} strokeWidth={1.6} />
-                          </span>
-                          <span>{getMissionPackHeading(pack)}</span>
-                        </div>
-                        {missions.map((mission) => {
-                          const locked = !mission.unlocked;
-                          const missionStatus = getMissionClosureStatus(teamEvent, timeTeamIdx, mission.id);
-                          const concluida = missionStatus === "concluida";
-                          const aguardandoQuestionario = missionStatus === "aguardando_questionario";
-                          const execs = getExecucoes(teamEvent, timeTeamIdx, mission.id);
-                          const meta = concluida
-                            ? "feito"
-                            : aguardandoQuestionario
-                              ? "questionário"
-                              : locked
-                                ? "bloqueada"
-                                : execs.length
-                                  ? "em andamento"
-                                  : "liberada";
-                          const isCurrentMission = timeMissionIdx === mission._idx;
-                          const canResetMission = isCurrentMission && hasMissionHistory;
-                          return (
-                            <div className="mission-item-wrap" key={`${mission.id}-${mission._idx}`}>
-                              <button
-                                className={`mission-item${isCurrentMission ? " active" : ""}${locked ? " locked" : ""}${concluida ? " done" : ""}`}
-                                disabled={locked}
-                                onClick={() => handleSelectMission(mission._idx)}
-                                title={locked ? "Bloqueada pelo facilitador" : ""}
-                              >
-                                <div className="mission-item-head">
-                                  <div className="mission-item-name">
-                                    {mission.num ? `${mission.num}. ` : ""}
-                                    {mission.name}
-                                  </div>
-                                  <span
-                                    className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : aguardandoQuestionario ? " is-open" : " is-open"}`}
-                                    aria-label={meta}
-                                    title={meta}
-                                  />
-                                </div>
-                              </button>
-                              {isCurrentMission ? (
-                                <div className="mission-item-brief">
-                                  <div className="mission-item-brief-meta">
-                                    <span>Modo: {MODE_LABELS[mission.mode] || mission.mode}</span>
-                                    <span>Tipo: {mission.category}</span>
-                                  </div>
-                                  <div className="mission-item-brief-block">
-                                    <strong className="mini-label mission-brief-label">
-                                      <CircleAlert size={15} strokeWidth={1.6} aria-hidden="true" />
-                                      <span>Situação</span>
-                                    </strong>
-                                    <p>{mission.situacao || mission.desc}</p>
-                                  </div>
-                                  <div className="mission-item-brief-block">
-                                    <strong className="mini-label mission-brief-label">
-                                      <WandSparkles size={15} strokeWidth={1.6} aria-hidden="true" />
-                                      <span>O que fazer</span>
-                                    </strong>
-                                    <p>{mission.instrucao || "Escreva o input abaixo e escolha a ação."}</p>
-                                  </div>
-                                </div>
-                              ) : null}
-                              {canResetMission ? (
-                                <button
-                                  className="mission-reset-btn"
-                                  onClick={() =>
-                                    openConfirm(
-                                      "Reabrir missão do zero",
-                                      "Isso vai apagar respostas, explicações, histórico, questionário e status de concluída desta missão para o time atual. Os tokens consumidos permanecerão no acumulado histórico. Deseja continuar?",
-                                      handleResetMissionFromZero,
-                                    )
-                                  }
-                                >
-                                  Reabrir missão do zero
-                                </button>
-                              ) : null}
+                  <div className="ws-mission-list">
+                    {teamEvent.missions.map((mission, index) => {
+                      const locked = !mission.unlocked;
+                      const missionStatus = getMissionClosureStatus(teamEvent, timeTeamIdx, mission.id);
+                      const concluida = missionStatus === "concluida";
+                      const aguardandoQuestionario = missionStatus === "aguardando_questionario";
+                      const execs = getExecucoes(teamEvent, timeTeamIdx, mission.id);
+                      const meta = concluida
+                        ? "feito"
+                        : aguardandoQuestionario
+                          ? "questionário"
+                          : locked
+                            ? "bloqueada"
+                            : execs.length
+                              ? "em andamento"
+                              : "liberada";
+                      const isCurrentMission = timeMissionIdx === index;
+                      const canResetMission = isCurrentMission && hasMissionHistory;
+                      return (
+                        <div className="mission-item-wrap" key={`${mission.id}-${index}`}>
+                          <button
+                            className={`mission-item${isCurrentMission ? " active" : ""}${locked ? " locked" : ""}${concluida ? " done" : ""}`}
+                            disabled={locked}
+                            onClick={() => handleSelectMission(index)}
+                            title={locked ? "Bloqueada pelo facilitador" : ""}
+                          >
+                            <div className="mission-item-head">
+                              <div className="mission-item-name">
+                                {mission.num ? `${mission.num}. ` : ""}
+                                {mission.name}
+                              </div>
+                              <span
+                                className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : aguardandoQuestionario ? " is-open" : " is-open"}`}
+                                aria-label={meta}
+                                title={meta}
+                              />
                             </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })
+                          </button>
+                          {isCurrentMission ? (
+                            <div className="mission-item-brief">
+                              <div className="mission-item-brief-meta">
+                                <span>IA: {AI_MODE_LABELS[getMissionAiMode(mission)]}</span>
+                                <span>Tipo: {mission.category}</span>
+                              </div>
+                              <div className="mission-item-brief-block">
+                                <strong className="mini-label mission-brief-label">
+                                  <CircleAlert size={15} strokeWidth={1.6} aria-hidden="true" />
+                                  <span>Situação</span>
+                                </strong>
+                                <p>{mission.situacao || mission.desc}</p>
+                              </div>
+                              <div className="mission-item-brief-block">
+                                <strong className="mini-label mission-brief-label">
+                                  <WandSparkles size={15} strokeWidth={1.6} aria-hidden="true" />
+                                  <span>O que fazer</span>
+                                </strong>
+                                <p>{mission.instrucao || "Escreva o input abaixo e escolha a ação."}</p>
+                              </div>
+                            </div>
+                          ) : null}
+                          {canResetMission ? (
+                            <button
+                              className="mission-reset-btn"
+                              onClick={() =>
+                                openConfirm(
+                                  "Reabrir missão do zero",
+                                  "Isso vai apagar respostas, explicações, histórico, questionário e status de concluída desta missão para o time atual. Os tokens consumidos permanecerão no acumulado histórico. Deseja continuar?",
+                                  handleResetMissionFromZero,
+                                )
+                              }
+                            >
+                              Reabrir missão do zero
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </aside>
             ) : null}
@@ -4844,15 +5020,15 @@ function App() {
                                   </select>
                                 </div>
                               </div>
-                              <button
-                                className="input-send-btn"
-                                aria-label={running ? "Executando com IA" : "Executar com IA"}
-                                disabled={running}
-                                onClick={handleExecutarMissao}
-                                title={running ? "Executando com IA" : "Executar com IA"}
-                              >
-                                <span className="input-send-btn-icon">{running ? "…" : "↑"}</span>
-                              </button>
+                                <button
+                                  className="input-send-btn"
+                                  aria-label={running ? "Executando com IA" : "Executar com IA"}
+                                  disabled={running || teamTimerLockActive}
+                                  onClick={handleExecutarMissao}
+                                  title={teamTimerLockActive ? "Tempo encerrado pelo facilitador" : running ? "Executando com IA" : "Executar com IA"}
+                                >
+                                  <span className="input-send-btn-icon">{running ? "…" : "↑"}</span>
+                                </button>
                             </div>
                           </div>
                         </div>
@@ -4930,6 +5106,26 @@ function App() {
               </aside>
             ) : null}
           </div>
+          {teamTimerLockActive ? (
+            <div className="team-timer-lock-overlay">
+              <div className="team-timer-lock-card">
+                <div className="team-timer-lock-kicker">Tempo encerrado</div>
+                <div className="team-timer-lock-title">A atividade foi pausada pelo cronômetro.</div>
+                <div className="team-timer-lock-text">
+                  A sala será liberada automaticamente em alguns segundos, a menos que o facilitador acrescente mais tempo antes.
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {teamEventTimerRunning && !teamEventScreenShare?.active ? (
+            <div className={`team-timer-widget${teamTimerExpired ? " is-expired" : ""}`}>
+              <span className="team-timer-widget-icon" aria-hidden="true">
+                <Clock3 size={18} strokeWidth={1.8} />
+              </span>
+              <span className="team-timer-widget-label">Cronômetro</span>
+              <span className="team-timer-widget-value">{formatCountdown(teamEventTimerRemainingMs)}</span>
+            </div>
+          ) : null}
           <AppFooter compact />
         </div>
       )}
@@ -4963,8 +5159,45 @@ function App() {
         </div>
       ) : null}
 
-      {screen === "facilitador" && roomMapOpen && selectedEvent ? (
-        <FacilitatorRoomMapDrawer event={selectedEvent} onClose={() => setRoomMapOpen(false)} />
+      {screen === "facilitador" && facilitatorToolsOpen ? (
+        <FacilitatorToolsDrawer
+          event={selectedEvent}
+          activeView={facilitatorToolView}
+          apiConfigured={apiConfigured}
+          announcement={selectedEventLatestAnnouncement}
+          announcementCount={selectedEventAnnouncements.length}
+          timer={selectedEventTimer}
+          timerRunning={selectedEventTimerRunning}
+          timerRemainingMs={selectedEventTimerRemainingMs}
+          timerNotice={selectedEventTimerNotice}
+          timerMinutesInput={timerMinutesInput}
+          onChangeTimerMinutes={setTimerMinutesInput}
+          onChangeView={setFacilitatorToolView}
+          onClose={() => {
+            setFacilitatorToolsOpen(false);
+            setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
+          }}
+          onOpenConfig={() => {
+            setFacilitatorToolsOpen(false);
+            setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
+            setConfigForm({ apiKey: store.apiKey, model: store.model, planningMode: store.planningMode });
+            setConfigOpen(true);
+          }}
+          onOpenBroadcast={() => {
+            setFacilitatorToolsOpen(false);
+            setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
+            handleOpenBroadcastModal();
+          }}
+          onStartTimer={handleStartSessionTimer}
+          onAddTimer={handleAddSessionTimer}
+          onClearTimer={handleClearSessionTimer}
+          onDismissTimerNotice={handleDismissSessionTimerNotice}
+          onPublishScreenShare={(nextState) => {
+            if (!selectedEvent) return;
+            handlePublishScreenShare(selectedEvent.id, nextState);
+          }}
+          screenShare={selectedEventScreenShare}
+        />
       ) : null}
 
       <Modal open={newEventOpen} onClose={() => setNewEventOpen(false)}>
@@ -5092,16 +5325,8 @@ function App() {
         )}
         {newEventForm.eventMode === MISSIONS_MODE_EVENT ? (
           <div className="form-group">
-            <label className="form-label">Pack de missoes</label>
-            <select value={newEventForm.pack} onChange={(event) => setNewEventForm((current) => ({ ...current, pack: event.target.value }))}>
-              <option value="core">Core</option>
-              <option value="pesquisa">Pesquisa</option>
-              <option value="avancado">Avancado</option>
-              <option value="recuperacao">Recuperação</option>
-              <option value="todos">Todos</option>
-              <option value="nenhum">Nenhum</option>
-            </select>
-            <div className="form-hint">Missões entram bloqueadas. Você libera na hora certa.</div>
+            <label className="form-label">Missões do evento</label>
+            <div className="form-hint">Eventos novos nascem com 2 missões fixas: `Análise geral` e `Programação`. Elas entram bloqueadas e você libera na hora certa.</div>
           </div>
         ) : (
           <div className="form-group">
@@ -5258,58 +5483,6 @@ function App() {
         </div>
       </Modal>
 
-      <Modal open={catalogOpen} onClose={() => setCatalogOpen(false)}>
-        <div className="modal-title">Adicionar do catalogo</div>
-        <div className="modal-sub">Selecione as missoes para adicionar (bloqueadas por padrao).</div>
-        {!availableCatalog.length ? (
-          <div className="teams-empty">Todas as missoes ja estao no evento.</div>
-        ) : (
-          ["core", "pesquisa", "avancado", "recuperacao"].map((pack) => {
-            const missions = availableCatalog.filter((mission) => mission.pack === pack);
-            if (!missions.length) return null;
-            return (
-              <div key={pack}>
-                <div className="pack-header">
-                  <span>{getMissionPackHeading(pack)}</span>
-                </div>
-                {missions.map((mission) => (
-                  <label className="catalog-row" key={mission.id}>
-                    <input
-                      type="checkbox"
-                      checked={catalogSelection.includes(mission.id)}
-                      onChange={(event) =>
-                        setCatalogSelection((current) =>
-                          event.target.checked ? [...current, mission.id] : current.filter((item) => item !== mission.id),
-                        )
-                      }
-                    />
-                    <div>
-                      <div className="catalog-title-row">
-                        <span className="catalog-name">
-                          {mission.num}. {mission.name}
-                        </span>
-                        <span className={`mode-badge ${MODE_CLASS[mission.mode] || "mode-single"}`}>
-                          {MODE_LABELS[mission.mode] || mission.mode}
-                        </span>
-                      </div>
-                      <div className="catalog-desc">{mission.desc}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            );
-          })
-        )}
-        <div className="modal-actions">
-          <button className="btn" onClick={() => setCatalogOpen(false)}>
-            Cancelar
-          </button>
-          <button className="btn btn-primary" onClick={handleAddCatalogMissions}>
-            Adicionar selecionadas
-          </button>
-        </div>
-      </Modal>
-
       <Modal open={confirmState.open} onClose={closeConfirm} small>
         <div className="modal-title">{confirmState.title}</div>
         <div className="confirm-body">{confirmState.body}</div>
@@ -5329,6 +5502,18 @@ function App() {
           <button className="btn" onClick={closeConfirm}>
             Cancelar
           </button>
+          {confirmState.secondaryAction ? (
+            <button
+              className={`btn ${confirmState.secondaryAction.className || ""}`.trim()}
+              disabled={confirmState.requiresPassword && confirmInput.trim() !== confirmState.confirmValue}
+              onClick={() => {
+                confirmState.secondaryAction.onClick?.();
+                closeConfirm();
+              }}
+            >
+              {confirmState.secondaryAction.label}
+            </button>
+          ) : null}
           <button
             className={`btn ${confirmState.confirmTone === "primary" ? "btn-primary" : "btn-primary btn-danger"}`}
             disabled={confirmState.requiresPassword && confirmInput.trim() !== confirmState.confirmValue}
@@ -5337,7 +5522,7 @@ function App() {
               closeConfirm();
             }}
           >
-            Confirmar
+            {confirmState.secondaryAction ? "Deletar para sempre" : "Confirmar"}
           </button>
         </div>
       </Modal>
@@ -5371,6 +5556,72 @@ function App() {
               Enviar ajuda
             </button>
           )}
+        </div>
+      </Modal>
+
+      <Modal open={broadcastOpen} onClose={() => setBroadcastOpen(false)}>
+        <div className="modal-title">Mensagem para a turma</div>
+        <div className="modal-sub">
+          Publique avisos para todos os times deste evento. Cada envio entra na caixa de entrada da turma e pode reaparecer pelo ícone de mensagens no header.
+        </div>
+        <div className="form-group">
+          <label className="form-label">Mensagem</label>
+          <textarea
+            value={broadcastMessage}
+            onChange={(event) => setBroadcastMessage(event.target.value)}
+            placeholder="Ex: Pessoal, fechem a Missão 1 até 14h20. Depois vamos discutir os resultados em conjunto."
+          />
+        </div>
+        <div className="modal-actions">
+          {selectedEventAnnouncements.length ? (
+            <button className="btn btn-ghost btn-danger" onClick={handleClearBroadcastMessage}>
+              Limpar mensagens
+            </button>
+          ) : null}
+          <button className="btn" onClick={() => setBroadcastOpen(false)}>
+            Cancelar
+          </button>
+          <button className="btn btn-primary" disabled={!broadcastMessage.trim()} onClick={handleSaveBroadcastMessage}>
+            Enviar
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={teamAnnouncementOpen} onClose={handleDismissTeamAnnouncement} small className="team-announcement-modal">
+        <div className="modal-title">Mensagem do facilitador</div>
+        <div className="team-announcement-modal-copy">{latestUnreadAnnouncement?.message}</div>
+        <div className="modal-actions">
+          <button className="btn" onClick={handleOpenTeamAnnouncementInbox}>
+            Abrir caixa de entrada
+          </button>
+          <button className="btn btn-primary" onClick={handleDismissTeamAnnouncement}>
+            Fechar
+          </button>
+        </div>
+      </Modal>
+
+      <Modal open={teamAnnouncementInboxOpen} onClose={() => setTeamAnnouncementInboxOpen(false)} className="team-announcement-inbox-modal">
+        <div className="modal-title">Mensagens do facilitador</div>
+        <div className="modal-sub">Tudo o que foi enviado para esta turma neste evento fica guardado aqui.</div>
+        <div className="team-announcement-inbox-list">
+          {teamEventAnnouncements.length ? (
+            [...teamEventAnnouncements].reverse().map((announcement) => (
+              <article key={announcement.id} className="team-announcement-inbox-item">
+                <div className="team-announcement-inbox-meta">
+                  <span>Facilitador</span>
+                  <span>{new Date(announcement.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div className="team-announcement-inbox-copy">{announcement.message}</div>
+              </article>
+            ))
+          ) : (
+            <div className="teams-empty">Nenhuma mensagem registrada neste evento.</div>
+          )}
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={() => setTeamAnnouncementInboxOpen(false)}>
+            Fechar
+          </button>
         </div>
       </Modal>
 
@@ -6619,45 +6870,231 @@ function TeamScreenShareViewer({ event, screenShare, team }) {
   );
 }
 
-function FacilitatorRoomMapDrawer({ event, onClose }) {
+function RoomMapPanel({ event }) {
   const studentOptions = getEventStudentOptions(event);
   const presenceMap = event?.presenceMap || {};
 
+  return (
+    <div className="room-map-sheet-body">
+      <div className="room-map-sheet-event">{event?.name || "Evento"}</div>
+      {!studentOptions.length ? (
+        <div className="teams-empty">Ainda não há nomes disponíveis neste evento.</div>
+      ) : (
+        <div className="room-map-grid">
+          {studentOptions.map((student) => {
+            const presence = presenceMap?.[student.teamIdx];
+            const isLive = isPresenceLive(presence) && normalizeStudentName(presence?.memberName || "") === student.name;
+            return (
+              <div className={`room-map-card${isLive ? " is-live" : ""}`} key={student.id}>
+                <div className="room-map-card-icon-wrap">
+                  <div className="room-map-card-icon" aria-hidden="true">
+                    <Monitor strokeWidth={1.6} />
+                  </div>
+                  <span className={`room-map-presence-dot${isLive ? " is-live" : ""}`} aria-hidden="true" />
+                </div>
+                <div className="room-map-card-name">{student.name}</div>
+                {student.showTeamName ? <div className="room-map-card-team">{student.teamName}</div> : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FacilitatorToolsDrawer({
+  event,
+  activeView,
+  apiConfigured,
+  announcement,
+  announcementCount,
+  timer,
+  timerRunning,
+  timerRemainingMs,
+  timerNotice,
+  timerMinutesInput,
+  onChangeTimerMinutes,
+  onChangeView,
+  onClose,
+  onOpenConfig,
+  onOpenBroadcast,
+  onStartTimer,
+  onAddTimer,
+  onClearTimer,
+  onDismissTimerNotice,
+  onPublishScreenShare,
+  screenShare,
+}) {
+  const toolCards = [
+    {
+      id: FACILITATOR_TOOL_VIEWS.CONFIG,
+      title: "Configuração da IA",
+      meta: apiConfigured ? "API ligada" : "API não configurada",
+      icon: Sparkles,
+    },
+    {
+      id: FACILITATOR_TOOL_VIEWS.BROADCAST,
+      title: "Mensagem para a turma",
+      meta: announcementCount ? `${announcementCount} mensagem(ns)` : "Nenhum aviso ativo",
+      icon: MessageSquareText,
+    },
+    {
+      id: FACILITATOR_TOOL_VIEWS.SCREEN,
+      title: "Projetar tela",
+      meta: screenShare?.active ? "Ao vivo" : "Inativo",
+      icon: Monitor,
+    },
+    {
+      id: FACILITATOR_TOOL_VIEWS.TIMER,
+      title: "Cronômetro",
+      meta: timerRunning ? formatCountdown(timerRemainingMs) : "Nenhum cronômetro ativo",
+      icon: CircleAlert,
+    },
+    {
+      id: FACILITATOR_TOOL_VIEWS.ROOM_MAP,
+      title: "Mapa da sala",
+      meta: event ? `${getEventStudentOptions(event).length} posições` : "Selecione um evento",
+      icon: Map,
+    },
+  ];
+  const viewingMenu = activeView === FACILITATOR_TOOL_VIEWS.MENU;
+  const activeCard = toolCards.find((item) => item.id === activeView);
   return (
     <div className="side-sheet-backdrop" onClick={onClose}>
       <aside className="side-sheet side-sheet-right" onClick={(ev) => ev.stopPropagation()}>
         <div className="side-sheet-header">
           <div>
-            <div className="side-sheet-kicker">Sala</div>
-            <div className="side-sheet-title">Mapa da sala</div>
+            <div className="side-sheet-kicker">Facilitador</div>
+            <div className="side-sheet-title">{viewingMenu ? "Ferramentas do facilitador" : activeCard?.title}</div>
           </div>
-          <button className="side-sheet-close" aria-label="Fechar mapa da sala" onClick={onClose}>
+          <button className="side-sheet-close" aria-label="Fechar ferramentas do facilitador" onClick={onClose}>
             ×
           </button>
         </div>
-        <div className="side-sheet-body room-map-sheet-body">
-          <div className="room-map-sheet-event">{event?.name || "Evento"}</div>
-          {!studentOptions.length ? (
-            <div className="teams-empty">Ainda não há nomes disponíveis neste evento.</div>
-          ) : (
-            <div className="room-map-grid">
-              {studentOptions.map((student) => {
-                const presence = presenceMap?.[student.teamIdx];
-                const isLive = isPresenceLive(presence) && normalizeStudentName(presence?.memberName || "") === student.name;
+        <div className="side-sheet-body facilitator-tools-body">
+          {viewingMenu ? (
+            <div className="fac-tools-menu">
+              {toolCards.map((item) => {
+                const Icon = item.icon;
                 return (
-                  <div className={`room-map-card${isLive ? " is-live" : ""}`} key={student.id}>
-                    <div className="room-map-card-icon-wrap">
-                      <div className="room-map-card-icon" aria-hidden="true">
-                        <Monitor strokeWidth={1.6} />
-                      </div>
-                      <span className={`room-map-presence-dot${isLive ? " is-live" : ""}`} aria-hidden="true" />
-                    </div>
-                    <div className="room-map-card-name">{student.name}</div>
-                    {student.showTeamName ? <div className="room-map-card-team">{student.teamName}</div> : null}
-                  </div>
+                  <button key={item.id} className="fac-tool-entry" onClick={() => onChangeView(item.id)}>
+                    <span className="fac-tool-entry-icon" aria-hidden="true">
+                      <Icon size={18} strokeWidth={1.7} />
+                    </span>
+                    <span className="fac-tool-entry-copy">
+                      <span className="fac-tool-entry-title">{item.title}</span>
+                      <span className="fac-tool-entry-meta">{item.meta}</span>
+                    </span>
+                  </button>
                 );
               })}
             </div>
+          ) : (
+            <>
+              <button className="fac-tools-back" aria-label="Voltar para ferramentas" onClick={() => onChangeView(FACILITATOR_TOOL_VIEWS.MENU)}>
+                <ArrowLeft size={16} strokeWidth={1.9} aria-hidden="true" />
+              </button>
+
+              {activeView === FACILITATOR_TOOL_VIEWS.CONFIG ? (
+                <section className="fac-tools-section">
+                  <div className="fac-tools-head">
+                    <div className="fac-tools-title">Configuração da IA</div>
+                    <div className="fac-tools-meta">{apiConfigured ? "API ligada" : "API não configurada"}</div>
+                  </div>
+                  <div className="fac-tools-inline-copy">
+                    {apiConfigured
+                      ? "A conexão com a OpenAI já está ativa para este laboratório."
+                      : "Conecte a API para liberar respostas reais, análise técnica e modo coding."}
+                  </div>
+                  <button className={`btn btn-sm topbar-api-btn${apiConfigured ? " is-connected" : ""}`} onClick={onOpenConfig}>
+                    {apiConfigured ? "Ver configuração" : "Configurar IA"}
+                  </button>
+                </section>
+              ) : null}
+
+              {activeView === FACILITATOR_TOOL_VIEWS.BROADCAST ? (
+                <section className="fac-tools-section">
+                  <div className="fac-tools-head">
+                    <div className="fac-tools-title">Mensagem para a turma</div>
+                    <div className="fac-tools-meta">{announcementCount ? `${announcementCount} mensagem(ns)` : "Nenhum aviso ativo"}</div>
+                  </div>
+                  {announcement ? <div className="fac-tools-inline-copy">{announcement.message}</div> : null}
+                  <button className={`btn btn-sm topbar-roommap-btn${announcementCount ? " is-active" : ""}`} disabled={!event} onClick={onOpenBroadcast}>
+                    <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
+                    {announcementCount ? "Nova mensagem" : "Criar mensagem"}
+                  </button>
+                </section>
+              ) : null}
+
+              {activeView === FACILITATOR_TOOL_VIEWS.SCREEN ? (
+                <section className="fac-tools-section">
+                  <div className="fac-tools-head">
+                    <div className="fac-tools-title">Projetar tela</div>
+                    <div className="fac-tools-meta">{screenShare?.active ? "Ao vivo" : "Inativo"}</div>
+                  </div>
+                  <FacilitatorScreenShareButton event={event} screenShare={screenShare} onPublishState={onPublishScreenShare} />
+                </section>
+              ) : null}
+
+              {activeView === FACILITATOR_TOOL_VIEWS.TIMER ? (
+                <section className="fac-tools-section">
+                  <div className="fac-tools-head">
+                    <div className="fac-tools-title">Cronômetro</div>
+                    <div className="fac-tools-meta">
+                      {timerRunning ? `Rodando · ${formatCountdown(timerRemainingMs)}` : "Nenhum cronômetro ativo"}
+                    </div>
+                  </div>
+                  {timerNotice ? (
+                    <div className="fac-tools-inline-copy">
+                      {timerNotice.message}
+                    </div>
+                  ) : null}
+                  <div className="fac-timer-controls">
+                    <div className="fac-timer-input-row">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={timerMinutesInput}
+                        onChange={(event) => onChangeTimerMinutes(event.target.value)}
+                        placeholder="00:00"
+                      />
+                      {!timerRunning ? (
+                        <button className="btn btn-sm btn-primary" disabled={!event} onClick={onStartTimer}>
+                          Iniciar
+                        </button>
+                      ) : (
+                        <button className="btn btn-sm topbar-roommap-btn" disabled={!event} onClick={() => onAddTimer()}>
+                          Acrescentar
+                        </button>
+                      )}
+                      {timerRunning ? (
+                        <button className="btn btn-sm btn-ghost btn-danger" disabled={!event} onClick={onClearTimer}>
+                          Encerrar
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="fac-timer-quick-row">
+                      {timerNotice ? (
+                        <button className="btn btn-sm topbar-roommap-btn" disabled={!event} onClick={onDismissTimerNotice}>
+                          Ocultar aviso
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {activeView === FACILITATOR_TOOL_VIEWS.ROOM_MAP ? (
+                <section className="fac-tools-section">
+                  <div className="fac-tools-head">
+                    <div className="fac-tools-title">Mapa da sala</div>
+                    <div className="fac-tools-meta">{event ? `${getEventStudentOptions(event).length} posições` : "Selecione um evento"}</div>
+                  </div>
+                  {event ? <RoomMapPanel event={event} /> : <div className="teams-empty">Selecione um evento para ver quem está logado.</div>}
+                </section>
+              ) : null}
+            </>
           )}
         </div>
       </aside>

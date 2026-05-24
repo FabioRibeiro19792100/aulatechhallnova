@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, CircleAlert, Code2, FileText, LayoutDashboard, Layers3, ListChecks, MessageSquareText, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints } from "lucide-react";
+import { BookOpen, CalendarDays, CircleAlert, Code2, FileText, LayoutDashboard, LifeBuoy, Layers3, ListChecks, MessageSquareText, Monitor, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import techHallLogoDark from "../tech_hall_branding/tech_hall_preto.png";
 
@@ -1340,7 +1340,6 @@ function App() {
   const [timeEventId, setTimeEventId] = useState(null);
   const [timeTeamIdx, setTimeTeamIdx] = useState(null);
   const [timeMissionIdx, setTimeMissionIdx] = useState(null);
-  const [selectedAcoes, setSelectedAcoes] = useState({});
   const [missionInput, setMissionInput] = useState("");
   const [running, setRunning] = useState(false);
   const [runState, setRunState] = useState(null);
@@ -1355,6 +1354,7 @@ function App() {
     title: "",
     body: "",
     onConfirm: null,
+    confirmTone: "danger",
     requiresPassword: false,
     confirmValue: "",
     confirmLabel: "",
@@ -1528,7 +1528,7 @@ function App() {
     : [];
   const currentReflexao = currentMission && teamEvent && !isTrainingEvent ? getReflexao(teamEvent, timeTeamIdx, currentMission.id) : null;
   const currentConcluida = currentMission && teamEvent && !isTrainingEvent ? isConcluida(teamEvent, timeTeamIdx, currentMission.id) : false;
-  const readingStage = missionFlow.stage === "resposta_aberta" || missionFlow.stage === "cot_aberto";
+  const readingStage = Boolean(missionFlow.exec);
   const hasMissionHistory = currentMission && teamEvent
     ? isTrainingEvent
       ? currentExecs.length > 0
@@ -1619,6 +1619,39 @@ function App() {
     return CATALOGO.filter((mission) => !existingIds.has(mission.id));
   }, [selectedEvent]);
 
+  const openEventsForTeamEntry = useMemo(
+    () => events.filter((event) => event.status === "open"),
+    [events],
+  );
+
+  const teamStudentOptions = useMemo(() => {
+    if (!teamEvent) return [];
+
+    const rawEntries = (teamEvent.teams || []).flatMap((teamItem, teamIdx) => {
+      const names = teamItem.members?.length ? teamItem.members : teamItem.name ? [teamItem.name] : [];
+      return names
+        .map((name) => normalizeStudentName(name))
+        .filter(Boolean)
+        .map((name) => ({
+          id: `${teamIdx}__${name}`,
+          name,
+          teamIdx,
+          teamName: teamItem.name || `Time ${teamIdx + 1}`,
+          fallbackFromTeamName: !(teamItem.members?.length),
+        }));
+    });
+
+    const duplicateCounts = rawEntries.reduce((accumulator, item) => {
+      accumulator[item.name] = (accumulator[item.name] || 0) + 1;
+      return accumulator;
+    }, {});
+
+    return rawEntries.map((item) => ({
+      ...item,
+      showTeamName: item.fallbackFromTeamName || duplicateCounts[item.name] > 1,
+    }));
+  }, [teamEvent]);
+
   const apiConfigured = Boolean(store.apiKey || serverConfig.openaiConfigured);
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
@@ -1664,6 +1697,7 @@ function App() {
       title,
       body,
       onConfirm,
+      confirmTone: options.confirmTone || "danger",
       requiresPassword: Boolean(options.requiresPassword),
       confirmValue: options.confirmValue || "",
       confirmLabel: options.confirmLabel || "Senha de confirmacao",
@@ -1678,6 +1712,7 @@ function App() {
       title: "",
       body: "",
       onConfirm: null,
+      confirmTone: "danger",
       requiresPassword: false,
       confirmValue: "",
       confirmLabel: "",
@@ -1706,11 +1741,14 @@ function App() {
   function goEntradaTime() {
     setScreen("entry");
     setEntryError("");
+    setTimeEventId(null);
+    setTimeTeamIdx(null);
     setTimeMissionIdx(null);
   }
 
   function goEscolhaTime() {
     setScreen("team");
+    setTimeTeamIdx(null);
     setTimeMissionIdx(null);
   }
 
@@ -2020,10 +2058,34 @@ function App() {
   }
 
   function handleEscolherTime(index) {
+    const selectedEvent = events.find((event) => event.id === timeEventId) || null;
+    const eventMode = selectedEvent ? getEventMode(selectedEvent) : MISSIONS_MODE_EVENT;
+    const firstUnlockedMissionIdx =
+      selectedEvent && eventMode !== TRAINING_MODE_EVENT
+        ? selectedEvent.missions.findIndex((mission) => mission.unlocked)
+        : -1;
     setTimeTeamIdx(index);
-    setTimeMissionIdx(null);
-    setSelectedAcoes({});
+    setTimeMissionIdx(firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null);
     setScreen("workspace");
+  }
+
+  function handleSelectEntryEvent(eventId) {
+    setEntryError("");
+    setTimeEventId(eventId);
+    setTimeTeamIdx(null);
+    setTimeMissionIdx(null);
+    setScreen("team");
+  }
+
+  function handleEscolherAluno(teamIdx) {
+    const selectedStudent = teamStudentOptions.find((item) => item.teamIdx === teamIdx);
+    const label = selectedStudent?.name || teamEvent?.teams?.[teamIdx]?.name || "este nome";
+    openConfirm(
+      "Confirmar identidade",
+      `Confirmar que você é ${label}?`,
+      () => handleEscolherTime(teamIdx),
+      { confirmTone: "primary" },
+    );
   }
 
   function handleSelectMission(index) {
@@ -2302,13 +2364,8 @@ function App() {
   async function handleExecutarMissao() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const input = missionInput.trim();
-    const acao = isTrainingEvent ? FREE_ACTION_KEY : selectedAcoes[timeMissionIdx];
+    const acao = FREE_ACTION_KEY;
     const historyContext = buildHistoryContext(currentExecs);
-
-    if (!isTrainingEvent && !acao) {
-      setRunError("Selecione uma acao antes de executar.");
-      return;
-    }
     if (!input) {
       setRunError("Escreva um input para executar a missao.");
       return;
@@ -2517,7 +2574,7 @@ function App() {
       }
       setMissionInput("");
       setRunState(null);
-      setMissionFlow({ stage: "resposta_aberta", exec: execRecord });
+      setMissionFlow({ stage: "cot_aberto", exec: execRecord });
       showToast(apiConfigured ? "Execucao concluida" : "Execucao simulada");
     } catch (error) {
       setRunError("Falha ao executar com IA. Verifique a chave, o modelo ou a conexao.");
@@ -2757,7 +2814,12 @@ function App() {
         <div className="dashboard-layout">
           <div className="dashboard-main">
             <div className="section-header">
-              <span className="section-title">{dashboardView === "team" ? "Times no evento" : "Missoes no evento"}</span>
+              <span className="section-title section-title-with-icon">
+                <span className="section-title-icon" aria-hidden="true">
+                  {dashboardView === "team" ? <Users size={16} strokeWidth={1.6} /> : <BookOpen size={16} strokeWidth={1.6} />}
+                </span>
+                <span>{dashboardView === "team" ? "Times no evento" : "Missoes no evento"}</span>
+              </span>
               <div className="section-actions">
                 <div className="inline-choice-row dashboard-view-toggle">
                   <button
@@ -3050,7 +3112,12 @@ function App() {
           <aside className="dashboard-side">
             <div className="help-queue">
               <div className="section-header">
-                <span className="section-title">Fila de ajuda</span>
+                <span className="section-title section-title-with-icon">
+                  <span className="section-title-icon" aria-hidden="true">
+                    <LifeBuoy size={16} strokeWidth={1.6} />
+                  </span>
+                  <span>Fila de ajuda</span>
+                </span>
                 <span className="muted-mini">{openHelpRequests.length ? `${openHelpRequests.length} na fila` : "Sem fila agora"}</span>
               </div>
               {openHelpRequests.length ? (
@@ -3302,14 +3369,6 @@ function App() {
             right={
               <>
                 {devQuickSwitch}
-                <div className="mode-switch">
-                  <button className="mode-btn active" onClick={goFacilitador}>
-                    Facilitador
-                  </button>
-                  <button className="mode-btn" onClick={goEntradaTime}>
-                    Sou time
-                  </button>
-                </div>
               </>
             }
           />
@@ -3326,7 +3385,6 @@ function App() {
                   </div>
                   <div className="hero-card-title">Facilitador</div>
                   <div className="hero-card-text">Criar eventos, organizar times e liberar missoes.</div>
-                  <span className="btn btn-primary btn-full btn-sm">Entrar como facilitador</span>
                 </button>
                 <button className="card hero-card" onClick={goEntradaTime}>
                   <div className="hero-card-icon" aria-hidden="true">
@@ -3334,7 +3392,6 @@ function App() {
                   </div>
                   <div className="hero-card-title">Sou time</div>
                   <div className="hero-card-text">Entrar num evento, escolher o time e executar missoes.</div>
-                  <span className="btn btn-full btn-sm">Entrar como time</span>
                 </button>
               </div>
             </div>
@@ -3344,12 +3401,12 @@ function App() {
       )}
 
       {screen === "facilitador" && (
-        <div className="screen active">
+        <div className="screen active facilitator-screen">
           <Topbar
             onLogoClick={goHome}
-            roleBadge="facilitador"
             right={
               <>
+                {devQuickSwitch}
                 <div className="topbar-status-strip">
                   {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
                     <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
@@ -3378,11 +3435,15 @@ function App() {
               </>
             }
           />
-          {devQuickSwitch ? <div className="dev-toolbar-shell">{devQuickSwitch}</div> : null}
 
           <div className="fac-layout">
             <aside className="sidebar">
-              <div className="sidebar-label">Eventos</div>
+              <div className="sidebar-label section-title-with-icon sidebar-label-with-icon">
+                <span className="section-title-icon" aria-hidden="true">
+                  <CalendarDays size={16} strokeWidth={1.6} />
+                </span>
+                <span>Eventos</span>
+              </div>
               {!events.length && <div className="empty-list-text">Nenhum evento ainda.</div>}
               {events.map((event) => {
                 const isSelected = facSelectedId === event.id;
@@ -3663,7 +3724,7 @@ function App() {
       )}
 
       {screen === "entry" && (
-        <div className="screen active">
+        <div className="screen active selection-screen">
           <Topbar
             onLogoClick={goHome}
             right={
@@ -3674,18 +3735,25 @@ function App() {
             }
           />
           <div className="center-wrap">
-            <div className="center-box">
-              <div className="center-box-title">Entrar na aula</div>
-                  <div className="center-box-sub">Informe o código do evento para acessar seu workspace.</div>
-              <div className="card">
-                <div className="form-group">
-                  <label className="form-label">Código do evento</label>
-                  <input type="text" value={entryCode} onChange={(event) => setEntryCode(event.target.value)} placeholder="ev_..." />
-                </div>
-                {entryError ? <div className="error-box">{entryError}</div> : null}
-                <button className="btn btn-primary btn-full" onClick={handleEntrarEvento}>
-                  Continuar
-                </button>
+            <div className="center-box entry-selection-box">
+              <div className="center-box-title">Escolha seu evento</div>
+              <div className="center-box-sub">Selecione o laboratório em que você vai entrar.</div>
+              <div className="entry-event-grid">
+                {!openEventsForTeamEntry.length ? (
+                  <div className="card entry-empty-card">Nenhum evento aberto no momento.</div>
+                ) : (
+                  openEventsForTeamEntry.map((event) => (
+                    <button className="card entry-event-card" key={event.id} onClick={() => handleSelectEntryEvent(event.id)}>
+                      <div className="entry-event-card-icon" aria-hidden="true">
+                        <CalendarDays strokeWidth={1.6} />
+                      </div>
+                      <div className="entry-event-card-body">
+                        <div className="entry-event-card-title">{event.name}</div>
+                        {event.desc ? <div className="entry-event-card-sub">{event.desc}</div> : null}
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -3694,7 +3762,7 @@ function App() {
       )}
 
       {screen === "team" && teamEvent && (
-        <div className="screen active">
+        <div className="screen active selection-screen">
           <Topbar
             onLogoClick={goHome}
             right={
@@ -3708,23 +3776,28 @@ function App() {
             }
           />
           <div className="center-wrap">
-            <div className="center-box">
-              <div className="center-box-title">Escolha seu time</div>
-              <div className="center-box-sub">Selecione o time em que você está participando.</div>
-              <div className="teams-list">
-                {!teamEvent.teams.length ? (
-                  <div className="empty-list-text">Nenhum time cadastrado ainda.</div>
+            <div className="center-box entry-selection-box">
+              <div className="center-box-title">Escolha seu nome</div>
+              <div className="entry-selected-event">{teamEvent.name}</div>
+              <div className="student-card-grid">
+                {!teamStudentOptions.length ? (
+                  <div className="card entry-empty-card">Nenhum aluno cadastrado ainda.</div>
                 ) : (
-                  teamEvent.teams.map((teamItem, index) => (
-                    <button className="team-option" key={`${teamItem.name}-${index}`} onClick={() => handleEscolherTime(index)}>
-                      <div className="team-option-avatar">{initials(teamItem.name)}</div>
-                      <div>
-                        <div className="team-option-name">{teamItem.name}</div>
-                        <div className="team-option-runs">{teamItem.runs || 0} execucoes</div>
+                  teamStudentOptions.map((student) => (
+                    <button className="student-entry-card" key={student.id} onClick={() => handleEscolherAluno(student.teamIdx)}>
+                      <div className="student-entry-icon" aria-hidden="true">
+                        <Monitor strokeWidth={1.6} />
                       </div>
+                      <div className="student-entry-name">{student.name}</div>
+                      {student.showTeamName ? <div className="student-entry-team">{student.teamName}</div> : null}
                     </button>
                   ))
                 )}
+              </div>
+              <div className="entry-back-row">
+                <button className="btn btn-ghost btn-sm" onClick={goEntradaTime}>
+                  Trocar evento
+                </button>
               </div>
             </div>
           </div>
@@ -3733,7 +3806,7 @@ function App() {
       )}
 
       {screen === "workspace" && teamEvent && team && (
-        <div className="screen active">
+        <div className="screen active workspace-screen">
           <Topbar
             onLogoClick={goHome}
             right={
@@ -3908,184 +3981,136 @@ function App() {
                 <EmptyState icon="◎" title="Nenhuma missão selecionada" sub="Selecione uma missão liberada na barra lateral." />
               ) : (
                 <>
-                  <div className="workspace-flow">
-                    <section className="workspace-chat-col">
-                      <div className="workspace-col-label is-block">
-                        <span className="ws-column-label-icon" aria-hidden="true">
-                          <MessageSquareText size={15} strokeWidth={1.7} />
-                        </span>
-                        <div className="workspace-col-label-copy workspace-col-label-copy-inline">
-                          <span className="workspace-col-label-title">TECH HALL GPT</span>
-                          <span className="workspace-col-label-sub workspace-col-label-sub-inline">
-                            {apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="workspace-chat-body">
-                      {!currentConcluida ? (
-                        <div className="input-card input-card-chat">
-                          <div className="prompt-composer">
-                            <PromptConversation
-                              execs={currentExecs}
-                              pendingPrompt={missionInput}
-                              runState={running ? runState : null}
-                              explainableExecId={!running && missionFlow.stage === "resposta_aberta" ? (missionFlow.exec?.id || missionFlow.exec?.ts) : null}
-                              onOpenExplanation={
-                                !running && missionFlow.stage === "resposta_aberta"
-                                  ? () =>
-                                      setMissionFlow((current) => ({
-                                        ...current,
-                                        stage: "cot_aberto",
-                                      }))
-                                  : null
-                              }
+                  <div className="workspace-col-label is-block">
+                    <span className="ws-column-label-icon" aria-hidden="true">
+                      <MessageSquareText size={15} strokeWidth={1.7} />
+                    </span>
+                    <div className="workspace-col-label-copy workspace-col-label-copy-inline">
+                      <span className="workspace-col-label-title">TECH HALL GPT</span>
+                      <span className="workspace-col-label-sub workspace-col-label-sub-inline">
+                        {apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="workspace-chat-body">
+                    {!currentConcluida ? (
+                      <div className="input-card input-card-chat">
+                        <div className="prompt-composer">
+                          <PromptConversation
+                            execs={currentExecs}
+                            pendingPrompt={missionInput}
+                            runState={running ? runState : null}
+                          />
+                          <div className="prompt-entry-shell">
+                            <textarea
+                              value={missionInput}
+                              onChange={(event) => setMissionInput(event.target.value)}
+                              placeholder=""
                             />
-                            <div className="prompt-entry-shell">
-                              <textarea
-                                value={missionInput}
-                                onChange={(event) => setMissionInput(event.target.value)}
-                                placeholder=""
-                              />
-                              <div className="input-actions input-compose-bar">
-                                <div className="input-compose-meta">
-                                  {!isTrainingEvent ? (
-                                    <div className="input-compact-control">
-                                      <select
-                                        id="mission-action-select"
-                                        aria-label="Presets Tech Hall"
-                                        className="input-model-select input-model-select-compact"
-                                        value={selectedAcoes[timeMissionIdx] || ""}
-                                        onChange={(event) =>
-                                          setSelectedAcoes((current) => ({ ...current, [timeMissionIdx]: event.target.value }))
-                                        }
-                                        disabled={running}
-                                      >
-                                        <option value="" disabled>
-                                          Presets Tech Hall
-                                        </option>
-                                        {[...(currentMission.acoes || []), FREE_ACTION_KEY].map((acao) => (
-                                          <option key={acao} value={acao}>
-                                            {getActionLabel(acao)}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  ) : null}
-                                  <div className="input-compact-control">
-                                    <select
-                                      id="mission-planning-select"
-                                      aria-label="Planejamento"
-                                      className="input-model-select input-model-select-compact"
-                                      value={store.planningMode}
-                                      onChange={(event) => handleQuickPlanningModeChange(event.target.value)}
-                                      disabled={running}
-                                    >
-                                      <option value="off">Plain off</option>
-                                      <option value="on">Plain on</option>
-                                    </select>
-                                  </div>
-                                  <div className="input-compact-control">
-                                    <select
-                                      id="mission-model-select"
-                                      aria-label="Modelo"
-                                      className="input-model-select input-model-select-compact"
-                                      value={store.model}
-                                      onChange={(event) => handleQuickModelChange(event.target.value)}
-                                      disabled={running}
-                                    >
-                                      {MODEL_OPTIONS.map((model) => (
-                                        <option key={model} value={model}>
-                                          {model}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
+                            <div className="input-actions input-compose-bar">
+                              <div className="input-compose-meta">
+                                <div className="input-compact-control">
+                                  <select
+                                    id="mission-planning-select"
+                                    aria-label="Planejamento"
+                                    className="input-model-select input-model-select-compact"
+                                    value={store.planningMode}
+                                    onChange={(event) => handleQuickPlanningModeChange(event.target.value)}
+                                    disabled={running}
+                                  >
+                                    <option value="off">Plain off</option>
+                                    <option value="on">Plain on</option>
+                                  </select>
                                 </div>
-                                <button
-                                  className="input-send-btn"
-                                  aria-label={running ? "Executando com IA" : "Executar com IA"}
-                                  disabled={running}
-                                  onClick={handleExecutarMissao}
-                                  title={running ? "Executando com IA" : "Executar com IA"}
-                                >
-                                  <span className="input-send-btn-icon">{running ? "…" : "↑"}</span>
-                                </button>
+                                <div className="input-compact-control">
+                                  <select
+                                    id="mission-model-select"
+                                    aria-label="Modelo"
+                                    className="input-model-select input-model-select-compact"
+                                    value={store.model}
+                                    onChange={(event) => handleQuickModelChange(event.target.value)}
+                                    disabled={running}
+                                  >
+                                    {MODEL_OPTIONS.map((model) => (
+                                      <option key={model} value={model}>
+                                        {model}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                               </div>
+                              <button
+                                className="input-send-btn"
+                                aria-label={running ? "Executando com IA" : "Executar com IA"}
+                                disabled={running}
+                                onClick={handleExecutarMissao}
+                                title={running ? "Executando com IA" : "Executar com IA"}
+                              >
+                                <span className="input-send-btn-icon">{running ? "…" : "↑"}</span>
+                              </button>
                             </div>
                           </div>
-                          {runError ? <div className="error-box top-gap-sm">{runError}</div> : null}
                         </div>
-                      ) : null}
-
-                      {!isTrainingEvent && currentConcluida ? (
-                        <div className="done-inline-banner">
-                          Missão concluída pelo seu time.
-                          <span className="done-sub">Aguarde a próxima missão ser liberada pelo facilitador.</span>
-                        </div>
-                      ) : null}
-
-                      {!isTrainingEvent ? (
-                        <>
-                          <MissionClosurePanel
-                            stage={missionFlow.stage}
-                            reflectionAnswers={reflectionAnswers}
-                            reflectionComment={reflectionComment}
-                            onSelectAnswer={(questionId, score) =>
-                              setReflectionAnswers((current) => ({ ...current, [questionId]: score }))
-                            }
-                            onChangeComment={setReflectionComment}
-                            onIterate={() => setMissionFlow((current) => ({ ...current, stage: "idle" }))}
-                            onFinish={() => {
-                              setReflectionAnswers({});
-                              setReflectionComment("");
-                              setMissionFlow((current) => ({ ...current, stage: "questionario_final" }));
-                            }}
-                            onSubmitReflection={handleSaveReflection}
-                            onCloseCompleted={() => setMissionFlow({ stage: "idle", exec: null })}
-                          />
-
-                          {currentConcluida && currentReflexao ? <ReflectionSummary reflexao={currentReflexao} /> : null}
-                        </>
-                      ) : null}
+                        {runError ? <div className="error-box top-gap-sm">{runError}</div> : null}
                       </div>
-                    </section>
+                    ) : null}
 
-                    <aside className="workspace-explain-col">
-                      <div className="workspace-col-label is-block">
-                        <span className="ws-column-label-icon" aria-hidden="true">
-                          <BookOpen size={15} strokeWidth={1.7} />
-                        </span>
-                        <div className="workspace-col-label-copy">
-                          <span className="workspace-col-label-title">Explicação técnica</span>
-                          <span className="workspace-col-label-sub workspace-col-label-sub-empty" aria-hidden="true">.</span>
-                        </div>
+                    {!isTrainingEvent && currentConcluida ? (
+                      <div className="done-inline-banner">
+                        Missão concluída pelo seu time.
+                        <span className="done-sub">Aguarde a próxima missão ser liberada pelo facilitador.</span>
                       </div>
-                      <div className="workspace-explain-body">
-                        {readingStage && missionFlow.exec && missionFlow.stage !== "resposta_aberta" ? (
-                          <MissionReadingPanel
-                            exec={missionFlow.exec}
-                            stage={missionFlow.stage}
-                            onAdvance={() =>
-                              setMissionFlow((current) => ({
-                                ...current,
-                                stage: current.stage === "resposta_aberta" ? "cot_aberto" : "decisao_iteracao",
-                              }))
-                            }
-                          />
-                        ) : (
-                          <div className="reading-placeholder workspace-reading-placeholder">
-                            <div className="reading-placeholder-title">Explicação técnica</div>
-                            <div className="reading-placeholder-text">
-                              Depois de executar uma rodada, abra a explicação técnica para ver mecanismo, critérios e limites da resposta.
-                            </div>
-                          </div>
-                        )}
-                        </div>
-                    </aside>
+                    ) : null}
+
+                    {!isTrainingEvent ? (
+                      <>
+                        <MissionClosurePanel
+                          stage={missionFlow.stage}
+                          reflectionAnswers={reflectionAnswers}
+                          reflectionComment={reflectionComment}
+                          onSelectAnswer={(questionId, score) =>
+                            setReflectionAnswers((current) => ({ ...current, [questionId]: score }))
+                          }
+                          onChangeComment={setReflectionComment}
+                          onSubmitReflection={handleSaveReflection}
+                          onCloseCompleted={() => setMissionFlow({ stage: "idle", exec: null })}
+                        />
+
+                        {currentConcluida && currentReflexao ? <ReflectionSummary reflexao={currentReflexao} /> : null}
+                      </>
+                    ) : null}
                   </div>
                 </>
               )}
             </main>
+
+            {!teamEventScreenShare?.active ? (
+              <aside className="workspace-explain-shell">
+                <div className="workspace-col-label is-block">
+                  <span className="ws-column-label-icon" aria-hidden="true">
+                    <BookOpen size={15} strokeWidth={1.7} />
+                  </span>
+                  <div className="workspace-col-label-copy">
+                    <span className="workspace-col-label-title">Explicação técnica</span>
+                    <span className="workspace-col-label-sub workspace-col-label-sub-empty" aria-hidden="true">.</span>
+                  </div>
+                </div>
+                <div className="workspace-explain-body">
+                  {readingStage && missionFlow.exec ? (
+                    <MissionReadingPanel
+                      exec={missionFlow.exec}
+                    />
+                  ) : (
+                    <div className="reading-placeholder workspace-reading-placeholder">
+                      <div className="reading-placeholder-title">Explicação técnica</div>
+                      <div className="reading-placeholder-text">
+                        Depois de executar uma rodada, a leitura técnica aparece aqui automaticamente com mecanismo, critérios e limites da resposta.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </aside>
+            ) : null}
           </div>
           <AppFooter compact />
         </div>
@@ -4483,7 +4508,7 @@ function App() {
             Cancelar
           </button>
           <button
-            className="btn btn-primary btn-danger"
+            className={`btn ${confirmState.confirmTone === "primary" ? "btn-primary" : "btn-primary btn-danger"}`}
             disabled={confirmState.requiresPassword && confirmInput.trim() !== confirmState.confirmValue}
             onClick={() => {
               confirmState.onConfirm?.();
@@ -4741,15 +4766,25 @@ function LiveRunCard({ runState }) {
   );
 }
 
-function PromptConversation({ execs, pendingPrompt, runState, explainableExecId, onOpenExplanation }) {
+function PromptConversation({ execs, pendingPrompt, runState }) {
   const hasHistory = execs.length > 0;
   const hasPending = Boolean(runState && pendingPrompt.trim());
+  const threadRef = useRef(null);
+  const outputSignal = runState?.displayedOutput || "";
+
+  useEffect(() => {
+    const node = threadRef.current;
+    if (!node) return;
+    const frame = requestAnimationFrame(() => {
+      node.scrollTop = node.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [execs.length, hasPending, outputSignal]);
 
   return (
-    <div className={`prompt-thread${!hasHistory && !hasPending ? " is-empty" : ""}`}>
+    <div className={`prompt-thread${!hasHistory && !hasPending ? " is-empty" : ""}`} ref={threadRef}>
       {execs.map((exec, index) => {
         const key = exec.id || exec.ts || `exec-${index}`;
-        const canExplain = explainableExecId && (exec.id === explainableExecId || exec.ts === explainableExecId);
         return (
           <div className="prompt-thread-turn" key={key}>
             <div className="prompt-thread-bubble is-user">
@@ -4766,13 +4801,6 @@ function PromptConversation({ execs, pendingPrompt, runState, explainableExecId,
               </div>
               {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
               <div className="prompt-thread-text">{exec.output}</div>
-              {canExplain && onOpenExplanation ? (
-                <div className="prompt-thread-actions">
-                  <button className="btn btn-primary btn-sm" onClick={onOpenExplanation}>
-                    Abrir explicação técnica
-                  </button>
-                </div>
-              ) : null}
             </div>
           </div>
         );
@@ -4877,35 +4905,98 @@ function LearningSlide({ index, kicker, title, subtitle, accent = "blue", childr
   );
 }
 
-function MissionReadingPanel({ exec, stage, onAdvance }) {
-  const isResponse = stage === "resposta_aberta";
+function MissionReadingPanel({ exec }) {
+  const details = exec.reasoningDetails || {};
+  const keyIdeas = [details.mechanismSummary || details.summary || exec.reasoningSummary || exec.explicacao].filter(Boolean);
+  const mechanismItems = [details.selectionLogic, details.actionInfluence, details.consideredInput].filter(Boolean);
+  const limitItems = [details.whyThisAnswer || details.strategy, details.limitations].filter(Boolean);
+  const improveItems = details.howToAskBetter?.length ? details.howToAskBetter : details.bestPractices || [];
 
   return (
-    <section className="reading-panel">
-      <div className="reading-panel-header">
-        <div>
-          <div className="reading-panel-kicker">Rodada {exec.iterationNumber || "-"}</div>
-          <div className="reading-panel-title">{isResponse ? "Resposta da IA" : "Como a IA pensou esta missao"}</div>
-          <div className="reading-panel-sub">
-            {isResponse
-              ? "Leia a resposta com calma antes de abrir a explicacao tecnica."
-              : "Leitura guiada dos conceitos, da estrategia aplicada e dos limites desta resposta."}
-          </div>
+    <section className="tech-reading-panel">
+      <div className="tech-reading-header">
+        <div className="tech-reading-kicker">Rodada {exec.iterationNumber || "-"}</div>
+        <div className="tech-reading-title">Explicação técnica</div>
+        <div className="tech-reading-meta">
+          <span>{exec.tokens?.toLocaleString() || 0} tokens</span>
+          {details.sourceLabel ? <span>{details.sourceLabel}</span> : null}
         </div>
-        <button className="btn btn-primary" onClick={onAdvance}>
-          {isResponse ? "Abrir explicacao tecnica" : "Continuar"}
-        </button>
       </div>
 
-      {isResponse ? (
-        <div className="reading-panel-body">
-          <OutputCard exec={exec} compact />
-        </div>
-      ) : (
-        <div className="reading-panel-body">
-          <GuidedReading exec={exec} />
-        </div>
-      )}
+      <div className="tech-reading-body">
+        {exec.historySignal ? (
+          <div className="tech-reading-banner">{exec.historySignal}</div>
+        ) : null}
+
+        {keyIdeas.length ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Resumo técnico</div>
+            <div className="tech-reading-copy">{keyIdeas[0]}</div>
+          </div>
+        ) : null}
+
+        {mechanismItems.length ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Mecanismo</div>
+            <div className="tech-reading-list">
+              {mechanismItems.map((item, index) => (
+                <div className="tech-reading-item" key={`mechanism-${index}`}>
+                  <span className="tech-reading-item-bullet" />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {details.technicalTerms?.length ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Termos</div>
+            <div className="tech-reading-tags">
+              {details.technicalTerms.map((item, index) => (
+                <span className="tech-reading-tag" key={`${item.term}-${index}`}>
+                  {item.term}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {limitItems.length ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Critérios e limites</div>
+            <div className="tech-reading-list">
+              {limitItems.map((item, index) => (
+                <div className="tech-reading-item" key={`limits-${index}`}>
+                  <span className="tech-reading-item-bullet" />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {improveItems.length ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Como extrair melhor</div>
+            <div className="tech-reading-list">
+              {improveItems.map((item, index) => (
+                <div className="tech-reading-item" key={`improve-${index}`}>
+                  <span className="tech-reading-item-bullet" />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {exec.promptApplied ? (
+          <div className="tech-reading-block">
+            <div className="tech-reading-block-label">Prompt aplicado</div>
+            <div className="tech-reading-prompt">{exec.promptApplied}</div>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -4916,36 +5007,10 @@ function MissionClosurePanel({
   reflectionComment,
   onSelectAnswer,
   onChangeComment,
-  onIterate,
-  onFinish,
   onSubmitReflection,
   onCloseCompleted,
 }) {
-  if (!["decisao_iteracao", "questionario_final", "concluida"].includes(stage)) return null;
-
-  if (stage === "decisao_iteracao") {
-    return (
-      <section className="reading-panel mission-inline-panel">
-        <div className="reading-panel-header">
-          <div>
-            <div className="reading-panel-kicker">Próximo passo</div>
-            <div className="reading-panel-title">Nova interação?</div>
-            <div className="reading-panel-sub">Você quer iterar mais nesta missão ou encerrar a rodada atual?</div>
-          </div>
-        </div>
-        <div className="mission-inline-panel-body">
-          <div className="mission-inline-actions">
-            <button className="btn" onClick={onIterate}>
-              Sim, quero iterar
-            </button>
-            <button className="btn btn-primary" onClick={onFinish}>
-              Não, encerrar
-            </button>
-          </div>
-        </div>
-      </section>
-    );
-  }
+  if (!["questionario_final", "concluida"].includes(stage)) return null;
 
   if (stage === "questionario_final") {
     return (

@@ -1865,7 +1865,7 @@ function renderPreviewWindowPlaceholder(previewWindow, title, message) {
   );
 }
 
-async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, output, historyContext }) {
+async function gerarExplicacaoGuiadaIA({ model, mission, input, acao, output, historyContext }) {
   const conceptGuide = (MISSION_CONCEPTS[mission.id] || [])
     .map((concept) => `- ${concept.name}: ${concept.explanation}`)
     .join("\n");
@@ -1911,7 +1911,6 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
     .join("\n\n");
 
   const result = await fetchChatCompletion({
-    apiKey,
     model: analysisModel,
     reasoningEffort: "low",
     messages: [
@@ -1945,29 +1944,20 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
   };
 }
 
-async function fetchChatCompletion({ apiKey, model, messages, reasoningEffort }) {
+async function fetchChatCompletion({ model, messages, reasoningEffort }) {
   const requestBody = {
     model,
     temperature: 0.4,
     messages,
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   };
-  const response = apiKey
-    ? await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-      })
-    : await fetch("/api/openai/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
+  const response = await fetch("/api/openai/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -2006,7 +1996,7 @@ function extractResponsesOutputText(data) {
     .trim();
 }
 
-async function fetchResponsesCompletion({ apiKey, model, instructions, input, previousResponseId, reasoningEffort }) {
+async function fetchResponsesCompletion({ model, instructions, input, previousResponseId, reasoningEffort }) {
   const requestBody = {
     model,
     instructions,
@@ -2015,29 +2005,13 @@ async function fetchResponsesCompletion({ apiKey, model, instructions, input, pr
     ...(reasoningEffort ? { reasoningEffort } : {}),
   };
 
-  const response = apiKey
-    ? await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          instructions,
-          input,
-          store: true,
-          ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-          ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-        }),
-      })
-    : await fetch("/api/openai/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
+  const response = await fetch("/api/openai/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(requestBody),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -2054,7 +2028,6 @@ async function fetchResponsesCompletion({ apiKey, model, instructions, input, pr
 }
 
 async function fetchResponsesCompletionStream({
-  apiKey,
   model,
   instructions,
   input,
@@ -2070,32 +2043,14 @@ async function fetchResponsesCompletionStream({
     ...(reasoningEffort ? { reasoningEffort } : {}),
   };
 
-  const response = apiKey
-    ? await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "text/event-stream",
-        },
-        body: JSON.stringify({
-          model,
-          instructions,
-          input,
-          store: true,
-          stream: true,
-          ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-          ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-        }),
-      })
-    : await fetch("/api/openai/responses/stream", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-        },
-        body: JSON.stringify(requestBody),
-      });
+  const response = await fetch("/api/openai/responses/stream", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(requestBody),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -2103,7 +2058,7 @@ async function fetchResponsesCompletionStream({
   }
 
   if (!response.body) {
-    return fetchResponsesCompletion({ apiKey, model, instructions, input, previousResponseId, reasoningEffort });
+    return fetchResponsesCompletion({ model, instructions, input, previousResponseId, reasoningEffort });
   }
 
   const reader = response.body.getReader();
@@ -2189,7 +2144,7 @@ async function fetchResponsesCompletionStream({
     }
   } catch (error) {
     if (!streamingFailed) {
-      return fetchResponsesCompletion({ apiKey, model, instructions, input, previousResponseId, reasoningEffort });
+      return fetchResponsesCompletion({ model, instructions, input, previousResponseId, reasoningEffort });
     }
     throw error;
   }
@@ -2207,7 +2162,6 @@ async function executarComIA({
   input,
   attachments = [],
   acao,
-  apiKey,
   model,
   planningMode,
   historyContext,
@@ -2234,7 +2188,6 @@ async function executarComIA({
     result =
       aiMode === CODING_AI_MODE
         ? await fetchResponsesCompletionStream({
-            apiKey,
             model: effectiveRuntime.requestModel,
             instructions: promptApplied,
             input: buildResponsesApiInput(input, attachments),
@@ -2243,7 +2196,6 @@ async function executarComIA({
             onDelta,
           })
         : await fetchChatCompletion({
-            apiKey,
             model: effectiveRuntime.requestModel,
             reasoningEffort: effectiveRuntime.reasoningEffort,
             messages: [
@@ -2269,7 +2221,6 @@ async function executarComIA({
 
     result = aiMode === CODING_AI_MODE
       ? await fetchResponsesCompletionStream({
-          apiKey,
           model: effectiveRuntime.requestModel,
           instructions: promptApplied,
           input: buildResponsesApiInput(input, attachments),
@@ -2277,7 +2228,6 @@ async function executarComIA({
           onDelta,
         })
       : await fetchChatCompletion({
-          apiKey,
           model: effectiveRuntime.requestModel,
           reasoningEffort: effectiveRuntime.reasoningEffort,
           messages: [
@@ -2368,7 +2318,6 @@ function App() {
   const [store, setStore] = useState(() => ({
     events: initialLocalStore.events || [],
     archivedEvents: initialLocalStore.archivedEvents || [],
-    apiKey: initialLocalStore.apiKey || "",
     model: initialLocalStore.model || "gpt-4.1-mini",
     planningMode: initialLocalStore.planningMode || "off",
   }));
@@ -2879,7 +2828,7 @@ function App() {
 
   const teamStudentOptions = useMemo(() => getEventStudentOptions(teamEvent), [teamEvent]);
 
-  const apiConfigured = Boolean(store.apiKey || serverConfig.openaiConfigured);
+  const apiConfigured = Boolean(serverConfig.openaiConfigured);
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";
@@ -3388,7 +3337,6 @@ function App() {
       }
       setStore((current) => ({
         ...current,
-        apiKey: "",
         model: configForm.model,
       }));
       setConfigForm((current) => ({ ...current, apiKey: "" }));
@@ -3404,7 +3352,6 @@ function App() {
     try {
       const nextConfig = await removeServerOpenAIKey();
       setServerConfig(nextConfig);
-      setStore((current) => ({ ...current, apiKey: "" }));
       setConfigForm((current) => ({ ...current, apiKey: "" }));
       setConfigOpen(false);
       showToast("Chave persistente removida");
@@ -4347,7 +4294,6 @@ function App() {
             input,
             attachments,
             acao,
-            apiKey: store.apiKey,
             model: store.model,
             planningMode: store.planningMode,
             historyContext,
@@ -4520,7 +4466,6 @@ function App() {
 
       if (apiConfigured) {
         void gerarExplicacaoGuiadaIA({
-          apiKey: store.apiKey,
           model: result.effectiveModel || store.model,
           mission: currentMission,
           input,
@@ -6439,7 +6384,7 @@ function App() {
           onOpenConfig={() => {
             setFacilitatorToolsOpen(false);
             setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
-            setConfigForm({ apiKey: store.apiKey, model: store.model, planningMode: store.planningMode });
+            setConfigForm({ apiKey: "", model: store.model, planningMode: store.planningMode });
             setConfigOpen(true);
           }}
           onOpenBroadcast={() => {

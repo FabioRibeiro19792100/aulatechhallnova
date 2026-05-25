@@ -329,6 +329,7 @@ function makeEvent({ name, desc, rawTeams }) {
     conclusoes: {},
     preservedMissionUsage: {},
     helpRequests: [],
+    helpDisabledMap: {},
     trainingRuns: {},
     trainingHelpRequests: [],
     announcements: [],
@@ -451,6 +452,11 @@ function getHelpRequests(evento, teamIdx, missionId) {
 
 function getTrainingHelpRequests(evento, teamIdx = null) {
   return (evento.trainingHelpRequests || []).filter((request) => teamIdx === null || request.teamIdx === teamIdx);
+}
+
+function isHelpDisabledForTeam(evento, teamIdx) {
+  if (!evento || teamIdx === null || teamIdx === undefined) return false;
+  return Boolean(evento.helpDisabledMap?.[teamIdx]?.disabled);
 }
 
 function getEventAnnouncements(evento) {
@@ -1008,6 +1014,9 @@ function mergeEventEntity(remoteEvent, localEvent) {
       ...(localEvent.preservedMissionUsage || {}),
     },
     helpRequests: mergeHelpRequestArrays(remoteEvent.helpRequests, localEvent.helpRequests),
+    helpDisabledMap: mergeObjectMaps(remoteEvent.helpDisabledMap, localEvent.helpDisabledMap, (remoteValue, localValue) =>
+      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
+    ),
     trainingRuns: mergeExecucaoMaps(remoteEvent.trainingRuns, localEvent.trainingRuns),
     trainingHelpRequests: mergeHelpRequestArrays(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
     announcements: mergeAnnouncements(getEventAnnouncements(remoteEvent), getEventAnnouncements(localEvent)),
@@ -1110,6 +1119,7 @@ function migrateEventToFixedMissions(event) {
           conclusoes: baseEvent.conclusoes || {},
           preservedMissionUsage: baseEvent.preservedMissionUsage || {},
           helpRequests: baseEvent.helpRequests || [],
+          helpDisabledMap: baseEvent.helpDisabledMap || {},
         },
     missions: buildCanonicalFixedMissionList(baseEvent),
     execucoes: alreadyCanonical ? baseEvent.execucoes || {} : {},
@@ -1118,6 +1128,7 @@ function migrateEventToFixedMissions(event) {
     conclusoes: alreadyCanonical ? baseEvent.conclusoes || {} : {},
     preservedMissionUsage: alreadyCanonical ? baseEvent.preservedMissionUsage || {} : {},
     helpRequests: alreadyCanonical ? baseEvent.helpRequests || [] : [],
+    helpDisabledMap: alreadyCanonical ? baseEvent.helpDisabledMap || {} : {},
   };
 }
 
@@ -1155,6 +1166,41 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = String(reader.result || "");
+      const base64 = raw.includes(",") ? raw.split(",")[1] : raw;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error(`Falha ao ler ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function extractDocumentAttachmentText(file) {
+  const contentBase64 = await readFileAsBase64(file);
+  const response = await fetch("/api/attachments/extract", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fileName: file.name,
+      contentBase64,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Falha ao extrair ${file.name}`);
+  }
+
+  const data = await response.json();
+  return truncateAttachmentText(normalizeAttachmentText(data.text || ""));
+}
+
 async function createAttachmentRecord(file) {
   const kind = classifyAttachment(file);
   if (kind === "unsupported") {
@@ -1187,6 +1233,22 @@ async function createAttachmentRecord(file) {
       extractedText: text,
       summary: "Texto extraído e enviado junto da rodada.",
     };
+  }
+
+  if (kind === "document") {
+    try {
+      const text = await extractDocumentAttachmentText(file);
+      if (text) {
+        return {
+          ...base,
+          previewMode: "text",
+          extractedText: text,
+          summary: "Texto extraído do documento e enviado junto da rodada.",
+        };
+      }
+    } catch (error) {
+      console.warn(`Falha ao extrair ${file.name}:`, error);
+    }
   }
 
   return {
@@ -1236,6 +1298,40 @@ function buildUserMessageContent(input, attachments = []) {
       type: "image_url",
       image_url: { url: attachment.dataUrl },
     })),
+  ];
+}
+
+function buildResponsesApiInput(input, attachments = []) {
+  const content = buildUserMessageContent(input, attachments);
+  if (Array.isArray(content)) {
+    return [
+      {
+        role: "user",
+        content: content.map((item) =>
+          item.type === "image_url"
+            ? {
+                type: "input_image",
+                image_url: item.image_url?.url,
+              }
+            : {
+                type: "input_text",
+                text: item.text || "",
+              },
+        ),
+      },
+    ];
+  }
+
+  return [
+    {
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: content || "Considere a mensagem enviada nesta rodada.",
+        },
+      ],
+    },
   ];
 }
 
@@ -1312,6 +1408,23 @@ function buildPromptApplied({ mission, acao, historyContext, planningMode = "off
     .filter(Boolean)
     .join("\n\n")
     .concat(historyBlock);
+}
+
+function buildCodingDeliveryHint(input = "") {
+  if (isHtmlPrototypeRequest(input)) {
+    return [
+      "Quando o pedido for de interface, front-end ou protótipo web, entregue uma instância executável.",
+      "Preferência de saída: um único documento HTML completo, autocontido, com CSS e JavaScript inline quando necessário.",
+      "Coloque esse HTML dentro de um único bloco ```html index.html```.",
+      "Depois do bloco, se precisar, adicione notas curtas de implementação e próximos passos.",
+    ].join("\n");
+  }
+  return [
+    "Quando a resposta principal for código utilizável, entregue arquivos reais em blocos nomeados.",
+    "Use fences com linguagem e nome do arquivo, por exemplo: ```js app.js``` ou ```css styles.css```.",
+    "Se houver mais de um arquivo, separe um bloco por arquivo.",
+    "Depois dos blocos, adicione apenas notas curtas de integração, uso ou próximos passos.",
+  ].join("\n");
 }
 
 function buildConceptSummary(mission) {
@@ -1518,6 +1631,150 @@ function truncateForAnalysis(text = "", limit = 1800) {
   return `${normalized.slice(0, limit)}...`;
 }
 
+function isHtmlPrototypeRequest(input = "") {
+  const normalized = `${input || ""}`.toLowerCase();
+  return /(front[\s-]?end|html|css|landing page|landing|pagina|página|site|webapp|web app|interface|ui|tela|prototype|prot[oó]tipo|componente visual)/i.test(normalized);
+}
+
+function inferArtifactExtension(language = "") {
+  const normalized = `${language || ""}`.toLowerCase();
+  if (["html", "htm"].includes(normalized)) return "html";
+  if (["css", "scss", "sass"].includes(normalized)) return "css";
+  if (["javascript", "js", "jsx"].includes(normalized)) return "js";
+  if (["typescript", "ts", "tsx"].includes(normalized)) return "ts";
+  if (["json"].includes(normalized)) return "json";
+  if (["markdown", "md"].includes(normalized)) return "md";
+  if (["python", "py"].includes(normalized)) return "py";
+  if (["sql"].includes(normalized)) return "sql";
+  if (["xml", "svg"].includes(normalized)) return normalized;
+  return "txt";
+}
+
+function inferArtifactMimeType(extension = "") {
+  const normalized = `${extension || ""}`.toLowerCase();
+  if (normalized === "html") return "text/html;charset=utf-8";
+  if (normalized === "css") return "text/css;charset=utf-8";
+  if (normalized === "js") return "text/javascript;charset=utf-8";
+  if (normalized === "ts") return "text/plain;charset=utf-8";
+  if (normalized === "json") return "application/json;charset=utf-8";
+  if (normalized === "md") return "text/markdown;charset=utf-8";
+  if (normalized === "py") return "text/x-python;charset=utf-8";
+  if (normalized === "sql") return "application/sql;charset=utf-8";
+  if (normalized === "svg") return "image/svg+xml;charset=utf-8";
+  if (normalized === "xml") return "application/xml;charset=utf-8";
+  return "text/plain;charset=utf-8";
+}
+
+function sanitizeArtifactFileName(fileName = "", fallbackBase = "artifact", fallbackExtension = "txt") {
+  const cleaned = `${fileName || ""}`.trim().replace(/^["'`]+|["'`]+$/g, "").replace(/[\\/:*?"<>|]+/g, "-");
+  if (cleaned && /\.[a-z0-9]+$/i.test(cleaned)) return cleaned;
+  const base = cleaned || fallbackBase;
+  return `${base}.${fallbackExtension}`;
+}
+
+function extractRunnableHtml(output = "") {
+  if (!output) return null;
+  const fencedBlocks = [...output.matchAll(/```html\s*([\s\S]*?)```/gi)];
+  for (const match of fencedBlocks) {
+    const candidate = match[1]?.trim();
+    if (candidate && /<(?:!doctype|html|head|body|main|section|div)\b/i.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  const trimmed = output.trim();
+  if (/^<!doctype html>/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return null;
+}
+
+function extractGeneratedArtifacts(output = "", baseName = "artifact") {
+  const artifacts = [];
+  const fencedBlocks = [...`${output || ""}`.matchAll(/```([a-zA-Z0-9_+-]+)?(?:\s+([^\n`]+))?\n([\s\S]*?)```/g)];
+
+  fencedBlocks.forEach((match, index) => {
+    const language = `${match[1] || ""}`.trim().toLowerCase();
+    const explicitName = `${match[2] || ""}`.trim();
+    const content = `${match[3] || ""}`.replace(/^\n+|\n+$/g, "");
+    if (!content.trim()) return;
+    const extension = explicitName.includes(".") ? getFileExtension(explicitName) || inferArtifactExtension(language) : inferArtifactExtension(language);
+    const fileName = sanitizeArtifactFileName(explicitName, `${baseName}-${index + 1}`, extension);
+    artifacts.push({
+      id: `artifact_${index}_${fileName}`,
+      fileName,
+      extension,
+      language: language || extension,
+      mimeType: inferArtifactMimeType(extension),
+      content,
+      previewMode: extension === "html" ? "html" : "code",
+    });
+  });
+
+  if (!artifacts.length) {
+    const html = extractRunnableHtml(output);
+    if (html) {
+      artifacts.push({
+        id: `${baseName}-html`,
+        fileName: sanitizeArtifactFileName(`${baseName}.html`, baseName, "html"),
+        extension: "html",
+        language: "html",
+        mimeType: inferArtifactMimeType("html"),
+        content: html,
+        previewMode: "html",
+      });
+    }
+  }
+
+  const deduped = new globalThis.Map();
+  artifacts.forEach((artifact) => {
+    const key = `${artifact.fileName}__${artifact.content}`;
+    if (!deduped.has(key)) deduped.set(key, artifact);
+  });
+
+  return [...deduped.values()];
+}
+
+function buildHtmlArtifact(exec) {
+  const generated = Array.isArray(exec?.generatedArtifacts) ? exec.generatedArtifacts : [];
+  const htmlArtifact = generated.find((artifact) => artifact.previewMode === "html");
+  if (htmlArtifact) {
+    return {
+      html: htmlArtifact.content,
+      fileName: htmlArtifact.fileName,
+    };
+  }
+
+  const html = extractRunnableHtml(exec?.output || "");
+  if (!html) return null;
+  const fileBase = (exec?.iterationNumber ? `rodada-${exec.iterationNumber}` : exec?.id || "prototipo")
+    .toString()
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .toLowerCase();
+  return {
+    html,
+    fileName: `${fileBase}.html`,
+  };
+}
+
+function downloadTextArtifact(content, fileName = "artifact.txt", mimeType = "text/plain;charset=utf-8") {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadHtmlArtifact(html, fileName = "prototipo.html") {
+  downloadTextArtifact(html, fileName, "text/html;charset=utf-8");
+}
+
 async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, output, historyContext }) {
   const conceptGuide = (MISSION_CONCEPTS[mission.id] || [])
     .map((concept) => `- ${concept.name}: ${concept.explanation}`)
@@ -1642,31 +1899,107 @@ async function fetchChatCompletion({ apiKey, model, messages, reasoningEffort })
   };
 }
 
-async function executarComIA({ mission, input, attachments = [], acao, apiKey, model, planningMode, historyContext }) {
+function extractResponsesOutputText(data) {
+  if (typeof data?.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const outputItems = Array.isArray(data?.output) ? data.output : [];
+  return outputItems
+    .flatMap((item) => (Array.isArray(item?.content) ? item.content : []))
+    .map((part) => {
+      if (typeof part?.text === "string") return part.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function fetchResponsesCompletion({ apiKey, model, instructions, input, previousResponseId, reasoningEffort }) {
+  const requestBody = {
+    model,
+    instructions,
+    input,
+    ...(previousResponseId ? { previousResponseId } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+  };
+
+  const response = apiKey
+    ? await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          instructions,
+          input,
+          store: true,
+          ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+          ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+        }),
+      })
+    : await fetch("/api/openai/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Falha ao consultar a OpenAI.");
+  }
+
+  const data = await response.json();
+  return {
+    id: data.id || "",
+    output: extractResponsesOutputText(data) || "Sem conteudo retornado.",
+    inputTokens: data.usage?.input_tokens || 0,
+    outputTokens: data.usage?.output_tokens || 0,
+  };
+}
+
+async function executarComIA({ mission, input, attachments = [], acao, apiKey, model, planningMode, historyContext, previousResponseId = "" }) {
   const aiMode = getMissionAiMode(mission);
   const runtimeBaseModel = aiMode === CODING_AI_MODE ? CODING_AI_MODEL : model;
   const planningRuntime = resolvePlanningRuntime(runtimeBaseModel, planningMode);
-  const promptApplied = buildPromptApplied({
+  const promptBase = buildPromptApplied({
     mission,
     acao,
-    historyContext,
+    historyContext: aiMode === CODING_AI_MODE ? [] : historyContext,
     planningMode,
     includePlanningPrompt: !planningRuntime.planningModeReal,
   });
+  const codingDeliveryHint = aiMode === CODING_AI_MODE ? buildCodingDeliveryHint(input) : "";
+  const promptApplied = [promptBase, codingDeliveryHint].filter(Boolean).join("\n\n");
   const userMessageContent = buildUserMessageContent(input, attachments);
   let effectiveRuntime = { ...planningRuntime };
   let result;
 
   try {
-    result = await fetchChatCompletion({
-      apiKey,
-      model: effectiveRuntime.requestModel,
-      reasoningEffort: effectiveRuntime.reasoningEffort,
-      messages: [
-        { role: "system", content: promptApplied },
-        { role: "user", content: userMessageContent },
-      ],
-    });
+    result =
+      aiMode === CODING_AI_MODE
+        ? await fetchResponsesCompletion({
+            apiKey,
+            model: effectiveRuntime.requestModel,
+            instructions: promptApplied,
+            input: buildResponsesApiInput(input, attachments),
+            previousResponseId,
+            reasoningEffort: effectiveRuntime.reasoningEffort,
+          })
+        : await fetchChatCompletion({
+            apiKey,
+            model: effectiveRuntime.requestModel,
+            reasoningEffort: effectiveRuntime.reasoningEffort,
+            messages: [
+              { role: "system", content: promptApplied },
+              { role: "user", content: userMessageContent },
+            ],
+          });
   } catch (error) {
     const canFallbackCodingModel =
       aiMode === CODING_AI_MODE &&
@@ -1683,15 +2016,23 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
       planningResolution: "coding-model-fallback",
     };
 
-    result = await fetchChatCompletion({
-      apiKey,
-      model: effectiveRuntime.requestModel,
-      reasoningEffort: effectiveRuntime.reasoningEffort,
-      messages: [
-        { role: "system", content: promptApplied },
-        { role: "user", content: userMessageContent },
-      ],
-    });
+    result = aiMode === CODING_AI_MODE
+      ? await fetchResponsesCompletion({
+          apiKey,
+          model: effectiveRuntime.requestModel,
+          instructions: promptApplied,
+          input: buildResponsesApiInput(input, attachments),
+          previousResponseId,
+        })
+      : await fetchChatCompletion({
+          apiKey,
+          model: effectiveRuntime.requestModel,
+          reasoningEffort: effectiveRuntime.reasoningEffort,
+          messages: [
+            { role: "system", content: promptApplied },
+            { role: "user", content: userMessageContent },
+          ],
+        });
   }
 
   const custo = estimateCost(effectiveRuntime.requestModel, result.inputTokens, result.outputTokens);
@@ -1707,6 +2048,7 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
     selectedModel: model,
     planningModeReal: effectiveRuntime.planningModeReal,
     planningResolution: effectiveRuntime.planningResolution,
+    responseId: result.id || "",
   };
 }
 
@@ -2113,7 +2455,8 @@ function App() {
     : null;
   const currentMissionStatus = currentMission && teamEvent && !isTrainingEvent ? getMissionClosureStatus(teamEvent, timeTeamIdx, currentMission.id) : "aberta";
   const latestCurrentExec = currentExecs.length ? currentExecs[currentExecs.length - 1] : null;
-  const readingStage = Boolean(missionFlow.exec);
+  const readingExec = missionFlow.exec || latestCurrentExec || null;
+  const readingStage = Boolean(readingExec);
   const hasMissionHistory = currentMission && teamEvent
     ? isTrainingEvent
       ? currentExecs.length > 0
@@ -2127,6 +2470,7 @@ function App() {
     : [];
   const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open").length;
   const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open") || null;
+  const teamHelpDisabled = teamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(teamEvent, timeTeamIdx) : false;
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
 
   useEffect(() => {
@@ -2651,6 +2995,7 @@ function App() {
               conclusoes: {},
               preservedMissionUsage: {},
               helpRequests: [],
+              helpDisabledMap: {},
             },
       ),
     );
@@ -2708,6 +3053,15 @@ function App() {
               return teamIdx !== index;
             }),
           );
+        const remapTeamScopedMap = (map = {}) =>
+          Object.fromEntries(
+            Object.entries(map).flatMap(([key, value]) => {
+              const teamIdx = Number(key);
+              if (!Number.isFinite(teamIdx) || teamIdx === index) return [];
+              const nextKey = teamIdx > index ? `${teamIdx - 1}` : `${teamIdx}`;
+              return [[nextKey, value]];
+            }),
+          );
         return {
           ...event,
           teams,
@@ -2717,6 +3071,7 @@ function App() {
           conclusoes: filterMissionKeyMap(event.conclusoes),
           preservedMissionUsage: filterMissionKeyMap(event.preservedMissionUsage),
           helpRequests: (event.helpRequests || []).filter((request) => request.teamIdx !== index),
+          helpDisabledMap: remapTeamScopedMap(event.helpDisabledMap),
           trainingRuns: Object.fromEntries(
             Object.entries(event.trainingRuns || {}).filter(([key]) => Number(key) !== index),
           ),
@@ -3139,8 +3494,62 @@ function App() {
   }
 
   function handleOpenHelp() {
+    if (teamHelpDisabled) {
+      showToast("Ajuda desativada para este time");
+      return;
+    }
     setHelpMessage(currentOpenHelpRequest?.message || "");
     setHelpOpen(true);
+  }
+
+  function handleToggleHelpDisabled() {
+    if (!teamEvent || timeTeamIdx === null) return;
+    const nextDisabled = !teamHelpDisabled;
+    const nowIso = new Date().toISOString();
+
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== teamEvent.id) return event;
+
+        const baseEvent = {
+          ...event,
+          helpDisabledMap: {
+            ...(event.helpDisabledMap || {}),
+            [timeTeamIdx]: {
+              disabled: nextDisabled,
+              updatedAt: nowIso,
+            },
+          },
+        };
+
+        if (!nextDisabled) return baseEvent;
+
+        const cancelRequest = (request) =>
+          request.teamIdx === timeTeamIdx && request.status === "open"
+            ? {
+                ...request,
+                status: "cancelled",
+                cancelledAt: nowIso,
+                updatedAt: nowIso,
+              }
+            : request;
+
+        return {
+          ...baseEvent,
+          helpRequests: (baseEvent.helpRequests || []).map(cancelRequest),
+          trainingHelpRequests: (baseEvent.trainingHelpRequests || []).map(cancelRequest),
+        };
+      }),
+    );
+
+    if (nextDisabled) {
+      setHelpOpen(false);
+      setHelpMessage("");
+      showToast(currentOpenHelpRequest ? "Ajuda desativada e pedido cancelado" : "Ajuda desativada para este time");
+      return;
+    }
+
+    showToast("Ajuda reativada para este time");
   }
 
   function handleOpenBroadcastModal() {
@@ -3363,6 +3772,10 @@ function App() {
 
   function handleSendHelpRequest() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
+    if (teamHelpDisabled) {
+      showToast("Ajuda desativada para este time");
+      return;
+    }
     const message = helpMessage.trim();
     if (!message) return;
     if (currentOpenHelpRequest) return;
@@ -3602,6 +4015,10 @@ function App() {
     const attachments = missionAttachments;
     const acao = FREE_ACTION_KEY;
     const historyContext = buildHistoryContext(currentExecs);
+    const previousCodingResponseId =
+      getMissionAiMode(currentMission) === CODING_AI_MODE
+        ? currentExecs[currentExecs.length - 1]?.codingResponseId || ""
+        : "";
     if (!input && !attachments.length) {
       setRunError("Escreva um input ou anexe pelo menos um arquivo.");
       return;
@@ -3665,6 +4082,7 @@ function App() {
             model: store.model,
             planningMode: store.planningMode,
             historyContext,
+            previousResponseId: previousCodingResponseId,
           })
         : executarMock({
             mission: currentMission,
@@ -3737,6 +4155,9 @@ function App() {
             historyContext,
           });
       const iterationNumber = currentExecs.length + 1;
+      const generatedArtifacts = getMissionAiMode(currentMission) === CODING_AI_MODE
+        ? extractGeneratedArtifacts(result.output, `rodada-${iterationNumber}`)
+        : [];
       const execRecord = {
         id: `run_${Date.now()}`,
         ts: new Date().toISOString(),
@@ -3767,12 +4188,14 @@ function App() {
         usedHistoryContext: historyContext.length > 0,
         iterationNumber,
         aiMode: getMissionAiMode(currentMission),
+        generatedArtifacts,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
         tokens: result.tokens,
         custo: result.custo,
         selectedModel: result.selectedModel || store.model,
         effectiveModel: result.effectiveModel || store.model,
+        codingResponseId: result.responseId || "",
         planningMode: store.planningMode,
         planningModeReal: Boolean(result.planningModeReal),
         planningResolution: result.planningResolution || "off",
@@ -5230,10 +5653,22 @@ function App() {
                   </button>
                 ) : null}
                 {(currentMission || isTrainingEvent) && !teamEventScreenShare?.active ? (
-                  <button className="btn btn-sm topbar-help-btn" onClick={handleOpenHelp}>
-                    {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
-                    {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
-                  </button>
+                  <>
+                    <button
+                      className={`btn btn-sm topbar-help-toggle-btn${teamHelpDisabled ? " is-off" : ""}`}
+                      onClick={handleToggleHelpDisabled}
+                    >
+                      {teamHelpDisabled ? "Ajuda off" : "Ajuda on"}
+                    </button>
+                    <button
+                      className={`btn btn-sm topbar-help-btn${teamHelpDisabled ? " is-disabled" : ""}`}
+                      onClick={handleOpenHelp}
+                      disabled={teamHelpDisabled}
+                    >
+                      {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
+                      {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
+                    </button>
+                  </>
                 ) : null}
               </>
             }
@@ -5588,9 +6023,9 @@ function App() {
                   </div>
                 </div>
                 <div className="workspace-explain-body">
-                  {readingStage && missionFlow.exec ? (
+                  {readingStage && readingExec ? (
                     <MissionReadingPanel
-                      exec={missionFlow.exec}
+                      exec={readingExec}
                     />
                   ) : (
                     <div className="reading-placeholder workspace-reading-placeholder">
@@ -6078,7 +6513,9 @@ function App() {
       <Modal open={helpOpen} onClose={() => setHelpOpen(false)} small>
         <div className="modal-title">Pedir ajuda ao facilitador</div>
         <div className="modal-sub">
-          {currentOpenHelpRequest
+          {teamHelpDisabled
+            ? "A ajuda esta desativada para este time. Reative no topo da tela quando quiser voltar a falar com o facilitador."
+            : currentOpenHelpRequest
             ? "Seu pedido ja foi enviado. Voce pode revisar a mensagem ou cancelar se nao precisar mais de ajuda."
             : "O facilitador vai receber este pedido junto com o contexto da missao e do seu time."}
         </div>
@@ -6088,14 +6525,18 @@ function App() {
             value={helpMessage}
             onChange={(event) => setHelpMessage(event.target.value)}
             placeholder="Ex: Estamos travados para escolher a melhor acao e validar a resposta."
-            disabled={Boolean(currentOpenHelpRequest)}
+            disabled={teamHelpDisabled || Boolean(currentOpenHelpRequest)}
           />
         </div>
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={() => setHelpOpen(false)}>
             Fechar
           </button>
-          {currentOpenHelpRequest ? (
+          {teamHelpDisabled ? (
+            <button className="btn btn-primary" onClick={handleToggleHelpDisabled}>
+              Reativar ajuda
+            </button>
+          ) : currentOpenHelpRequest ? (
             <button className="btn btn-primary btn-danger" onClick={() => handleCancelHelpRequest(teamEvent.id, currentOpenHelpRequest.id)}>
               Cancelar pedido
             </button>
@@ -6403,6 +6844,83 @@ function AttachmentList({ attachments = [] }) {
   );
 }
 
+function HtmlArtifactCard({ artifact, compact = false }) {
+  if (!artifact) return null;
+  return (
+    <div className={`html-artifact-card${compact ? " is-compact" : ""}`}>
+      <div className="html-artifact-head">
+        <div>
+          <div className="html-artifact-kicker">Instância HTML</div>
+          <div className="html-artifact-title">Preview executável</div>
+        </div>
+        <div className="html-artifact-actions">
+          <button
+            className="btn btn-sm btn-ghost"
+            type="button"
+            onClick={() => downloadHtmlArtifact(artifact.html, artifact.fileName)}
+          >
+            Baixar .html
+          </button>
+        </div>
+      </div>
+      <div className="html-artifact-frame-shell">
+        <iframe
+          className="html-artifact-frame"
+          title="Pré-visualização HTML"
+          sandbox="allow-scripts"
+          srcDoc={artifact.html}
+        />
+      </div>
+    </div>
+  );
+}
+
+function GeneratedArtifactsPanel({ exec, compact = false }) {
+  const artifacts = Array.isArray(exec?.generatedArtifacts) ? exec.generatedArtifacts : [];
+  if (!artifacts.length) return null;
+
+  const htmlArtifact = artifacts.find((artifact) => artifact.previewMode === "html");
+  const otherArtifacts = artifacts.filter((artifact) => artifact !== htmlArtifact);
+
+  return (
+    <div className={`generated-artifacts-panel${compact ? " is-compact" : ""}`}>
+      <div className="generated-artifacts-head">
+        <div className="generated-artifacts-kicker">Artefatos gerados</div>
+        <div className="generated-artifacts-sub">{artifacts.length} arquivo(s) real(is) nesta rodada</div>
+      </div>
+      <div className="generated-artifacts-list">
+        {artifacts.map((artifact) => (
+          <div className="generated-artifact-row" key={artifact.id}>
+            <div className="generated-artifact-copy">
+              <strong>{artifact.fileName}</strong>
+              <span>{artifact.language?.toUpperCase() || artifact.extension?.toUpperCase() || "TXT"}</span>
+            </div>
+            <button
+              className="btn btn-sm btn-ghost"
+              type="button"
+              onClick={() => downloadTextArtifact(artifact.content, artifact.fileName, artifact.mimeType)}
+            >
+              Baixar
+            </button>
+          </div>
+        ))}
+      </div>
+      {htmlArtifact ? (
+        <HtmlArtifactCard
+          artifact={{
+            html: htmlArtifact.content,
+            fileName: htmlArtifact.fileName,
+          }}
+          compact={compact}
+        />
+      ) : null}
+      {!htmlArtifact && otherArtifacts.length ? (
+        <div className="generated-artifacts-note">Os arquivos acima já podem ser baixados e usados fora do chat.</div>
+      ) : null}
+    </div>
+  );
+}
+
 function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState }) {
   const hasHistory = execs.length > 0;
   const hasPending = Boolean(runState && (pendingPrompt.trim() || pendingAttachments.length));
@@ -6439,6 +6957,7 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
               </div>
               {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
               <div className="prompt-thread-text">{exec.output}</div>
+              <GeneratedArtifactsPanel exec={exec} compact />
             </div>
           </div>
         );
@@ -6895,6 +7414,7 @@ function OutputCard({ exec, compact = false }) {
         {exec.processingSteps?.length ? <ProcessingPipeline processingSteps={exec.processingSteps} /> : null}
         {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
         <div className="output-text">{exec.output}</div>
+        <GeneratedArtifactsPanel exec={exec} compact={compact} />
       </div>
       {!compact ? <TransparencyPanel exec={exec} open={open} onToggle={() => setOpen((value) => !value)} /> : null}
     </div>

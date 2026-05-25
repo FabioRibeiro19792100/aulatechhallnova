@@ -3,6 +3,8 @@ import express from "express";
 import {
   createLiveKitToken,
   createOpenAIChatCompletion,
+  createOpenAIResponse,
+  extractDocumentText,
   getRemoteAppState,
   getRuntimeConfig,
   removeOpenAIKey,
@@ -71,6 +73,23 @@ app.post("/api/openai/chat", async (req, res) => {
     res.type("application/json").send(responseText);
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message || "Falha ao consultar a OpenAI.");
+  }
+});
+
+app.post("/api/openai/responses", async (req, res) => {
+  try {
+    const responseText = await createOpenAIResponse(req.body || {});
+    res.type("application/json").send(responseText);
+  } catch (error) {
+    res.status(error.statusCode || 500).send(error.message || "Falha ao consultar a OpenAI.");
+  }
+});
+
+app.post("/api/attachments/extract", async (req, res) => {
+  try {
+    res.json(await extractDocumentText(req.body || {}));
+  } catch (error) {
+    res.status(error.statusCode || 500).send(error.message || "Falha ao extrair arquivo.");
   }
 });
 

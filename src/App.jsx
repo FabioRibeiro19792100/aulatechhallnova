@@ -2404,6 +2404,7 @@ function App() {
     confirmValue: "",
     confirmLabel: "",
     confirmPlaceholder: "",
+    confirmHint: "",
   });
   const [confirmInput, setConfirmInput] = useState("");
   const [missionFlow, setMissionFlow] = useState({ stage: "idle", exec: null });
@@ -2999,6 +3000,7 @@ function App() {
       confirmValue: options.confirmValue || "",
       confirmLabel: options.confirmLabel || "Senha de confirmacao",
       confirmPlaceholder: options.confirmPlaceholder || "",
+      confirmHint: options.confirmHint || "",
     });
   }
 
@@ -3015,15 +3017,20 @@ function App() {
       confirmValue: "",
       confirmLabel: "",
       confirmPlaceholder: "",
+      confirmHint: "",
     });
   }
 
-  function openDeleteConfirm({ eventId, title, body, onConfirm, onArchive }) {
+  function openDeleteConfirm({ eventId, title, body, onConfirm, onArchive, passwordMode = "event_code" }) {
+    const usesFacilitatorPassword = passwordMode === "facilitator";
     openConfirm(title, body, onConfirm, {
       requiresPassword: true,
-      confirmValue: eventId,
+      confirmValue: usesFacilitatorPassword ? FACILITATOR_PASSWORD : eventId,
       confirmLabel: "Senha de seguranca",
-      confirmPlaceholder: `Digite o codigo do evento (${eventId})`,
+      confirmPlaceholder: usesFacilitatorPassword ? "Digite a senha do facilitador" : `Digite o codigo do evento (${eventId})`,
+      confirmHint: usesFacilitatorPassword
+        ? "Digite a mesma senha do facilitador para liberar esta exclusão."
+        : "Digite exatamente o codigo do evento para liberar esta exclusao.",
       secondaryAction: onArchive
         ? {
             label: "Salvar histórico",
@@ -5551,9 +5558,10 @@ function App() {
                               openDeleteConfirm({
                                 eventId: event.id,
                                 title: "Excluir evento",
-                                body: "Escolha se voce quer salvar o histórico deste evento antes de removê-lo da lista ativa, ou deletá-lo para sempre. Para liberar as duas opções, digite o código do evento como senha de segurança.",
+                                body: "Escolha se voce quer salvar o histórico deste evento antes de removê-lo da lista ativa, ou deletá-lo para sempre. Para liberar as duas opções, digite a senha do facilitador.",
                                 onConfirm: () => handleDeleteEvent(event.id),
                                 onArchive: () => archiveEventSnapshot(event.id),
+                                passwordMode: "facilitator",
                               })
                             }
                           >
@@ -6803,7 +6811,7 @@ function App() {
               onChange={(event) => setConfirmInput(event.target.value)}
               placeholder={confirmState.confirmPlaceholder}
             />
-            <div className="form-hint">Digite exatamente o codigo do evento para liberar esta exclusao.</div>
+            <div className="form-hint">{confirmState.confirmHint || "Digite exatamente o codigo do evento para liberar esta exclusao."}</div>
           </div>
         ) : null}
         <div className="modal-actions">

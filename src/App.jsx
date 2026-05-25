@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import techHallLogoDark from "../tech_hall_branding/tech_hall_preto.png";
-import techHallFooterIcon from "../tech_hall_branding/ícone_8.png";
+import techHallFooterIcon from "../tech_hall_branding/icone_8.png";
 
 const FREE_ACTION_KEY = "__free_instruction__";
 const FREE_ACTION_LABEL = "Escrever minha própria instrução";

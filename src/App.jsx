@@ -12,6 +12,7 @@ const TRAINING_THREAD_ID = "__training__";
 const CHAT_AI_MODE = "chat";
 const CODING_AI_MODE = "coding";
 const CODING_AI_MODEL = "gpt-5-mini";
+const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const PRESENCE_STALE_MS = 45000;
 const BRAND_LOADER_DURATION_MS = 700;
 const TIMER_NOTICE_TTL_MS = 30000;
@@ -182,15 +183,13 @@ const SIMULATION_STEPS = [
 const SHOW_DEV_SWITCH = true;
 
 function buildRunSteps(apiConfigured) {
+  if (apiConfigured) {
+    return [];
+  }
   return SIMULATION_STEPS.map((step, index) => ({
     ...step,
     status: index === 0 ? "active" : "pending",
-    label:
-      apiConfigured && step.key === "estrategia"
-        ? "consultando OpenAI"
-        : apiConfigured && step.key === "finalizando"
-          ? "preparando explicacao"
-          : step.label,
+    label: step.label,
   }));
 }
 const MISSION_CONCEPTS = {
@@ -1504,56 +1503,61 @@ function extractJsonObject(text) {
   return null;
 }
 
+function truncateForAnalysis(text = "", limit = 1800) {
+  const normalized = `${text || ""}`.trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit)}...`;
+}
+
 async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, output, historyContext }) {
   const conceptGuide = (MISSION_CONCEPTS[mission.id] || [])
     .map((concept) => `- ${concept.name}: ${concept.explanation}`)
     .join("\n");
   const historySignal = buildHistorySignal(historyContext);
-  const historyBlock = historyContext.length
-    ? historyContext.map((item, index) => `Rodada ${index + 1}: ${item}`).join("\n\n")
+  const compactHistory = historyContext.slice(-2).map((item) => truncateForAnalysis(item, 260));
+  const historyBlock = compactHistory.length
+    ? compactHistory.map((item, index) => `Rodada ${index + 1}: ${item}`).join("\n\n")
     : "Sem histórico anterior nesta missão.";
   const aiMode = getMissionAiMode(mission);
+  const analysisModel = TECHNICAL_ANALYSIS_MODEL;
   const prompt = [
     "Você é um analisador pedagógico de prompts e respostas.",
-    "Gere uma análise técnica e didática da resposta produzida pela IA.",
+    "Gere uma análise técnica e didática curta da resposta produzida pela IA.",
     "O objeto principal da análise é sempre o ÚLTIMO prompt enviado pelo usuário nesta rodada.",
     "O histórico anterior da missão deve entrar apenas como contexto secundário de continuidade, nunca como pedido principal.",
     "Diferencie claramente fatos explícitos do prompt atual, inferências sustentadas pelo contexto e suposições necessárias.",
-    "Não revele chain-of-thought bruto nem raciocínio interno literal.",
-    "Não produza texto ornamental, motivacional ou fechamento genérico.",
-    "Explique termos técnicos sem infantilizar a linguagem.",
+    "Seja compacto. Prefira listas curtas e trechos objetivos.",
     "Retorne JSON válido com estas chaves:",
     "objectiveInterpreted, strategyUsed, promptBreakdown, conceptsAndTerminologies, constructionProcess, limitationsAndGaps, refinementSuggestions, contextUse",
-    "objectiveInterpreted: string curta explicando a intenção principal interpretada do último prompt.",
-    "strategyUsed: string explicando como a IA abordou o pedido atual.",
-    "promptBreakdown: array de objetos { segment, function } quebrando o último prompt em partes e explicando a função de cada trecho.",
-    "conceptsAndTerminologies: array de objetos { term, meaning, relevance } com explicações didáticas e progressivas.",
-    "constructionProcess: objeto com arrays string chamados explicitRequests, inferredPoints, assumptionsMade, ambiguities.",
-    "limitationsAndGaps: array curto de lacunas ou limites que poderiam tornar a resposta mais precisa.",
-    "refinementSuggestions: array curto de melhorias no prompt para respostas mais consistentes, avançadas ou específicas.",
-    "contextUse: string curta explicando como o histórico anterior influenciou ou não a resposta, sem substituir o foco do último prompt.",
-    "Nomeie termos como saliência, compressão semântica, tokenização, atenção, condicionamento por prompt, decoding e outros que forem realmente úteis aqui.",
+    "objectiveInterpreted: 1 frase.",
+    "strategyUsed: 1 ou 2 frases.",
+    "promptBreakdown: no máximo 3 itens.",
+    "conceptsAndTerminologies: no máximo 3 itens, só se úteis.",
+    "constructionProcess: objeto com arrays curtos explicitRequests, inferredPoints, assumptionsMade, ambiguities.",
+    "limitationsAndGaps: no máximo 3 itens.",
+    "refinementSuggestions: no máximo 3 itens.",
+    "contextUse: 1 frase.",
     aiMode === CODING_AI_MODE
-      ? "Como esta missão está em modo coding, dê ênfase a decisões de implementação, qualidade de código, debugging, arquitetura, refatoração e exemplos práticos."
-      : "Como esta missão está em modo chat, mantenha foco em clareza estrutural, intenção do prompt e qualidade da resposta conversacional.",
+      ? "Missão em modo coding: enfatize implementação, debugging, arquitetura e refatoração."
+      : "Missão em modo chat: enfatize clareza estrutural, intenção do prompt e qualidade da resposta.",
     `Missao: ${mission.name}`,
-    `Categoria: ${mission.category}`,
     `AI Mode: ${AI_MODE_LABELS[aiMode]}`,
     isFreeInstructionAction(acao)
       ? "A rodada foi feita em modo de instrução livre, sem ação rápida predefinida."
       : `Ação escolhida: ${getActionLabel(acao)}`,
     `Sinal de histórico: ${historySignal}`,
-    `Último prompt do usuário (foco principal):\n${input}`,
+    `Último prompt do usuário (foco principal):\n${truncateForAnalysis(input, 1200)}`,
     `Histórico anterior da missão (apenas contexto secundário):\n${historyBlock}`,
-    `Resposta da IA para esta rodada:\n${output}`,
-    conceptGuide ? `Conceitos sugeridos para esta missao:\n${conceptGuide}` : "",
+    `Resposta da IA para esta rodada:\n${truncateForAnalysis(output, 1600)}`,
+    conceptGuide ? `Conceitos sugeridos para esta missão:\n${conceptGuide}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
 
   const result = await fetchChatCompletion({
     apiKey,
-    model,
+    model: analysisModel,
+    reasoningEffort: "low",
     messages: [
       {
         role: "system",
@@ -1579,8 +1583,8 @@ async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, ou
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       totalTokens: result.inputTokens + result.outputTokens,
-      cost: estimateCost(model, result.inputTokens, result.outputTokens),
-      model,
+      cost: estimateCost(analysisModel, result.inputTokens, result.outputTokens),
+      model: analysisModel,
     },
   };
 }

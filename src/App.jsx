@@ -1261,14 +1261,14 @@ async function createAttachmentRecord(file) {
 
 function buildAttachmentContext(attachments = []) {
   const textBlocks = attachments
-    .filter((attachment) => attachment.kind === "text" && attachment.extractedText)
+    .filter((attachment) => attachment.extractedText)
     .map(
       (attachment, index) =>
         `Arquivo ${index + 1}: ${attachment.name}\nConteúdo extraído:\n${attachment.extractedText}`,
     );
 
   const metadataBlocks = attachments
-    .filter((attachment) => attachment.kind === "document")
+    .filter((attachment) => attachment.kind === "document" && !attachment.extractedText)
     .map(
       (attachment, index) =>
         `Arquivo ${index + 1}: ${attachment.name} (${attachment.extension.toUpperCase()}, ${attachment.sizeLabel})\nObservação: o arquivo foi anexado, mas nesta versão só os metadados seguem para a IA.`,

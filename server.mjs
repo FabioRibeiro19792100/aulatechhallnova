@@ -24,11 +24,17 @@ app.get("/api/health", async (_req, res) => {
 });
 
 app.get("/api/config", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.json(await getRuntimeConfig());
 });
 
 app.get("/api/state", async (_req, res) => {
   try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.json(await getRemoteAppState());
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message || "Falha ao carregar estado remoto.");

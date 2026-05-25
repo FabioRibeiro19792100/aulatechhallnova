@@ -223,7 +223,9 @@ function saveStore(data) {
 }
 
 async function fetchRemoteState() {
-  const response = await fetch("/api/state");
+  const response = await fetch(`/api/state?ts=${Date.now()}`, {
+    cache: "no-store",
+  });
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(errorText || "Falha ao carregar estado remoto.");
@@ -829,7 +831,9 @@ async function fetchLiveKitToken({ roomName, identity, name, canPublish }) {
 }
 
 async function fetchServerConfig() {
-  const response = await fetch("/api/config");
+  const response = await fetch(`/api/config?ts=${Date.now()}`, {
+    cache: "no-store",
+  });
   if (!response.ok) {
     throw new Error("Falha ao carregar configuracao do servidor.");
   }
@@ -1664,11 +1668,9 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
       ],
     });
   } catch (error) {
-    const message = `${error?.message || ""}`;
     const canFallbackCodingModel =
       aiMode === CODING_AI_MODE &&
-      effectiveRuntime.requestModel === CODING_AI_MODEL &&
-      /model|unsupported|not found|does not exist|access/i.test(message);
+      effectiveRuntime.requestModel === CODING_AI_MODEL;
 
     if (!canFallbackCodingModel) {
       throw error;

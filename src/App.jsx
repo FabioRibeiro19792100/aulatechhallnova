@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
+import MarkdownMessage from "./MarkdownMessage.jsx";
 import techHallLogoDark from "../tech_hall_branding/tech_hall_preto.png";
 import techHallFooterIcon from "../tech_hall_branding/icone_8.png";
 
@@ -7288,7 +7289,7 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
                 <span>{exec.tokens?.toLocaleString() || 0} tokens</span>
               </div>
               {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
-              <div className="prompt-thread-text">{exec.output}</div>
+              <MarkdownMessage text={exec.output} />
               <GeneratedArtifactsPanel exec={exec} compact />
             </div>
           </div>
@@ -7315,7 +7316,11 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
               <div className="context-banner">Esta nova resposta está considerando o histórico anterior desta missão.</div>
             ) : null}
             <div className="prompt-thread-text is-live">
-              {runState?.displayedOutput || (runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA...")}
+              {runState?.displayedOutput ? (
+                <MarkdownMessage text={runState.displayedOutput} />
+              ) : (
+                runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA..."
+              )}
               <span className="streaming-cursor" />
             </div>
           </div>
@@ -7329,9 +7334,8 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
 
 function ComposerResponseInline({ exec, runState, onOpenExplanation }) {
   const isRunning = Boolean(runState);
-  const outputText = isRunning
-    ? (runState?.displayedOutput || (runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA..."))
-    : exec?.output || "";
+  const responseContent = isRunning ? (runState?.displayedOutput || "") : (exec?.output || "");
+  const responsePlaceholder = runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA...";
 
   if (!isRunning && !exec) return null;
 
@@ -7355,7 +7359,7 @@ function ComposerResponseInline({ exec, runState, onOpenExplanation }) {
           </div>
         ) : null}
         <div className={`output-text${isRunning ? " output-text-live" : ""}`}>
-          {outputText}
+          {responseContent ? <MarkdownMessage text={responseContent} /> : (isRunning ? responsePlaceholder : null)}
           {isRunning ? <span className="streaming-cursor" /> : null}
         </div>
         {!isRunning && exec && onOpenExplanation ? (
@@ -7754,7 +7758,7 @@ function OutputCard({ exec, compact = false }) {
       <div className="output-body">
         {exec.processingSteps?.length ? <ProcessingPipeline processingSteps={exec.processingSteps} /> : null}
         {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
-        <div className="output-text">{exec.output}</div>
+        <MarkdownMessage text={exec.output} />
         <GeneratedArtifactsPanel exec={exec} compact={compact} />
       </div>
       {!compact ? <TransparencyPanel exec={exec} open={open} onToggle={() => setOpen((value) => !value)} /> : null}
@@ -7919,7 +7923,7 @@ function HistorySection({ execs, open, onToggle }) {
                 <div className="mini-label">Input</div>
                 <div className="history-text muted-body">{exec.input}</div>
                 <div className="mini-label">Resposta</div>
-                <div className="history-text">{exec.output}</div>
+                <MarkdownMessage text={exec.output} />
                 {exec.historySignal ? (
                   <>
                     <div className="mini-label">Contexto usado</div>

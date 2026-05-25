@@ -5149,7 +5149,7 @@ function App() {
                   <div className="hero-card-icon" aria-hidden="true">
                     <Users strokeWidth={1.6} />
                   </div>
-                  <div className="hero-card-title">Sou time</div>
+                  <div className="hero-card-title">Participante</div>
                   <div className="hero-card-text">Entrar num evento, escolher o time e executar missoes.</div>
                 </button>
               </div>

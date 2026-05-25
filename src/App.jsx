@@ -1145,32 +1145,47 @@ function buildConceptSummary(mission) {
 }
 
 function buildTechnicalTerms(mission) {
+  const aiMode = getMissionAiMode(mission);
   const missionSpecific = {
-    m01: [
+    mission_general_chat: [
       { term: "Compressao semantica", meaning: "reduzir o texto preservando a intencao central e descartando redundancias." },
       { term: "Saliência", meaning: "dar mais peso aos trechos com maior densidade de decisao ou informacao." },
       { term: "Condicionamento por prompt", meaning: "usar a instrucao da missao para definir tom, estrutura e nivel de concisao." },
     ],
-    m02: [
-      { term: "Separacao entre observacao e inferencia", meaning: "isolar o que esta nos dados do que e apenas hipotese." },
-      { term: "Sinal vs ruído", meaning: "distinguir padroes relevantes de oscilacoes que nao sustentam conclusao." },
-      { term: "Calibracao de confianca", meaning: "evitar afirmar causalidade quando a base nao permite." },
+    mission_programming_coding: [
+      { term: "Debugging orientado por hipótese", meaning: "isolar a causa provável de um problema antes de alterar código ou arquitetura." },
+      { term: "Refatoração incremental", meaning: "melhorar estrutura e legibilidade sem mudar o comportamento esperado da solução." },
+      { term: "Trade-off técnico", meaning: "explicar o custo, o risco e o benefício das decisões de implementação." },
     ],
   };
 
-  return missionSpecific[mission.id] || [
-    { term: "Tokenizacao", meaning: "quebrar entrada e saida em unidades que o modelo usa para processar linguagem." },
-    { term: "Predicao do proximo token", meaning: "escolher iterativamente a proxima parte da resposta com base no contexto anterior." },
-    { term: "Atenção", meaning: "priorizar partes do input e do prompt que mais influenciam a saida final." },
-  ];
+  if (missionSpecific[mission.id]) return missionSpecific[mission.id];
+  return aiMode === CODING_AI_MODE
+    ? [
+        { term: "Tokenização contextual", meaning: "quebrar o pedido e os trechos de código em unidades que o modelo usa para analisar dependências e padrões." },
+        { term: "Atenção sobre dependências", meaning: "priorizar linhas, funções e sinais do prompt que mais influenciam a correção ou arquitetura proposta." },
+        { term: "Decisão de implementação", meaning: "escolher o caminho mais seguro e reproduzível diante de contexto incompleto ou ambíguo." },
+      ]
+    : [
+        { term: "Tokenizacao", meaning: "quebrar entrada e saida em unidades que o modelo usa para processar linguagem." },
+        { term: "Predicao do proximo token", meaning: "escolher iterativamente a proxima parte da resposta com base no contexto anterior." },
+        { term: "Atenção", meaning: "priorizar partes do input e do prompt que mais influenciam a saida final." },
+      ];
 }
 
 function buildAlternativeAnswerPaths({ mission, acao, freeInstruction }) {
-  if (mission.id === "m01") {
+  if (mission.id === "mission_general_chat") {
     return [
       "um resumo mais executivo, com menos contexto e mais decisoes",
       "uma lista de pontos principais, preservando mais granularidade",
       "um plano de acao, se a instrucao pedisse saida orientada a proximo passo",
+    ];
+  }
+  if (getMissionAiMode(mission) === CODING_AI_MODE) {
+    return [
+      "uma resposta mais orientada a correção imediata, com patch direto no código",
+      "uma resposta mais arquitetural, explicando trade-offs antes de codar",
+      "uma resposta mais didática, com exemplo mínimo reproduzível antes da solução final",
     ];
   }
   return [
@@ -1194,10 +1209,13 @@ function buildHowToAskBetter({ mission, acao, freeInstruction }) {
 }
 
 function buildBestPractices({ mission }) {
+  const aiMode = getMissionAiMode(mission);
   const missionHint =
-    mission.id === "m01"
+    mission.id === "mission_general_chat"
       ? "Se quiser um resumo melhor, marque o que e central, o que pode ser cortado e para quem o material sera entregue."
-      : "Se quiser outra resposta, explicite qual criterio deve pesar mais: cobertura, objetividade, criticidade ou estrutura.";
+      : aiMode === CODING_AI_MODE
+        ? "Se quiser um resultado técnico melhor, diga ambiente, erro observado, código atual e o comportamento esperado."
+        : "Se quiser outra resposta, explicite qual criterio deve pesar mais: cobertura, objetividade, criticidade ou estrutura.";
   return [
     "Comece delimitando objetivo, formato e profundidade.",
     missionHint,
@@ -1230,10 +1248,13 @@ function buildReasoningDetails({ mission, input, acao, historyContext, promptApp
   const alternativeAnswerPaths = buildAlternativeAnswerPaths({ mission, acao, freeInstruction });
   const howToAskBetter = buildHowToAskBetter({ mission, acao, freeInstruction });
   const bestPractices = buildBestPractices({ mission });
+  const aiMode = getMissionAiMode(mission);
   const mechanismSummary =
-    mission.id === "m01"
+    mission.id === "mission_general_chat"
       ? "A IA tratou seu pedido como uma tarefa de compressao semantica: leu o texto, detectou redundancias, puxou os trechos mais salientes e reorganizou o material em uma forma mais curta e util."
-      : `A IA tratou esta rodada como uma tarefa de ${mission.category}: primeiro enquadrou o tipo de saida pedido, depois usou o prompt para priorizar certos sinais do input e enfim montou uma resposta coerente com esse recorte.`;
+      : aiMode === CODING_AI_MODE
+        ? "A IA tratou esta rodada como um problema técnico: identificou o objetivo de implementação, isolou sinais do erro ou da arquitetura e montou uma resposta priorizando código, debugging e decisões práticas."
+        : `A IA tratou esta rodada como uma tarefa de ${mission.category}: primeiro enquadrou o tipo de saida pedido, depois usou o prompt para priorizar certos sinais do input e enfim montou uma resposta coerente com esse recorte.`;
   const selectionLogic = freeInstruction
     ? "Como a rodada foi em instrucao livre, o modelo usou a forma da sua pergunta como principal guia de recorte, tom e estrutura."
     : `A acao "${getActionLabel(acao)}" funcionou como trilho de decisao: ela limitou o tipo de saida, o nivel de condensacao e o que deveria entrar ou ficar de fora.`;

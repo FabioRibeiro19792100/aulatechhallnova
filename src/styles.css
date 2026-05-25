@@ -959,8 +959,7 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
 }
 .mission-num{font-size:13px;color:var(--text3);font-weight:600}
 .mname{font-size:17px;font-weight:500;letter-spacing:-.01em;line-height:1.2}
-.mcat,.mdesc,.mission-inline-stats{padding-left:58px}
-.mcat{font-size:13px;color:var(--text3);margin-top:4px}
+.mdesc,.mission-inline-stats{padding-left:58px}
 .mdesc{font-size:14px;color:var(--text2);margin-top:8px;line-height:1.55;max-width:64ch}
 .mission-inline-stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12px;color:var(--text3)}
 .mission-actions{display:flex;align-items:flex-start;gap:8px;flex-shrink:0;flex-wrap:nowrap;position:relative}

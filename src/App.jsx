@@ -917,35 +917,33 @@ function migrateEventToFixedMissions(event) {
     sessionTimerNotice: event.sessionTimerNotice || null,
   };
 
-  if (getEventMode(baseEvent) !== MISSIONS_MODE_EVENT || isFixedMissionsEvent(baseEvent)) {
-    return isFixedMissionsEvent(baseEvent)
-      ? {
-          ...baseEvent,
-          missions: buildCanonicalFixedMissionList(baseEvent),
-        }
-      : baseEvent;
+  if (getEventMode(baseEvent) !== MISSIONS_MODE_EVENT) {
+    return baseEvent;
   }
 
+  const alreadyCanonical = isFixedMissionsEvent(baseEvent);
   return {
     ...baseEvent,
     missionTemplate: FIXED_MISSION_TEMPLATE,
-    legacyMissionArchive: baseEvent.legacyMissionArchive || {
-      migratedAt: new Date().toISOString(),
-      missions: baseEvent.missions || [],
-      execucoes: baseEvent.execucoes || {},
-      reflexoes: baseEvent.reflexoes || {},
-      questionariosPendentes: baseEvent.questionariosPendentes || {},
-      conclusoes: baseEvent.conclusoes || {},
-      preservedMissionUsage: baseEvent.preservedMissionUsage || {},
-      helpRequests: baseEvent.helpRequests || [],
-    },
-    missions: buildFixedMissionList(),
-    execucoes: {},
-    reflexoes: {},
-    questionariosPendentes: {},
-    conclusoes: {},
-    preservedMissionUsage: {},
-    helpRequests: [],
+    legacyMissionArchive: alreadyCanonical
+      ? baseEvent.legacyMissionArchive || null
+      : baseEvent.legacyMissionArchive || {
+          migratedAt: new Date().toISOString(),
+          missions: baseEvent.missions || [],
+          execucoes: baseEvent.execucoes || {},
+          reflexoes: baseEvent.reflexoes || {},
+          questionariosPendentes: baseEvent.questionariosPendentes || {},
+          conclusoes: baseEvent.conclusoes || {},
+          preservedMissionUsage: baseEvent.preservedMissionUsage || {},
+          helpRequests: baseEvent.helpRequests || [],
+        },
+    missions: buildCanonicalFixedMissionList(baseEvent),
+    execucoes: alreadyCanonical ? baseEvent.execucoes || {} : {},
+    reflexoes: alreadyCanonical ? baseEvent.reflexoes || {} : {},
+    questionariosPendentes: alreadyCanonical ? baseEvent.questionariosPendentes || {} : {},
+    conclusoes: alreadyCanonical ? baseEvent.conclusoes || {} : {},
+    preservedMissionUsage: alreadyCanonical ? baseEvent.preservedMissionUsage || {} : {},
+    helpRequests: alreadyCanonical ? baseEvent.helpRequests || [] : [],
   };
 }
 
@@ -4508,7 +4506,6 @@ function App() {
                                             </select>
                                           </label>
                                         </div>
-                                        <div className="mcat">{mission.category}</div>
                                         {mission.desc ? <div className="mdesc">{mission.desc}</div> : null}
                                         <div className="mission-inline-stats">
                                           <span>{reflections.length} feedback(s)</span>
@@ -4874,7 +4871,6 @@ function App() {
                             <div className="mission-item-brief">
                               <div className="mission-item-brief-meta">
                                 <span>IA: {AI_MODE_LABELS[getMissionAiMode(mission)]}</span>
-                                <span>Tipo: {mission.category}</span>
                               </div>
                               <div className="mission-item-brief-block">
                                 <strong className="mini-label mission-brief-label">

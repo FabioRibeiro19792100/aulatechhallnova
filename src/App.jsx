@@ -884,15 +884,16 @@ function toTimestamp(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
-function mergeRecordArraysById(remoteItems = [], localItems = []) {
+function mergeRecordArraysById(remoteItems = [], localItems = [], candidateFields = ["updatedAt", "submittedAt", "resolvedAt", "cancelledAt", "createdAt", "ts"]) {
   const merged = new globalThis.Map();
   [...remoteItems, ...localItems].forEach((item) => {
     if (!item?.id) return;
-    const previous = merged.get(item.id) || {};
-    merged.set(item.id, {
-      ...previous,
-      ...item,
-    });
+    const previous = merged.get(item.id);
+    if (!previous) {
+      merged.set(item.id, item);
+      return;
+    }
+    merged.set(item.id, pickLatestByTimestamp(previous, item, candidateFields));
   });
   return [...merged.values()];
 }
@@ -912,7 +913,7 @@ function mergeExecucaoMaps(remoteMap = {}, localMap = {}) {
   const keys = new Set([...Object.keys(remoteMap || {}), ...Object.keys(localMap || {})]);
   return Object.fromEntries(
     [...keys].map((key) => {
-      const mergedRuns = mergeRecordArraysById(remoteMap?.[key] || [], localMap?.[key] || []);
+      const mergedRuns = mergeRecordArraysById(remoteMap?.[key] || [], localMap?.[key] || [], ["ts"]);
       mergedRuns.sort((a, b) => toTimestamp(a.ts) - toTimestamp(b.ts));
       return [key, mergedRuns];
     }),
@@ -957,6 +958,11 @@ function mergeAnnouncements(remoteItems = [], localItems = []) {
   return [...merged.values()].sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
 }
 
+function mergeHelpRequestArrays(remoteItems = [], localItems = []) {
+  const merged = mergeRecordArraysById(remoteItems, localItems, ["resolvedAt", "cancelledAt", "updatedAt", "createdAt"]);
+  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
+}
+
 function mergeScreenShareState(remoteState = {}, localState = {}) {
   return pickLatestByTimestamp(remoteState, localState, ["startedAt", "endedAt"]);
 }
@@ -993,9 +999,9 @@ function mergeEventEntity(remoteEvent, localEvent) {
       ...(remoteEvent.preservedMissionUsage || {}),
       ...(localEvent.preservedMissionUsage || {}),
     },
-    helpRequests: mergeRecordArraysById(remoteEvent.helpRequests, localEvent.helpRequests),
+    helpRequests: mergeHelpRequestArrays(remoteEvent.helpRequests, localEvent.helpRequests),
     trainingRuns: mergeExecucaoMaps(remoteEvent.trainingRuns, localEvent.trainingRuns),
-    trainingHelpRequests: mergeRecordArraysById(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
+    trainingHelpRequests: mergeHelpRequestArrays(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
     announcements: mergeAnnouncements(getEventAnnouncements(remoteEvent), getEventAnnouncements(localEvent)),
     presenceMap: mergePresenceMaps(remoteEvent.presenceMap, localEvent.presenceMap),
     sessionTimer: pickLatestByTimestamp(remoteEvent.sessionTimer, localEvent.sessionTimer, ["startedAt", "endsAt"]),
@@ -1899,8 +1905,6 @@ function App() {
     if (!["workspace", "facilitador"].includes(screen)) return undefined;
 
     const timer = window.setInterval(async () => {
-      const latestLocal = loadStore();
-      const normalizedLocalEvents = normalizeEventsForProduct(latestLocal.events || []);
       try {
         const config = await fetchServerConfig();
         setServerConfig(config);
@@ -1908,25 +1912,28 @@ function App() {
         if (config.supabaseConfigured) {
           const remoteState = await fetchRemoteState();
           const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          lastRemoteEventsRef.current = JSON.stringify(remoteState.events || []);
-          setStore((current) => ({
-            ...current,
-            events: remoteEvents,
-            apiKey: latestLocal.apiKey || "",
-            model: latestLocal.model || "gpt-4.1-mini",
-          }));
+          setStore((current) => {
+            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
+            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
+            return {
+              ...current,
+              events: mergedEvents,
+            };
+          });
           return;
         }
       } catch (error) {
         console.error(error);
       }
 
-      setStore((current) => ({
-        ...current,
-        events: normalizedLocalEvents,
-        apiKey: latestLocal.apiKey || "",
-        model: latestLocal.model || "gpt-4.1-mini",
-      }));
+      setStore((current) => {
+        const normalizedCurrentEvents = normalizeEventsForProduct(current.events || []);
+        lastRemoteEventsRef.current = JSON.stringify(normalizedCurrentEvents);
+        return {
+          ...current,
+          events: normalizedCurrentEvents,
+        };
+      });
     }, 3000);
 
     return () => window.clearInterval(timer);

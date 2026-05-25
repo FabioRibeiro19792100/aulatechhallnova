@@ -128,8 +128,10 @@ textarea{resize:vertical;min-height:104px}
   border-color:#4ade80;
 }
 .overlay{display:flex;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
-.modal{background:var(--surface);border-radius:var(--r-xl);border:1px solid var(--border);padding:28px;width:480px;max-width:94vw;box-shadow:0 8px 40px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto}
+.modal{position:relative;background:var(--surface);border-radius:var(--r-xl);border:1px solid var(--border);padding:28px;width:480px;max-width:94vw;box-shadow:0 8px 40px rgba(0,0,0,.15);max-height:90vh;overflow-y:auto}
 .modal-small{width:340px}
+.modal-close-btn{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.92);display:inline-flex;align-items:center;justify-content:center;color:var(--text);cursor:pointer;transition:background .18s ease,border-color .18s ease,transform .18s ease}
+.modal-close-btn:hover{background:#fff;border-color:var(--text3);transform:translateY(-1px)}
 .modal-title{font-size:17px;font-weight:600;margin-bottom:8px}
 .modal-sub{font-size:13px;color:var(--text2);margin-bottom:20px}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}

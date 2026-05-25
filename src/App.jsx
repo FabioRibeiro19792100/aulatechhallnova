@@ -721,7 +721,7 @@ function getPromptInsightEntries(evento) {
 }
 
 function summarizePromptPatterns(entries, side) {
-  const counter = new Map();
+  const counter = new globalThis.Map();
   entries.forEach((entry) => {
     (entry.analysis?.[side] || []).forEach((item) => {
       counter.set(item, (counter.get(item) || 0) + 1);
@@ -741,11 +741,11 @@ function truncatePromptSnippet(text, max = 140) {
 }
 
 function groupPromptInsightsByObservation(entries, side) {
-  const grouped = new Map();
+  const grouped = new globalThis.Map();
   entries.forEach((entry) => {
     (entry.analysis?.[side] || []).forEach((item) => {
       if (!grouped.has(item)) {
-        grouped.set(item, new Map());
+        grouped.set(item, new globalThis.Map());
       }
       const participants = grouped.get(item);
       if (!participants.has(entry.teamName)) {
@@ -1494,6 +1494,16 @@ function Modal({ open, children, onClose, small = false, dismissible = true, cla
   return (
     <div className="overlay open" onClick={dismissible ? onClose : undefined}>
       <div className={`modal${small ? " modal-small" : ""}${className ? ` ${className}` : ""}`} onClick={(event) => event.stopPropagation()}>
+        {onClose ? (
+          <button
+            type="button"
+            className="modal-close-btn"
+            aria-label="Fechar janela"
+            onClick={onClose}
+          >
+            <X size={16} strokeWidth={1.9} />
+          </button>
+        ) : null}
         {children}
       </div>
     </div>
@@ -6206,7 +6216,7 @@ function MissionClosurePanel({
   if (stage !== "questionario_final") return null;
 
   return (
-    <Modal open small={false} dismissible={canClose} onClose={canClose ? onClose : undefined} className="mission-closure-modal-shell">
+    <Modal open small={false} dismissible onClose={onClose} className="mission-closure-modal-shell">
       <section className="reading-panel mission-inline-panel mission-closure-modal">
         <div className="reading-panel-header">
           <div>
@@ -6214,11 +6224,6 @@ function MissionClosurePanel({
             <div className="reading-panel-title">Concluir missão</div>
             <div className="reading-panel-sub">Responda as 3 perguntas para fechar a atividade do time.</div>
           </div>
-          {canClose ? (
-            <button className="mission-closure-close" type="button" aria-label="Fechar avaliação" onClick={onClose}>
-              <X size={16} strokeWidth={1.9} />
-            </button>
-          ) : null}
         </div>
         <div className="mission-inline-panel-body">
           {PERGUNTAS_REFLEXAO.map((question) => (

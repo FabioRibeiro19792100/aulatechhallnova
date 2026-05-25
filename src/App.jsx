@@ -1246,8 +1246,12 @@ async function createAttachmentRecord(file) {
           summary: "Texto extraído do documento e enviado junto da rodada.",
         };
       }
+      throw new Error(`${file.name}: não foi possível extrair texto do documento.`);
     } catch (error) {
       console.warn(`Falha ao extrair ${file.name}:`, error);
+      throw new Error(
+        `${file.name}: não foi possível ler o conteúdo do arquivo. Reanexe o documento ou tente outro formato com texto selecionável.`,
+      );
     }
   }
 

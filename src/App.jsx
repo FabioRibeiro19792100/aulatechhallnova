@@ -893,6 +893,19 @@ function buildFixedMissionList() {
   }));
 }
 
+function buildCanonicalFixedMissionList(event) {
+  const currentMissionsById = new Map((event?.missions || []).map((mission) => [mission.id, mission]));
+  return buildFixedMissionList().map((mission, index) => {
+    const savedMission = currentMissionsById.get(mission.id);
+    if (!savedMission) return mission;
+    return {
+      ...mission,
+      unlocked: typeof savedMission.unlocked === "boolean" ? savedMission.unlocked : index === 0,
+      aiMode: getMissionAiMode(savedMission),
+    };
+  });
+}
+
 function migrateEventToFixedMissions(event) {
   if (!event) return event;
 
@@ -905,7 +918,12 @@ function migrateEventToFixedMissions(event) {
   };
 
   if (getEventMode(baseEvent) !== MISSIONS_MODE_EVENT || isFixedMissionsEvent(baseEvent)) {
-    return baseEvent;
+    return isFixedMissionsEvent(baseEvent)
+      ? {
+          ...baseEvent,
+          missions: buildCanonicalFixedMissionList(baseEvent),
+        }
+      : baseEvent;
   }
 
   return {

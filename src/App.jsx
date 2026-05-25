@@ -879,7 +879,11 @@ function normalizeMission(mission) {
 }
 
 function isFixedMissionsEvent(event) {
-  return event?.missionTemplate === FIXED_MISSION_TEMPLATE;
+  if (event?.missionTemplate !== FIXED_MISSION_TEMPLATE) return false;
+  const currentMissionIds = buildFixedMissionList().map((mission) => mission.id);
+  const eventMissionIds = (event?.missions || []).map((mission) => mission?.id).filter(Boolean);
+  if (eventMissionIds.length !== currentMissionIds.length) return false;
+  return currentMissionIds.every((missionId, index) => eventMissionIds[index] === missionId);
 }
 
 function buildFixedMissionList() {

@@ -3189,28 +3189,58 @@ function App() {
     }
   }
 
-  function archiveEventSnapshot(eventId) {
+  async function removeEventFromActiveList(eventId, { archive = false } = {}) {
+    let nextEventsSnapshot = [];
+    let removedEvent = null;
+
     setStore((current) => {
-      const eventToArchive = (current.events || []).find((event) => event.id === eventId);
-      if (!eventToArchive) return current;
-      const archivedRecord = {
-        archivedAt: new Date().toISOString(),
-        event: eventToArchive,
-      };
+      const currentEvents = current.events || [];
+      removedEvent = currentEvents.find((event) => event.id === eventId) || null;
+      if (!removedEvent) return current;
+      nextEventsSnapshot = currentEvents.filter((event) => event.id !== eventId);
+      const archivedRecord = archive
+        ? {
+            archivedAt: new Date().toISOString(),
+            event: removedEvent,
+          }
+        : null;
+
       return {
         ...current,
-        events: (current.events || []).filter((event) => event.id !== eventId),
-        archivedEvents: [archivedRecord, ...(current.archivedEvents || [])],
+        events: nextEventsSnapshot,
+        archivedEvents: archivedRecord ? [archivedRecord, ...(current.archivedEvents || [])] : current.archivedEvents || [],
       };
     });
+
+    if (!removedEvent) return;
+
     if (facSelectedId === eventId) setFacSelectedId(null);
-    showToast("Histórico do evento salvo");
+    if (timeEventId === eventId) {
+      setTimeEventId(null);
+      setTimeTeamIdx(null);
+      setTimeMissionIdx(null);
+      setScreen("entry");
+    }
+
+    try {
+      if (serverConfig.supabaseConfigured) {
+        const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
+        lastRemoteEventsRef.current = JSON.stringify(normalizedEvents);
+        await saveRemoteState(normalizedEvents);
+      }
+      showToast(archive ? "Histórico do evento salvo" : "Evento excluido");
+    } catch (error) {
+      console.error(error);
+      showToast(archive ? "Histórico salvo localmente, mas falhou na sincronização" : "Evento removido localmente, mas falhou na sincronização");
+    }
+  }
+
+  function archiveEventSnapshot(eventId) {
+    void removeEventFromActiveList(eventId, { archive: true });
   }
 
   function handleDeleteEvent(eventId) {
-    updateEvents((current) => current.filter((event) => event.id !== eventId));
-    if (facSelectedId === eventId) setFacSelectedId(null);
-    showToast("Evento excluido");
+    void removeEventFromActiveList(eventId, { archive: false });
   }
 
   function handleSetStatus(eventId, status) {
@@ -5690,7 +5720,16 @@ function App() {
                                   const helpOpen = getOpenHelpRequests(selectedEvent).filter(
                                     (request) => request.teamIdx === teamIdx && request.missionId === mission.id,
                                   ).length;
-                                  const teamTokens = execs.reduce((sum, execucao) => sum + (execucao.tokens || 0), 0);
+                                  const preservedUsage = getPreservedMissionUsage(selectedEvent, teamIdx, mission.id);
+                                  const responseTokens = execs.reduce((sum, execucao) => sum + (execucao.tokens || 0), 0) + (preservedUsage.total || 0);
+                                  const responseCost = execs.reduce((sum, execucao) => sum + (execucao.custo || 0), 0) + (preservedUsage.cost || 0);
+                                  const analysisTokens =
+                                    execs.reduce((sum, execucao) => sum + (execucao.technicalAnalysisUsage?.totalTokens || 0), 0) +
+                                    (preservedUsage.explanationTotal || 0);
+                                  const analysisCost =
+                                    execs.reduce((sum, execucao) => sum + (execucao.technicalAnalysisUsage?.cost || 0), 0) +
+                                    (preservedUsage.explanationCost || 0);
+                                  const teamTokens = responseTokens + analysisTokens;
                                   return {
                                     teamName: teamItem.name,
                                     reflection,
@@ -5698,6 +5737,10 @@ function App() {
                                     helpOpen,
                                     runs: execs.length,
                                     teamTokens,
+                                    responseTokens,
+                                    responseCost,
+                                    analysisTokens,
+                                    analysisCost,
                                     latestExec,
                                   };
                                 });
@@ -5856,6 +5899,23 @@ function App() {
                                                     <div className="mission-team-latest-meta">{formatDateTime(teamRow.latestExec.ts)}</div>
                                                   </div>
                                                 ) : null}
+                                                <div className="mission-team-token-grid">
+                                                  <div className="mission-team-token-cell">
+                                                    <span>Resposta</span>
+                                                    <strong>{teamRow.responseTokens.toLocaleString()} tok</strong>
+                                                    <small>${teamRow.responseCost.toFixed(4)}</small>
+                                                  </div>
+                                                  <div className="mission-team-token-cell">
+                                                    <span>Análise</span>
+                                                    <strong>{teamRow.analysisTokens.toLocaleString()} tok</strong>
+                                                    <small>${teamRow.analysisCost.toFixed(4)}</small>
+                                                  </div>
+                                                  <div className="mission-team-token-cell is-total">
+                                                    <span>Total</span>
+                                                    <strong>{teamRow.teamTokens.toLocaleString()} tok</strong>
+                                                    <small>${(teamRow.responseCost + teamRow.analysisCost).toFixed(4)}</small>
+                                                  </div>
+                                                </div>
                                                 {teamRow.reflection ? (
                                                   <div className="team-mission-feedback mission-team-feedback">
                                                     <div className="team-admin-feedback-scores is-inline">

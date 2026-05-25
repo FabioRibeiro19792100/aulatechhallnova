@@ -916,6 +916,12 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
 .mission-team-latest-label{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
 .mission-team-latest-copy{font-size:12px;color:var(--text);line-height:1.6}
 .mission-team-latest-meta{font-size:11px;color:var(--text3);line-height:1.4}
+.mission-team-token-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+.mission-team-token-cell{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
+.mission-team-token-cell span{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)}
+.mission-team-token-cell strong{font-size:15px;font-weight:700;line-height:1.1;color:var(--text)}
+.mission-team-token-cell small{font-size:11px;color:var(--text2);line-height:1.3}
+.mission-team-token-cell.is-total strong{color:var(--blue)}
 .team-admin-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .team-admin-id{display:flex;align-items:center;gap:12px;min-width:0}
 .team-admin-id .team-avatar{margin-bottom:0;flex-shrink:0}
@@ -2847,7 +2853,7 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
   .dev-toolbar-shell{padding:10px 14px 0}
   .dev-switch{width:100%;justify-content:flex-end;flex-wrap:wrap}
   .dev-switch select{min-width:0}
-  .hero-grid,.event-summary-strip,.tokens-grid,.team-admin-metrics,.mission-admin-metrics{grid-template-columns:1fr}
+  .hero-grid,.event-summary-strip,.tokens-grid,.team-admin-metrics,.mission-admin-metrics,.mission-team-token-grid{grid-template-columns:1fr}
   .center-wrap,.fac-content,.ws-content{padding:16px}
   .event-header-row,.team-dash-header,.finish-card,.section-header{flex-direction:column;align-items:flex-start}
   .event-title-input,.event-desc-input{min-width:0;width:100%}

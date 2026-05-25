@@ -13,6 +13,7 @@ const CHAT_AI_MODE = "chat";
 const CODING_AI_MODE = "coding";
 const CODING_AI_MODEL = "gpt-5-mini";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
+const FACILITATOR_PASSWORD = "camila";
 const PRESENCE_STALE_MS = 45000;
 const BRAND_LOADER_DURATION_MS = 700;
 const TIMER_NOTICE_TTL_MS = 30000;
@@ -1758,6 +1759,9 @@ function App() {
   const [newEventOpen, setNewEventOpen] = useState(false);
   const [addTeamOpen, setAddTeamOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [facAccessOpen, setFacAccessOpen] = useState(false);
+  const [facAccessPassword, setFacAccessPassword] = useState("");
+  const [facAccessError, setFacAccessError] = useState("");
   const [confirmState, setConfirmState] = useState({
     open: false,
     title: "",
@@ -1950,7 +1954,7 @@ function App() {
           events: normalizedCurrentEvents,
         };
       });
-    }, 3000);
+    }, 1000);
 
     return () => window.clearInterval(timer);
   }, [screen]);
@@ -2350,6 +2354,17 @@ function App() {
   }
 
   function goFacilitador() {
+    setFacAccessPassword("");
+    setFacAccessError("");
+    setFacAccessOpen(true);
+  }
+
+  function handleFacilitadorAccess() {
+    if (facAccessPassword.trim() !== FACILITATOR_PASSWORD) {
+      setFacAccessError("Senha incorreta.");
+      return;
+    }
+    setFacAccessOpen(false);
     setScreen("facilitador");
   }
 
@@ -5355,6 +5370,14 @@ function App() {
                             <textarea
                               value={missionInput}
                               onChange={(event) => setMissionInput(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" && !event.shiftKey) {
+                                  event.preventDefault();
+                                  if (!running && !teamTimerLockActive) {
+                                    handleExecutarMissao();
+                                  }
+                                }
+                              }}
                               placeholder="Escreva sua mensagem ou anexe até 3 arquivos"
                             />
                             <input
@@ -5386,8 +5409,8 @@ function App() {
                                     onChange={(event) => handleQuickPlanningModeChange(event.target.value)}
                                     disabled={running}
                                   >
-                                    <option value="off">Plain off</option>
-                                    <option value="on">Plain on</option>
+                                    <option value="off">Plan off</option>
+                                    <option value="on">Plan on</option>
                                   </select>
                                 </div>
                                 <div className="input-compact-control">
@@ -5872,6 +5895,50 @@ function App() {
           </button>
           <button className="btn btn-primary" onClick={handleSaveConfig}>
             Salvar
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={facAccessOpen}
+        onClose={() => {
+          setFacAccessOpen(false);
+          setFacAccessPassword("");
+          setFacAccessError("");
+        }}
+        small
+      >
+        <div className="modal-title">Acesso do facilitador</div>
+        <div className="modal-sub">Digite a senha para entrar no painel do facilitador.</div>
+        <div className="form-group">
+          <label className="form-label">Senha</label>
+          <input
+            type="password"
+            value={facAccessPassword}
+            onChange={(event) => {
+              setFacAccessPassword(event.target.value);
+              if (facAccessError) setFacAccessError("");
+            }}
+            placeholder="Digite a senha"
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleFacilitadorAccess();
+            }}
+          />
+          {facAccessError ? <div className="error-box top-gap-sm">{facAccessError}</div> : null}
+        </div>
+        <div className="modal-actions">
+          <button
+            className="btn"
+            onClick={() => {
+              setFacAccessOpen(false);
+              setFacAccessPassword("");
+              setFacAccessError("");
+            }}
+          >
+            Cancelar
+          </button>
+          <button className="btn btn-primary" onClick={handleFacilitadorAccess}>
+            Entrar
           </button>
         </div>
       </Modal>
@@ -7268,6 +7335,27 @@ function TeamScreenShareViewer({ event, screenShare, team }) {
 function RoomMapPanel({ event }) {
   const studentOptions = getEventStudentOptions(event);
   const presenceMap = event?.presenceMap || {};
+  const liveStudentIds = new Set();
+  const livePresenceByTeam = new globalThis.Map();
+
+  const optionsByTeam = studentOptions.reduce((accumulator, student) => {
+    const list = accumulator.get(student.teamIdx) || [];
+    list.push(student);
+    accumulator.set(student.teamIdx, list);
+    return accumulator;
+  }, new globalThis.Map());
+
+  optionsByTeam.forEach((students, teamIdx) => {
+    const presence = presenceMap?.[teamIdx];
+    if (!isPresenceLive(presence)) return;
+    const connectedName = normalizeStudentName(presence?.memberName || "");
+    const exactMatch = students.find((student) => normalizeStudentName(student.name) === connectedName);
+    const fallbackStudent = exactMatch || students[0];
+    if (fallbackStudent?.id) {
+      liveStudentIds.add(fallbackStudent.id);
+      livePresenceByTeam.set(teamIdx, connectedName || fallbackStudent.name);
+    }
+  });
 
   return (
     <div className="room-map-sheet-body">
@@ -7277,8 +7365,8 @@ function RoomMapPanel({ event }) {
       ) : (
         <div className="room-map-grid">
           {studentOptions.map((student) => {
-            const presence = presenceMap?.[student.teamIdx];
-            const isLive = isPresenceLive(presence) && normalizeStudentName(presence?.memberName || "") === student.name;
+            const isLive = liveStudentIds.has(student.id);
+            const connectedName = livePresenceByTeam.get(student.teamIdx) || "";
             return (
               <div className={`room-map-card${isLive ? " is-live" : ""}`} key={student.id}>
                 <div className="room-map-card-icon-wrap">
@@ -7289,6 +7377,7 @@ function RoomMapPanel({ event }) {
                 </div>
                 <div className="room-map-card-name">{student.name}</div>
                 {student.showTeamName ? <div className="room-map-card-team">{student.teamName}</div> : null}
+                {isLive && connectedName ? <div className="room-map-card-live-name">Conectado: {connectedName}</div> : null}
               </div>
             );
           })}

@@ -830,12 +830,12 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
 }
 .team-timer-widget.is-expired .team-timer-widget-value{color:#9a3412}
 .topbar-team-messages-btn{position:relative}
-.live-viewer-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.06)}
+.live-viewer-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.06);height:100%;min-height:0;display:flex;flex-direction:column}
 .live-viewer-header{border-bottom:1px solid var(--border)}
 .live-viewer-badges{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .viewer-team-chip{background:var(--surface2);color:var(--text2)}
-.live-viewer-stage{position:relative;background:#0b0c0f;min-height:440px;display:flex;align-items:center;justify-content:center}
-.live-viewer-video{width:100%;height:100%;min-height:440px;display:block;object-fit:contain;background:#0b0c0f}
+.live-viewer-stage{position:relative;background:#0b0c0f;min-height:0;flex:1;display:flex;align-items:center;justify-content:center}
+.live-viewer-video{width:100%;height:100%;min-height:0;display:block;object-fit:contain;background:#0b0c0f}
 .live-viewer-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;background:rgba(11,12,15,.42);color:#fff}
 .live-viewer-overlay-title{font-size:18px;font-weight:700}
 .live-viewer-overlay-text{font-size:12px;line-height:1.6;max-width:420px;margin-top:8px;color:rgba(255,255,255,.85)}
@@ -1696,6 +1696,13 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
   line-height:1.5;
   color:var(--text2);
   text-align:center;
+}
+.room-map-card-live-name{
+  font-size:11px;
+  line-height:1.45;
+  color:#166534;
+  text-align:center;
+  font-weight:700;
 }
 .room-map-card.is-live{
   border-color:rgba(22,163,74,.44);

@@ -894,7 +894,7 @@ function buildFixedMissionList() {
 }
 
 function buildCanonicalFixedMissionList(event) {
-  const currentMissionsById = new Map((event?.missions || []).map((mission) => [mission.id, mission]));
+  const currentMissionsById = new globalThis.Map((event?.missions || []).map((mission) => [mission.id, mission]));
   return buildFixedMissionList().map((mission, index) => {
     const savedMission = currentMissionsById.get(mission.id);
     if (!savedMission) return mission;
@@ -2178,45 +2178,67 @@ function App() {
   }
 
   function handleCreateEvent() {
-    if (!newEventForm.name.trim()) return;
-    const event = makeEvent({
-      name: newEventForm.name.trim(),
-      desc: newEventForm.desc.trim(),
-      rawTeams: newEventForm.teams.trim(),
-    });
-    event.eventMode = newEventForm.eventMode;
-    if (newEventForm.teamMode === "import") {
-      const generatedTeams = buildTeamsFromStudents(
-        newEventStudents,
-        newEventForm.importMode,
-        newEventForm.randomTeamCount,
-      );
-      if (!newEventStudents.length) {
-        showToast("Cole pelo menos um nome para importar");
-        return;
-      }
-      if (newEventForm.importMode === "random" && (!newEventForm.randomTeamCount || newEventForm.randomTeamCount > newEventStudents.length)) {
-        showToast("Defina uma quantidade de times valida");
-        return;
-      }
-      event.teams = generatedTeams;
+    const trimmedName = newEventForm.name.trim();
+    const trimmedDesc = newEventForm.desc.trim();
+    const trimmedTeams = newEventForm.teams.trim();
+
+    if (!trimmedName) {
+      showToast("Digite um nome para criar o evento");
+      return;
     }
-    updateEvents((current) => [...current, event]);
-    setFacSelectedId(event.id);
-    setFacTab("dashboard");
-    setNewEventForm({
-      name: "",
-      desc: "",
-      teams: "",
-      eventMode: MISSIONS_MODE_EVENT,
-      teamMode: "manual",
-      studentsRaw: "",
-      importMode: "solo",
-      randomTeamCount: 2,
-    });
-    setNewEventOpen(false);
-    setScreen("facilitador");
-    showToast("Evento criado");
+
+    try {
+      const event = migrateEventToFixedMissions(
+        Object.assign(
+          makeEvent({
+            name: trimmedName,
+            desc: trimmedDesc,
+            rawTeams: trimmedTeams,
+          }),
+          { eventMode: newEventForm.eventMode },
+        ),
+      );
+
+      if (newEventForm.teamMode === "import") {
+        const generatedTeams = buildTeamsFromStudents(
+          newEventStudents,
+          newEventForm.importMode,
+          newEventForm.randomTeamCount,
+        );
+        if (!newEventStudents.length) {
+          showToast("Cole pelo menos um nome para importar");
+          return;
+        }
+        if (
+          newEventForm.importMode === "random" &&
+          (!newEventForm.randomTeamCount || newEventForm.randomTeamCount > newEventStudents.length)
+        ) {
+          showToast("Defina uma quantidade de times valida");
+          return;
+        }
+        event.teams = generatedTeams;
+      }
+
+      updateEvents((current) => [...current, event]);
+      setFacSelectedId(event.id);
+      setFacTab("dashboard");
+      setNewEventForm({
+        name: "",
+        desc: "",
+        teams: "",
+        eventMode: MISSIONS_MODE_EVENT,
+        teamMode: "manual",
+        studentsRaw: "",
+        importMode: "solo",
+        randomTeamCount: 2,
+      });
+      setNewEventOpen(false);
+      setScreen("facilitador");
+      showToast("Evento criado");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Falha ao criar evento");
+    }
   }
 
   function archiveEventSnapshot(eventId) {
@@ -5242,12 +5264,14 @@ function App() {
           <label className="form-label">Como montar os times</label>
           <div className="inline-choice-row">
             <button
+              type="button"
               className={`choice-pill${newEventForm.teamMode === "manual" ? " active" : ""}`}
               onClick={() => setNewEventForm((current) => ({ ...current, teamMode: "manual" }))}
             >
               Digitar times
             </button>
             <button
+              type="button"
               className={`choice-pill${newEventForm.teamMode === "import" ? " active" : ""}`}
               onClick={() => setNewEventForm((current) => ({ ...current, teamMode: "import" }))}
             >
@@ -5259,12 +5283,14 @@ function App() {
           <label className="form-label">Modo do evento</label>
           <div className="inline-choice-row">
             <button
+              type="button"
               className={`choice-pill${newEventForm.eventMode === MISSIONS_MODE_EVENT ? " active" : ""}`}
               onClick={() => setNewEventForm((current) => ({ ...current, eventMode: MISSIONS_MODE_EVENT }))}
             >
               Missões
             </button>
             <button
+              type="button"
               className={`choice-pill${newEventForm.eventMode === TRAINING_MODE_EVENT ? " active" : ""}`}
               onClick={() => setNewEventForm((current) => ({ ...current, eventMode: TRAINING_MODE_EVENT }))}
             >
@@ -5298,12 +5324,14 @@ function App() {
               <label className="form-label">Destino da importação</label>
               <div className="inline-choice-row">
                 <button
+                  type="button"
                   className={`choice-pill${newEventForm.importMode === "solo" ? " active" : ""}`}
                   onClick={() => setNewEventForm((current) => ({ ...current, importMode: "solo" }))}
                 >
                   1 sala por aluno
                 </button>
                 <button
+                  type="button"
                   className={`choice-pill${newEventForm.importMode === "random" ? " active" : ""}`}
                   onClick={() => setNewEventForm((current) => ({ ...current, importMode: "random" }))}
                 >
@@ -5353,10 +5381,10 @@ function App() {
           </div>
         )}
         <div className="modal-actions">
-          <button className="btn" onClick={() => setNewEventOpen(false)}>
+          <button type="button" className="btn" onClick={() => setNewEventOpen(false)}>
             Cancelar
           </button>
-          <button className="btn btn-primary" onClick={handleCreateEvent}>
+          <button type="button" className="btn btn-primary" onClick={handleCreateEvent}>
             Criar
           </button>
         </div>

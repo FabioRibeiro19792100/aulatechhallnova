@@ -6573,8 +6573,13 @@ function MissionReadingPanel({ exec }) {
 
       <div className="tech-reading-body">
         {details.pending ? (
-          <div className="tech-reading-unavailable">
+          <div className="tech-reading-unavailable tech-reading-pending">
             <div className="tech-reading-block-label">Análise em processamento</div>
+            <div className="tech-reading-loading" aria-hidden="true">
+              <span className="tech-reading-loading-dot" />
+              <span className="tech-reading-loading-dot" />
+              <span className="tech-reading-loading-dot" />
+            </div>
             <div className="tech-reading-copy">{details.unavailableReason}</div>
           </div>
         ) : null}

@@ -1472,6 +1472,18 @@ function buildTechnicalAnalysisUnavailable({ apiConfigured, historyContext, reas
   };
 }
 
+function buildTechnicalAnalysisPending({ historyContext }) {
+  return {
+    pending: true,
+    analysisTarget: "latest_prompt",
+    usedHistoryContext: historyContext.length > 0,
+    historySignal: buildHistorySignal(historyContext),
+    sourceLabel: "Análise técnica em processamento",
+    sourceType: "openai-pending",
+    unavailableReason: "A resposta principal já foi entregue. A análise técnica desta rodada ainda está sendo preparada.",
+  };
+}
+
 function tryParseJson(text) {
   try {
     return JSON.parse(text);
@@ -2781,6 +2793,66 @@ function App() {
     );
   }
 
+  function updateExecutionAnalysis(eventId, teamIdx, missionId, execId, technicalAnalysis, technicalAnalysisUsage) {
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        if (missionId) {
+          const key = `${teamIdx}__${missionId}`;
+          const execucoes = { ...(event.execucoes || {}) };
+          execucoes[key] = (execucoes[key] || []).map((exec) =>
+            exec.id !== execId
+              ? exec
+              : {
+                  ...exec,
+                  explicacao: technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.explicacao,
+                  reasoningSummary:
+                    technicalAnalysis.strategyUsed || technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.reasoningSummary,
+                  reasoningDetails: technicalAnalysis,
+                  technicalAnalysis,
+                  technicalAnalysisUsage,
+                },
+          );
+          return { ...event, execucoes };
+        }
+
+        const key = `${teamIdx}`;
+        const trainingRuns = { ...(event.trainingRuns || {}) };
+        trainingRuns[key] = (trainingRuns[key] || []).map((exec) =>
+          exec.id !== execId
+            ? exec
+            : {
+                ...exec,
+                explicacao: technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.explicacao,
+                reasoningSummary:
+                  technicalAnalysis.strategyUsed || technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.reasoningSummary,
+                reasoningDetails: technicalAnalysis,
+                technicalAnalysis,
+                technicalAnalysisUsage,
+              },
+        );
+        return { ...event, trainingRuns };
+      }),
+    );
+
+    setMissionFlow((current) =>
+      current.exec?.id !== execId
+        ? current
+        : {
+            ...current,
+            exec: {
+              ...current.exec,
+              explicacao: technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || current.exec.explicacao,
+              reasoningSummary:
+                technicalAnalysis.strategyUsed || technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || current.exec.reasoningSummary,
+              reasoningDetails: technicalAnalysis,
+              technicalAnalysis,
+              technicalAnalysisUsage,
+            },
+          },
+    );
+  }
+
   function saveReflection(eventId, teamIdx, missionId, missionName, respostas, comment) {
     updateEvents((current) =>
       current.map((event) => {
@@ -3549,23 +3621,14 @@ function App() {
         await sleep(350);
       }
 
-      const guidedReasoning = apiConfigured
-        ? await gerarExplicacaoGuiadaIA({
-            apiKey: store.apiKey,
-            model: result.effectiveModel || store.model,
-            mission: currentMission,
-            input,
-            acao,
-            output: result.output,
+      const initialTechnicalAnalysis = apiConfigured
+        ? buildTechnicalAnalysisPending({
             historyContext,
-          }).catch(() => null)
-        : null;
-      const finalReasoningDetails =
-        guidedReasoning ||
-        buildTechnicalAnalysisUnavailable({
-          apiConfigured,
-          historyContext,
-        });
+          })
+        : buildTechnicalAnalysisUnavailable({
+            apiConfigured,
+            historyContext,
+          });
       const iterationNumber = currentExecs.length + 1;
       const execRecord = {
         id: `run_${Date.now()}`,
@@ -3576,11 +3639,12 @@ function App() {
         actionMode: isFreeInstructionAction(acao) ? "free" : "preset",
         isFreeInstruction: isFreeInstructionAction(acao),
         output: result.output,
-        explicacao: finalReasoningDetails.objectiveInterpreted || finalReasoningDetails.unavailableReason || "",
-        reasoningSummary: finalReasoningDetails.strategyUsed || finalReasoningDetails.objectiveInterpreted || finalReasoningDetails.unavailableReason || "",
-        reasoningDetails: finalReasoningDetails,
-        technicalAnalysis: finalReasoningDetails,
-        technicalAnalysisUsage: guidedReasoning?.usage || {
+        explicacao: initialTechnicalAnalysis.objectiveInterpreted || initialTechnicalAnalysis.unavailableReason || "",
+        reasoningSummary:
+          initialTechnicalAnalysis.strategyUsed || initialTechnicalAnalysis.objectiveInterpreted || initialTechnicalAnalysis.unavailableReason || "",
+        reasoningDetails: initialTechnicalAnalysis,
+        technicalAnalysis: initialTechnicalAnalysis,
+        technicalAnalysisUsage: {
           inputTokens: 0,
           outputTokens: 0,
           totalTokens: 0,
@@ -3617,6 +3681,59 @@ function App() {
       setRunState(null);
       setMissionFlow({ stage: "cot_aberto", exec: execRecord });
       showToast(apiConfigured ? "Execucao concluida" : "Execucao simulada");
+
+      if (apiConfigured) {
+        void gerarExplicacaoGuiadaIA({
+          apiKey: store.apiKey,
+          model: result.effectiveModel || store.model,
+          mission: currentMission,
+          input,
+          acao,
+          output: result.output,
+          historyContext,
+        })
+          .then((guidedReasoning) => {
+            const finalTechnicalAnalysis =
+              guidedReasoning ||
+              buildTechnicalAnalysisUnavailable({
+                apiConfigured,
+                historyContext,
+              });
+            updateExecutionAnalysis(
+              teamEvent.id,
+              timeTeamIdx,
+              isTrainingEvent ? null : currentMission.id,
+              execRecord.id,
+              finalTechnicalAnalysis,
+              guidedReasoning?.usage || {
+                inputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 0,
+                cost: 0,
+                model: result.effectiveModel || store.model,
+              },
+            );
+          })
+          .catch(() => {
+            updateExecutionAnalysis(
+              teamEvent.id,
+              timeTeamIdx,
+              isTrainingEvent ? null : currentMission.id,
+              execRecord.id,
+              buildTechnicalAnalysisUnavailable({
+                apiConfigured,
+                historyContext,
+              }),
+              {
+                inputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 0,
+                cost: 0,
+                model: result.effectiveModel || store.model,
+              },
+            );
+          });
+      }
     } catch (error) {
       setRunError("Falha ao executar com IA. Verifique a chave, o modelo ou a conexao.");
       setRunState(null);
@@ -6296,6 +6413,13 @@ function MissionReadingPanel({ exec }) {
       </div>
 
       <div className="tech-reading-body">
+        {details.pending ? (
+          <div className="tech-reading-unavailable">
+            <div className="tech-reading-block-label">Análise em processamento</div>
+            <div className="tech-reading-copy">{details.unavailableReason}</div>
+          </div>
+        ) : null}
+
         {details.unavailable ? (
           <div className="tech-reading-unavailable">
             <div className="tech-reading-block-label">Análise indisponível</div>
@@ -6303,18 +6427,18 @@ function MissionReadingPanel({ exec }) {
           </div>
         ) : null}
 
-        {!details.unavailable && exec.historySignal ? (
+        {!details.unavailable && !details.pending && exec.historySignal ? (
           <div className="tech-reading-banner">{exec.historySignal}</div>
         ) : null}
 
-        {!details.unavailable && details.objectiveInterpreted ? (
+        {!details.unavailable && !details.pending && details.objectiveInterpreted ? (
           <div className="tech-reading-block">
             <div className="tech-reading-block-label">Objetivo interpretado</div>
             <div className="tech-reading-copy">{details.objectiveInterpreted}</div>
           </div>
         ) : null}
 
-        {!details.unavailable && (details.strategyUsed || details.contextUse) ? (
+        {!details.unavailable && !details.pending && (details.strategyUsed || details.contextUse) ? (
           <div className="tech-reading-block">
             <div className="tech-reading-block-label">Estratégia utilizada</div>
             <div className="tech-reading-list">
@@ -6334,7 +6458,7 @@ function MissionReadingPanel({ exec }) {
           </div>
         ) : null}
 
-        {!details.unavailable && promptBreakdown.length ? (
+        {!details.unavailable && !details.pending && promptBreakdown.length ? (
           <div className="tech-reading-block">
             <div className="tech-reading-block-label">Decomposição do prompt</div>
             <div className="tech-reading-list">
@@ -6351,7 +6475,7 @@ function MissionReadingPanel({ exec }) {
           </div>
         ) : null}
 
-        {!details.unavailable && concepts.length ? (
+        {!details.unavailable && !details.pending && concepts.length ? (
           <div className="tech-reading-block">
             <div className="tech-reading-block-label">Conceitos e terminologias</div>
             <div className="tech-reading-concept-list">
@@ -6366,7 +6490,7 @@ function MissionReadingPanel({ exec }) {
           </div>
         ) : null}
 
-        {!details.unavailable && constructionGroups.length ? (
+        {!details.unavailable && !details.pending && constructionGroups.length ? (
           <div className="tech-reading-block">
             <div className="tech-reading-block-label">Processo de construção</div>
             <div className="tech-reading-process-grid">
@@ -6387,7 +6511,7 @@ function MissionReadingPanel({ exec }) {
           </div>
         ) : null}
 
-        {!details.unavailable && limitations.length ? (
+        {!details.unavailable && !details.pending && limitations.length ? (
           <div className="tech-reading-block">
             <div className="tech-reading-block-label">Limitações e lacunas</div>
             <div className="tech-reading-list">
@@ -6401,7 +6525,7 @@ function MissionReadingPanel({ exec }) {
           </div>
         ) : null}
 
-        {!details.unavailable && suggestions.length ? (
+        {!details.unavailable && !details.pending && suggestions.length ? (
           <div className="tech-reading-block">
             <div className="tech-reading-block-label">Sugestões de refinamento</div>
             <div className="tech-reading-list">

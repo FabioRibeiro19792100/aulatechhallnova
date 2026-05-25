@@ -5682,6 +5682,25 @@ function App() {
                                 const feedbackOpen = Boolean(missionFeedbackOpen[feedbackKey]);
                                 const missionHasOpenTeams = selectedEvent.teams.some((_, teamIdx) => getMissionClosureStatus(selectedEvent, teamIdx, mission.id) === "aberta");
                                 const missionHasReopenableTeams = selectedEvent.teams.some((_, teamIdx) => canFacilitatorReopenMissionForTeam(selectedEvent, teamIdx, mission.id));
+                                const teamRows = selectedEvent.teams.map((teamItem, teamIdx) => {
+                                  const execs = getExecucoes(selectedEvent, teamIdx, mission.id);
+                                  const latestExec = execs[execs.length - 1] || null;
+                                  const reflection = (selectedEvent.reflexoes || {})[`${teamIdx}__${mission.id}`];
+                                  const closureStatus = getMissionClosureStatus(selectedEvent, teamIdx, mission.id);
+                                  const helpOpen = getOpenHelpRequests(selectedEvent).filter(
+                                    (request) => request.teamIdx === teamIdx && request.missionId === mission.id,
+                                  ).length;
+                                  const teamTokens = execs.reduce((sum, execucao) => sum + (execucao.tokens || 0), 0);
+                                  return {
+                                    teamName: teamItem.name,
+                                    reflection,
+                                    closureStatus,
+                                    helpOpen,
+                                    runs: execs.length,
+                                    teamTokens,
+                                    latestExec,
+                                  };
+                                });
                                 const topicAverages = PERGUNTAS_REFLEXAO.map((question) => {
                                   const values = reflections
                                     .map((reflection) => Number(reflection.respostas?.[question.id] || 0))
@@ -5801,6 +5820,61 @@ function App() {
                                               : null}
                                           </div>
                                         ) : null}
+                                        <div className="mission-team-list mission-team-list-rich">
+                                          {teamRows.map((teamRow) => (
+                                            <div className="mission-team-row mission-team-row-rich" key={`${mission.id}-${teamRow.teamName}`}>
+                                              <div className="mission-team-main">
+                                                <div className="mission-team-top">
+                                                  <div>
+                                                    <div className="mission-team-name">{teamRow.teamName}</div>
+                                                    <div className="mission-team-meta">
+                                                      {teamRow.runs ? `${teamRow.runs} prompt(s)` : "Sem prompts ainda"} · {teamRow.teamTokens.toLocaleString()} tokens
+                                                    </div>
+                                                  </div>
+                                                  <div className="team-mission-status">
+                                                    <span className={`team-inline-pill${teamRow.closureStatus === "concluida" ? " is-complete" : teamRow.closureStatus === "aguardando_questionario" ? " is-alert" : teamRow.runs ? "" : " is-muted"}`}>
+                                                      {teamRow.closureStatus === "concluida"
+                                                        ? "feito"
+                                                        : teamRow.closureStatus === "aguardando_questionario"
+                                                          ? "questionário"
+                                                          : teamRow.runs
+                                                            ? "em andamento"
+                                                            : "pendente"}
+                                                    </span>
+                                                    {teamRow.helpOpen ? (
+                                                      <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedido(s) de ajuda aberto(s) nesta missão`}>
+                                                        <span className="team-help-indicator-icon">!</span>
+                                                        <span className="team-help-indicator-count">{teamRow.helpOpen}</span>
+                                                      </span>
+                                                    ) : null}
+                                                  </div>
+                                                </div>
+                                                {teamRow.latestExec ? (
+                                                  <div className="mission-team-latest">
+                                                    <div className="mission-team-latest-label">Último prompt</div>
+                                                    <div className="mission-team-latest-copy">“{truncatePromptSnippet(teamRow.latestExec.input, 180)}”</div>
+                                                    <div className="mission-team-latest-meta">{formatDateTime(teamRow.latestExec.ts)}</div>
+                                                  </div>
+                                                ) : null}
+                                                {teamRow.reflection ? (
+                                                  <div className="team-mission-feedback mission-team-feedback">
+                                                    <div className="team-admin-feedback-scores is-inline">
+                                                      {Object.entries(teamRow.reflection.respostas || {}).map(([key, value]) => (
+                                                        <span className="mission-feedback-chip is-rating" key={`${mission.id}-${teamRow.teamName}-${key}`}>
+                                                          <strong>{getReflectionTopicShortLabel(key)}</strong>
+                                                          <span className="mission-feedback-score" aria-label={`${Number(value).toFixed(1)} de 5`}>
+                                                            {Number(value).toFixed(1)}/5
+                                                          </span>
+                                                        </span>
+                                                      ))}
+                                                    </div>
+                                                    {teamRow.reflection.comment ? <div className="team-admin-feedback-comment">{teamRow.reflection.comment}</div> : null}
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
                                       <div className="mission-actions">
                                         <button

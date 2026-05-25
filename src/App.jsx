@@ -12,7 +12,7 @@ const MISSIONS_MODE_EVENT = "missions";
 const TRAINING_THREAD_ID = "__training__";
 const CHAT_AI_MODE = "chat";
 const CODING_AI_MODE = "coding";
-const CODING_AI_MODEL = "gpt-5-mini";
+const CODING_AI_MODEL = "gpt-5.1-codex-mini";
 const CODING_AI_FALLBACK_MODEL = "gpt-4.1-mini";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const FACILITATOR_PASSWORD = "camila";
@@ -178,6 +178,7 @@ const MODEL_PRICING = {
   "gpt-4o-mini": { input: 0.15, output: 0.6 },
   "gpt-5-mini": { input: 0.25, output: 2 },
   "gpt-5": { input: 1.25, output: 10 },
+  "gpt-5.1-codex-mini": { input: 0.25, output: 2 },
 };
 const SIMULATION_STEPS = [
   { key: "analisando", label: "analisando pedido" },
@@ -6409,7 +6410,7 @@ function App() {
                 execs={currentExecs}
                 runState={runState}
                 flowStage={missionFlow.stage}
-                model={store.model}
+                model={getMissionAiMode(currentMission) === CODING_AI_MODE ? CODING_AI_MODEL : store.model}
                 preservedUsage={preservedUsage}
               />
             </div>

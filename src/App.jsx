@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
+import { createClient } from "@supabase/supabase-js";
 import techHallLogoDark from "../tech_hall_branding/tech_hall_preto.png";
 import techHallFooterIcon from "../tech_hall_branding/icone_8.png";
 
@@ -12,10 +13,13 @@ const TRAINING_THREAD_ID = "__training__";
 const CHAT_AI_MODE = "chat";
 const CODING_AI_MODE = "coding";
 const CODING_AI_MODEL = "gpt-5-mini";
+const CODING_AI_FALLBACK_MODEL = "gpt-4.1-mini";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const FACILITATOR_PASSWORD = "camila";
 const PRESENCE_STALE_MS = 45000;
 const BRAND_LOADER_DURATION_MS = 700;
+const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
+const REMOTE_SYNC_POLL_MS = 400;
 const TIMER_NOTICE_TTL_MS = 30000;
 const TIMER_LOCK_TTL_MS = 15000;
 const FACILITATOR_TOOL_VIEWS = {
@@ -1646,17 +1650,49 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
     includePlanningPrompt: !planningRuntime.planningModeReal,
   });
   const userMessageContent = buildUserMessageContent(input, attachments);
-  const result = await fetchChatCompletion({
-    apiKey,
-    model: planningRuntime.requestModel,
-    reasoningEffort: planningRuntime.reasoningEffort,
-    messages: [
-      { role: "system", content: promptApplied },
-      { role: "user", content: userMessageContent },
-    ],
-  });
+  let effectiveRuntime = { ...planningRuntime };
+  let result;
 
-  const custo = estimateCost(planningRuntime.requestModel, result.inputTokens, result.outputTokens);
+  try {
+    result = await fetchChatCompletion({
+      apiKey,
+      model: effectiveRuntime.requestModel,
+      reasoningEffort: effectiveRuntime.reasoningEffort,
+      messages: [
+        { role: "system", content: promptApplied },
+        { role: "user", content: userMessageContent },
+      ],
+    });
+  } catch (error) {
+    const message = `${error?.message || ""}`;
+    const canFallbackCodingModel =
+      aiMode === CODING_AI_MODE &&
+      effectiveRuntime.requestModel === CODING_AI_MODEL &&
+      /model|unsupported|not found|does not exist|access/i.test(message);
+
+    if (!canFallbackCodingModel) {
+      throw error;
+    }
+
+    effectiveRuntime = {
+      requestModel: CODING_AI_FALLBACK_MODEL,
+      reasoningEffort: undefined,
+      planningModeReal: false,
+      planningResolution: "coding-model-fallback",
+    };
+
+    result = await fetchChatCompletion({
+      apiKey,
+      model: effectiveRuntime.requestModel,
+      reasoningEffort: effectiveRuntime.reasoningEffort,
+      messages: [
+        { role: "system", content: promptApplied },
+        { role: "user", content: userMessageContent },
+      ],
+    });
+  }
+
+  const custo = estimateCost(effectiveRuntime.requestModel, result.inputTokens, result.outputTokens);
   return {
     output: result.output,
     promptApplied,
@@ -1665,10 +1701,10 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
     tokens: result.inputTokens + result.outputTokens,
     custo,
     aiMode,
-    effectiveModel: planningRuntime.requestModel,
+    effectiveModel: effectiveRuntime.requestModel,
     selectedModel: model,
-    planningModeReal: planningRuntime.planningModeReal,
-    planningResolution: planningRuntime.planningResolution,
+    planningModeReal: effectiveRuntime.planningModeReal,
+    planningResolution: effectiveRuntime.planningResolution,
   };
 }
 
@@ -1812,7 +1848,15 @@ function App() {
   const [brandLoaderOpen, setBrandLoaderOpen] = useState(true);
   const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
   const [clockNow, setClockNow] = useState(Date.now());
-  const [serverConfig, setServerConfig] = useState({ openaiConfigured: false, openaiSource: "none", livekitConfigured: false, supabaseConfigured: false });
+  const [serverConfig, setServerConfig] = useState({
+    openaiConfigured: false,
+    openaiSource: "none",
+    livekitConfigured: false,
+    supabaseConfigured: false,
+    supabaseUrl: "",
+    supabaseAnonKey: "",
+    remoteStateKey: "techhall-v1",
+  });
   const [storeHydrated, setStoreHydrated] = useState(false);
   const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
@@ -1882,6 +1926,16 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [toastText]);
 
+  const supabaseRealtimeClient = useMemo(() => {
+    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
+    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
+
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -1916,10 +1970,42 @@ function App() {
           console.error(error);
         }
       })();
-    }, 250);
+    }, REMOTE_SYNC_SAVE_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
   }, [serverConfig.supabaseConfigured, store.events, storeHydrated]);
+
+  useEffect(() => {
+    if (!storeHydrated || !supabaseRealtimeClient || !serverConfig.remoteStateKey) return undefined;
+
+    const channel = supabaseRealtimeClient
+      .channel(`app-state-${serverConfig.remoteStateKey}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_state",
+          filter: `id=eq.${serverConfig.remoteStateKey}`,
+        },
+        (payload) => {
+          const nextEvents = normalizeEventsForProduct(payload.new?.payload?.events || []);
+          setStore((current) => {
+            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(nextEvents, current.events || []));
+            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
+            return {
+              ...current,
+              events: mergedEvents,
+            };
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabaseRealtimeClient.removeChannel(channel);
+    };
+  }, [serverConfig.remoteStateKey, storeHydrated, supabaseRealtimeClient]);
 
   useEffect(() => {
     if (!["workspace", "facilitador"].includes(screen)) return undefined;
@@ -1954,7 +2040,7 @@ function App() {
           events: normalizedCurrentEvents,
         };
       });
-    }, 1000);
+    }, REMOTE_SYNC_POLL_MS);
 
     return () => window.clearInterval(timer);
   }, [screen]);

@@ -1779,6 +1779,91 @@ function downloadHtmlArtifact(html, fileName = "prototipo.html") {
   downloadTextArtifact(html, fileName, "text/html;charset=utf-8");
 }
 
+function estimateStreamedOutputTokens(text = "") {
+  return Math.max(0, Math.round(`${text || ""}`.length / 4));
+}
+
+function writePreviewWindowDocument(previewWindow, html) {
+  if (!previewWindow || previewWindow.closed) return;
+  previewWindow.document.open();
+  previewWindow.document.write(html);
+  previewWindow.document.close();
+}
+
+function buildPreviewWindowHtmlDocument(html, title = "Preview HTML") {
+  const normalized = `${html || ""}`.trim();
+  if (/^<!doctype html>/i.test(normalized) || /^<html[\s>]/i.test(normalized)) {
+    return normalized;
+  }
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>html,body{margin:0;padding:0;background:#fff;min-height:100%;}</style>
+  </head>
+  <body>${normalized}</body>
+</html>`;
+}
+
+function openHtmlPreviewWindow(html, title = "Preview HTML") {
+  if (typeof window === "undefined") return null;
+  const previewWindow = window.open("", "_blank");
+  if (!previewWindow) return null;
+  writePreviewWindowDocument(previewWindow, buildPreviewWindowHtmlDocument(html, title));
+  return previewWindow;
+}
+
+function renderPreviewWindowPlaceholder(previewWindow, title, message) {
+  writePreviewWindowDocument(
+    previewWindow,
+    `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f4f8ff;
+        color: #14213d;
+        font: 500 16px/1.6 Inter, system-ui, sans-serif;
+      }
+      .shell {
+        width: min(520px, calc(100vw - 48px));
+        padding: 28px 30px;
+        border: 1px solid rgba(20, 33, 61, 0.14);
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 22px 48px rgba(20, 33, 61, 0.12);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 26px;
+        line-height: 1.1;
+      }
+      p {
+        margin: 0;
+        color: rgba(20, 33, 61, 0.74);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <h1>${title}</h1>
+      <p>${message}</p>
+    </div>
+  </body>
+</html>`,
+  );
+}
+
 async function gerarExplicacaoGuiadaIA({ apiKey, model, mission, input, acao, output, historyContext }) {
   const conceptGuide = (MISSION_CONCEPTS[mission.id] || [])
     .map((concept) => `- ${concept.name}: ${concept.explanation}`)
@@ -1967,7 +2052,167 @@ async function fetchResponsesCompletion({ apiKey, model, instructions, input, pr
   };
 }
 
-async function executarComIA({ mission, input, attachments = [], acao, apiKey, model, planningMode, historyContext, previousResponseId = "" }) {
+async function fetchResponsesCompletionStream({
+  apiKey,
+  model,
+  instructions,
+  input,
+  previousResponseId,
+  reasoningEffort,
+  onDelta,
+}) {
+  const requestBody = {
+    model,
+    instructions,
+    input,
+    ...(previousResponseId ? { previousResponseId } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+  };
+
+  const response = apiKey
+    ? await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          model,
+          instructions,
+          input,
+          store: true,
+          stream: true,
+          ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+          ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+        }),
+      })
+    : await fetch("/api/openai/responses/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Falha ao consultar a OpenAI.");
+  }
+
+  if (!response.body) {
+    return fetchResponsesCompletion({ apiKey, model, instructions, input, previousResponseId, reasoningEffort });
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let accumulated = "";
+  let responseId = "";
+  let usage = null;
+  let streamingFailed = false;
+
+  function handleStreamEvent(payload) {
+    if (!payload || typeof payload !== "object") return;
+
+    if (payload.type === "response.output_text.delta" && typeof payload.delta === "string") {
+      accumulated += payload.delta;
+      onDelta?.(accumulated, payload);
+      return;
+    }
+
+    if (payload.type === "response.completed") {
+      const completed = payload.response || payload;
+      responseId = completed.id || responseId;
+      usage = completed.usage || usage;
+      const finalOutput = extractResponsesOutputText(completed);
+      if (finalOutput && finalOutput !== accumulated) {
+        accumulated = finalOutput;
+        onDelta?.(accumulated, payload);
+      }
+      return;
+    }
+
+    if (payload.type === "error") {
+      streamingFailed = true;
+      throw new Error(payload.error?.message || "Falha ao consultar a OpenAI.");
+    }
+
+    if (payload.response?.id) {
+      responseId = payload.response.id;
+    }
+  }
+
+  function drainBuffer(force = false) {
+    const normalized = buffer.replace(/\r\n/g, "\n");
+    let boundaryIndex = normalized.indexOf("\n\n");
+    while (boundaryIndex >= 0) {
+      const chunk = normalized.slice(0, boundaryIndex);
+      buffer = normalized.slice(boundaryIndex + 2);
+      const dataPayload = chunk
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (dataPayload && dataPayload !== "[DONE]") {
+        try {
+          handleStreamEvent(JSON.parse(dataPayload));
+        } catch (error) {
+          streamingFailed = true;
+          throw error;
+        }
+      }
+      boundaryIndex = buffer.indexOf("\n\n");
+    }
+
+    if (force && buffer.trim()) {
+      const dataPayload = buffer
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      buffer = "";
+      if (dataPayload && dataPayload !== "[DONE]") {
+        handleStreamEvent(JSON.parse(dataPayload));
+      }
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      drainBuffer(done);
+      if (done) break;
+    }
+  } catch (error) {
+    if (!streamingFailed) {
+      return fetchResponsesCompletion({ apiKey, model, instructions, input, previousResponseId, reasoningEffort });
+    }
+    throw error;
+  }
+
+  return {
+    id: responseId || "",
+    output: accumulated.trim() || "Sem conteudo retornado.",
+    inputTokens: usage?.input_tokens || 0,
+    outputTokens: usage?.output_tokens || estimateStreamedOutputTokens(accumulated),
+  };
+}
+
+async function executarComIA({
+  mission,
+  input,
+  attachments = [],
+  acao,
+  apiKey,
+  model,
+  planningMode,
+  historyContext,
+  previousResponseId = "",
+  onDelta,
+}) {
   const aiMode = getMissionAiMode(mission);
   const runtimeBaseModel = aiMode === CODING_AI_MODE ? CODING_AI_MODEL : model;
   const planningRuntime = resolvePlanningRuntime(runtimeBaseModel, planningMode);
@@ -1987,13 +2232,14 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
   try {
     result =
       aiMode === CODING_AI_MODE
-        ? await fetchResponsesCompletion({
+        ? await fetchResponsesCompletionStream({
             apiKey,
             model: effectiveRuntime.requestModel,
             instructions: promptApplied,
             input: buildResponsesApiInput(input, attachments),
             previousResponseId,
             reasoningEffort: effectiveRuntime.reasoningEffort,
+            onDelta,
           })
         : await fetchChatCompletion({
             apiKey,
@@ -2021,12 +2267,13 @@ async function executarComIA({ mission, input, attachments = [], acao, apiKey, m
     };
 
     result = aiMode === CODING_AI_MODE
-      ? await fetchResponsesCompletion({
+      ? await fetchResponsesCompletionStream({
           apiKey,
           model: effectiveRuntime.requestModel,
           instructions: promptApplied,
           input: buildResponsesApiInput(input, attachments),
           previousResponseId,
+          onDelta,
         })
       : await fetchChatCompletion({
           apiKey,
@@ -2187,6 +2434,7 @@ function App() {
   const [teamAnnouncementOpen, setTeamAnnouncementOpen] = useState(false);
   const [teamAnnouncementInboxOpen, setTeamAnnouncementInboxOpen] = useState(false);
   const [reflectionComment, setReflectionComment] = useState("");
+  const [reflectionError, setReflectionError] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [missionFeedbackOpen, setMissionFeedbackOpen] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
@@ -2505,6 +2753,7 @@ function App() {
       setHelpMessage("");
       setReflectionAnswers({});
       setReflectionComment("");
+      setReflectionError("");
       setMissionAttachments([]);
       return;
     }
@@ -2516,6 +2765,7 @@ function App() {
     setHelpMessage("");
     setReflectionAnswers({});
     setReflectionComment("");
+    setReflectionError("");
     setMissionMenuOpen(null);
   }, [timeMissionIdx, timeEventId]);
 
@@ -2531,6 +2781,7 @@ function App() {
     if (currentQuestionarioPendente) {
       setReflectionAnswers({});
       setReflectionComment("");
+      setReflectionError("");
       setMissionFlow({
         stage: "questionario_final",
         exec: latestCurrentExec || null,
@@ -3387,6 +3638,7 @@ function App() {
     openMissionQuestionnaireForTeams(teamEvent.id, currentMission.id, [timeTeamIdx], "team");
     setReflectionAnswers({});
     setReflectionComment("");
+    setReflectionError("");
     setMissionFlow((current) => ({ ...current, stage: "questionario_final" }));
     setMissionInput("");
     setMissionAttachments([]);
@@ -3410,6 +3662,7 @@ function App() {
     );
     setReflectionAnswers({});
     setReflectionComment("");
+    setReflectionError("");
     setMissionFlow((current) => ({ ...current, stage: current.exec ? current.stage : "idle" }));
     showToast("Encerramento cancelado");
   }
@@ -4019,8 +4272,11 @@ function App() {
     const attachments = missionAttachments;
     const acao = FREE_ACTION_KEY;
     const historyContext = buildHistoryContext(currentExecs);
+    const aiMode = getMissionAiMode(currentMission);
+    const shouldStreamCoding = apiConfigured && aiMode === CODING_AI_MODE;
+    const shouldAutoOpenPreview = shouldStreamCoding && isHtmlPrototypeRequest(input);
     const previousCodingResponseId =
-      getMissionAiMode(currentMission) === CODING_AI_MODE
+      aiMode === CODING_AI_MODE
         ? currentExecs[currentExecs.length - 1]?.codingResponseId || ""
         : "";
     if (!input && !attachments.length) {
@@ -4041,6 +4297,14 @@ function App() {
       usedHistory: historyContext.length > 0,
       simulationMode: apiConfigured ? "openai-live" : "mock-stream",
     });
+
+    const previewWindow =
+      shouldAutoOpenPreview && typeof window !== "undefined"
+        ? window.open("", "_blank")
+        : null;
+    if (previewWindow) {
+      renderPreviewWindowPlaceholder(previewWindow, "Preview em preparação", "A IA já começou a montar a instância HTML desta rodada.");
+    }
 
     try {
       if (!apiConfigured) {
@@ -4087,6 +4351,26 @@ function App() {
             planningMode: store.planningMode,
             historyContext,
             previousResponseId: previousCodingResponseId,
+            onDelta: shouldStreamCoding
+              ? (nextText) => {
+                  setRunState((current) =>
+                    current
+                      ? {
+                          ...current,
+                          phase: "gerando",
+                          stepIndex: 2,
+                          displayedOutput: nextText,
+                          fullOutput: nextText,
+                          outputTokens: estimateStreamedOutputTokens(nextText),
+                          processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                            ...step,
+                            status: stepIndex < 2 ? "done" : stepIndex === 2 ? "active" : "pending",
+                          })),
+                        }
+                      : current,
+                  );
+                }
+              : undefined,
           })
         : executarMock({
             mission: currentMission,
@@ -4105,7 +4389,7 @@ function App() {
               stepIndex: 2,
               fullOutput: result.output,
               inputTokens: result.inputTokens,
-              outputTokens: 0,
+              outputTokens: shouldStreamCoding ? result.outputTokens : 0,
               custo: result.custo,
               reasoningDetails: null,
               processingSteps: current.processingSteps.map((step, stepIndex) => ({
@@ -4116,21 +4400,23 @@ function App() {
           : current,
       );
 
-      let cursor = 0;
-      const chunkSize = apiConfigured ? 42 : 30;
-      while (cursor < result.output.length) {
-        cursor = Math.min(result.output.length, cursor + chunkSize);
-        const nextText = result.output.slice(0, cursor);
-        setRunState((current) =>
-          current
-            ? {
-                ...current,
-                displayedOutput: nextText,
-                outputTokens: Math.round((cursor / result.output.length) * result.outputTokens),
-            }
-          : current,
-        );
-        await sleep(apiConfigured ? 12 : 75);
+      if (!shouldStreamCoding) {
+        let cursor = 0;
+        const chunkSize = apiConfigured ? 42 : 30;
+        while (cursor < result.output.length) {
+          cursor = Math.min(result.output.length, cursor + chunkSize);
+          const nextText = result.output.slice(0, cursor);
+          setRunState((current) =>
+            current
+              ? {
+                  ...current,
+                  displayedOutput: nextText,
+                  outputTokens: Math.round((cursor / result.output.length) * result.outputTokens),
+                }
+              : current,
+          );
+          await sleep(apiConfigured ? 12 : 75);
+        }
       }
 
       setRunState((current) =>
@@ -4159,9 +4445,24 @@ function App() {
             historyContext,
           });
       const iterationNumber = currentExecs.length + 1;
-      const generatedArtifacts = getMissionAiMode(currentMission) === CODING_AI_MODE
+      const generatedArtifacts = aiMode === CODING_AI_MODE
         ? extractGeneratedArtifacts(result.output, `rodada-${iterationNumber}`)
         : [];
+      const htmlArtifact = generatedArtifacts.find((artifact) => artifact.previewMode === "html");
+      if (previewWindow) {
+        if (htmlArtifact) {
+          writePreviewWindowDocument(
+            previewWindow,
+            buildPreviewWindowHtmlDocument(htmlArtifact.content, htmlArtifact.fileName || "Preview HTML"),
+          );
+        } else {
+          renderPreviewWindowPlaceholder(
+            previewWindow,
+            "Sem preview executável",
+            "Esta rodada terminou, mas a IA não devolveu um arquivo HTML completo para abrir automaticamente.",
+          );
+        }
+      }
       const execRecord = {
         id: `run_${Date.now()}`,
         ts: new Date().toISOString(),
@@ -4191,7 +4492,7 @@ function App() {
         analysisTarget: "latest_prompt",
         usedHistoryContext: historyContext.length > 0,
         iterationNumber,
-        aiMode: getMissionAiMode(currentMission),
+        aiMode,
         generatedArtifacts,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
@@ -4269,6 +4570,13 @@ function App() {
           });
       }
     } catch (error) {
+      if (previewWindow) {
+        renderPreviewWindowPlaceholder(
+          previewWindow,
+          "Preview interrompido",
+          "A rodada falhou antes de devolver um HTML executável. Você pode tentar novamente com um pedido mais específico.",
+        );
+      }
       setRunError("Falha ao executar com IA. Verifique a chave, o modelo ou a conexao.");
       setRunState(null);
       setMissionFlow({ stage: "idle", exec: null });
@@ -4281,7 +4589,12 @@ function App() {
   function handleSaveReflection() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const answered = PERGUNTAS_REFLEXAO.every((question) => reflectionAnswers[question.id]);
-    if (!answered) return;
+    if (!answered) {
+      setReflectionError("Responda as 3 perguntas para concluir a missão.");
+      showToast("Responda as 3 perguntas antes de enviar");
+      return;
+    }
+    setReflectionError("");
     saveReflection(
       teamEvent.id,
       timeTeamIdx,
@@ -4292,6 +4605,7 @@ function App() {
     );
     setReflectionAnswers({});
     setReflectionComment("");
+    setReflectionError("");
     setMissionFlow((current) => ({ ...current, stage: "concluida" }));
     showToast("Reflexao enviada");
   }
@@ -5988,12 +6302,19 @@ function App() {
                           stage={missionFlow.stage}
                           reflectionAnswers={reflectionAnswers}
                           reflectionComment={reflectionComment}
+                          reflectionError={reflectionError}
                           canClose={currentQuestionarioPendenteSource === "team"}
                           onClose={handleCancelTeamMissionClosure}
                           onSelectAnswer={(questionId, score) =>
-                            setReflectionAnswers((current) => ({ ...current, [questionId]: score }))
+                            {
+                              setReflectionError("");
+                              setReflectionAnswers((current) => ({ ...current, [questionId]: score }));
+                            }
                           }
-                          onChangeComment={setReflectionComment}
+                          onChangeComment={(value) => {
+                            setReflectionError("");
+                            setReflectionComment(value);
+                          }}
                           onSubmitReflection={handleSaveReflection}
                         />
 
@@ -6861,6 +7182,13 @@ function HtmlArtifactCard({ artifact, compact = false }) {
           <button
             className="btn btn-sm btn-ghost"
             type="button"
+            onClick={() => openHtmlPreviewWindow(artifact.html, artifact.fileName || "Preview HTML")}
+          >
+            Abrir preview
+          </button>
+          <button
+            className="btn btn-sm btn-ghost"
+            type="button"
             onClick={() => downloadHtmlArtifact(artifact.html, artifact.fileName)}
           >
             Baixar .html
@@ -7234,6 +7562,7 @@ function MissionClosurePanel({
   stage,
   reflectionAnswers,
   reflectionComment,
+  reflectionError,
   canClose = false,
   onClose,
   onSelectAnswer,
@@ -7241,6 +7570,8 @@ function MissionClosurePanel({
   onSubmitReflection,
 }) {
   if (stage !== "questionario_final") return null;
+  const answeredCount = PERGUNTAS_REFLEXAO.filter((question) => reflectionAnswers[question.id]).length;
+  const allAnswered = answeredCount === PERGUNTAS_REFLEXAO.length;
 
   return (
     <Modal open small={false} dismissible onClose={onClose} className="mission-closure-modal-shell">
@@ -7253,6 +7584,10 @@ function MissionClosurePanel({
           </div>
         </div>
         <div className="mission-inline-panel-body">
+          <div className="mission-closure-progress">
+            <span>{answeredCount}/{PERGUNTAS_REFLEXAO.length} respondidas</span>
+            {!allAnswered ? <strong>Faltam {PERGUNTAS_REFLEXAO.length - answeredCount}</strong> : <strong>Pronto para enviar</strong>}
+          </div>
           {PERGUNTAS_REFLEXAO.map((question) => (
             <div className="reflexao-question" key={question.id}>
               <div className="reflexao-q-text">{question.texto}</div>
@@ -7260,6 +7595,7 @@ function MissionClosurePanel({
                 {[1, 2, 3, 4, 5].map((score) => (
                   <button
                     key={score}
+                    type="button"
                     className={`scale-btn${reflectionAnswers[question.id] === score ? " selected" : ""}`}
                     onClick={() => onSelectAnswer(question.id, score)}
                   >
@@ -7281,8 +7617,9 @@ function MissionClosurePanel({
               placeholder="Opcional: registre uma observação geral sobre a missão, a resposta da IA ou o que o time aprendeu."
             />
           </div>
+          {reflectionError ? <div className="error-box">{reflectionError}</div> : null}
           <div className="mission-inline-actions">
-            <button className="btn btn-green" onClick={onSubmitReflection}>
+            <button className="btn btn-green" type="button" disabled={!allAnswered} onClick={onSubmitReflection}>
               Enviar avaliação
             </button>
           </div>

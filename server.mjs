@@ -4,6 +4,7 @@ import {
   createLiveKitToken,
   createOpenAIChatCompletion,
   createOpenAIResponse,
+  createOpenAIResponseStream,
   extractDocumentText,
   getRemoteAppState,
   getRuntimeConfig,
@@ -80,6 +81,22 @@ app.post("/api/openai/responses", async (req, res) => {
   try {
     const responseText = await createOpenAIResponse(req.body || {});
     res.type("application/json").send(responseText);
+  } catch (error) {
+    res.status(error.statusCode || 500).send(error.message || "Falha ao consultar a OpenAI.");
+  }
+});
+
+app.post("/api/openai/responses/stream", async (req, res) => {
+  try {
+    const upstream = await createOpenAIResponseStream(req.body || {});
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+    for await (const chunk of upstream.body) {
+      res.write(chunk);
+    }
+    res.end();
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message || "Falha ao consultar a OpenAI.");
   }

@@ -2146,11 +2146,11 @@ async function fetchResponsesCompletionStream({
   }
 
   function drainBuffer(force = false) {
-    const normalized = buffer.replace(/\r\n/g, "\n");
-    let boundaryIndex = normalized.indexOf("\n\n");
+    buffer = buffer.replace(/\r\n/g, "\n");
+    let boundaryIndex = buffer.indexOf("\n\n");
     while (boundaryIndex >= 0) {
-      const chunk = normalized.slice(0, boundaryIndex);
-      buffer = normalized.slice(boundaryIndex + 2);
+      const chunk = buffer.slice(0, boundaryIndex);
+      buffer = buffer.slice(boundaryIndex + 2);
       const dataPayload = chunk
         .split("\n")
         .filter((line) => line.startsWith("data:"))

@@ -878,6 +878,166 @@ function normalizeMission(mission) {
   };
 }
 
+function toTimestamp(value) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function mergeRecordArraysById(remoteItems = [], localItems = []) {
+  const merged = new globalThis.Map();
+  [...remoteItems, ...localItems].forEach((item) => {
+    if (!item?.id) return;
+    const previous = merged.get(item.id) || {};
+    merged.set(item.id, {
+      ...previous,
+      ...item,
+    });
+  });
+  return [...merged.values()];
+}
+
+function mergeObjectMaps(remoteMap = {}, localMap = {}, pickValue) {
+  const keys = new Set([...Object.keys(remoteMap || {}), ...Object.keys(localMap || {})]);
+  return Object.fromEntries(
+    [...keys].map((key) => {
+      const remoteValue = remoteMap?.[key];
+      const localValue = localMap?.[key];
+      return [key, pickValue ? pickValue(remoteValue, localValue) : localValue ?? remoteValue];
+    }),
+  );
+}
+
+function mergeExecucaoMaps(remoteMap = {}, localMap = {}) {
+  const keys = new Set([...Object.keys(remoteMap || {}), ...Object.keys(localMap || {})]);
+  return Object.fromEntries(
+    [...keys].map((key) => {
+      const mergedRuns = mergeRecordArraysById(remoteMap?.[key] || [], localMap?.[key] || []);
+      mergedRuns.sort((a, b) => toTimestamp(a.ts) - toTimestamp(b.ts));
+      return [key, mergedRuns];
+    }),
+  );
+}
+
+function pickLatestByTimestamp(remoteValue, localValue, candidateFields = []) {
+  if (!remoteValue) return localValue;
+  if (!localValue) return remoteValue;
+
+  const remoteTs = Math.max(...candidateFields.map((field) => toTimestamp(remoteValue?.[field])), 0);
+  const localTs = Math.max(...candidateFields.map((field) => toTimestamp(localValue?.[field])), 0);
+
+  if (localTs >= remoteTs) return { ...remoteValue, ...localValue };
+  return { ...localValue, ...remoteValue };
+}
+
+function mergePresenceMaps(remoteMap = {}, localMap = {}) {
+  return mergeObjectMaps(remoteMap, localMap, (remoteValue, localValue) =>
+    pickLatestByTimestamp(remoteValue, localValue, ["lastSeenAt"]),
+  );
+}
+
+function mergeAnnouncements(remoteItems = [], localItems = []) {
+  const merged = new globalThis.Map();
+  [...remoteItems, ...localItems].forEach((item) => {
+    if (!item?.id) return;
+    const previous = merged.get(item.id) || {};
+    merged.set(item.id, {
+      ...previous,
+      ...item,
+      dismissedBy: {
+        ...(previous.dismissedBy || {}),
+        ...(item.dismissedBy || {}),
+      },
+      readBy: {
+        ...(previous.readBy || {}),
+        ...(item.readBy || {}),
+      },
+    });
+  });
+  return [...merged.values()].sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
+}
+
+function mergeScreenShareState(remoteState = {}, localState = {}) {
+  return pickLatestByTimestamp(remoteState, localState, ["startedAt", "endedAt"]);
+}
+
+function mergeTimerNotice(remoteNotice, localNotice) {
+  return pickLatestByTimestamp(remoteNotice, localNotice, ["createdAt"]);
+}
+
+function mergeEventEntity(remoteEvent, localEvent) {
+  if (!remoteEvent) return localEvent;
+  if (!localEvent) return remoteEvent;
+
+  const remoteUpdatedAt = toTimestamp(remoteEvent.updatedAt || remoteEvent.createdAt);
+  const localUpdatedAt = toTimestamp(localEvent.updatedAt || localEvent.createdAt);
+  const newestEvent = localUpdatedAt >= remoteUpdatedAt ? localEvent : remoteEvent;
+  const oldestEvent = newestEvent === localEvent ? remoteEvent : localEvent;
+
+  return {
+    ...oldestEvent,
+    ...newestEvent,
+    teams: newestEvent.teams || oldestEvent.teams || [],
+    missions: newestEvent.missions || oldestEvent.missions || [],
+    execucoes: mergeExecucaoMaps(remoteEvent.execucoes, localEvent.execucoes),
+    reflexoes: mergeObjectMaps(remoteEvent.reflexoes, localEvent.reflexoes, (remoteValue, localValue) =>
+      pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "ts"]),
+    ),
+    questionariosPendentes: mergeObjectMaps(remoteEvent.questionariosPendentes, localEvent.questionariosPendentes, (remoteValue, localValue) =>
+      pickLatestByTimestamp(remoteValue, localValue, ["openedAt"]),
+    ),
+    conclusoes: mergeObjectMaps(remoteEvent.conclusoes, localEvent.conclusoes, (remoteValue, localValue) =>
+      pickLatestByTimestamp(remoteValue, localValue, ["concludedAt"]),
+    ),
+    preservedMissionUsage: {
+      ...(remoteEvent.preservedMissionUsage || {}),
+      ...(localEvent.preservedMissionUsage || {}),
+    },
+    helpRequests: mergeRecordArraysById(remoteEvent.helpRequests, localEvent.helpRequests),
+    trainingRuns: mergeExecucaoMaps(remoteEvent.trainingRuns, localEvent.trainingRuns),
+    trainingHelpRequests: mergeRecordArraysById(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
+    announcements: mergeAnnouncements(getEventAnnouncements(remoteEvent), getEventAnnouncements(localEvent)),
+    presenceMap: mergePresenceMaps(remoteEvent.presenceMap, localEvent.presenceMap),
+    sessionTimer: pickLatestByTimestamp(remoteEvent.sessionTimer, localEvent.sessionTimer, ["startedAt", "endsAt"]),
+    sessionTimerNotice: mergeTimerNotice(remoteEvent.sessionTimerNotice, localEvent.sessionTimerNotice),
+    screenShare: mergeScreenShareState(remoteEvent.screenShare, localEvent.screenShare),
+    updatedAt: newestEvent.updatedAt || oldestEvent.updatedAt || new Date().toISOString(),
+    createdAt: remoteEvent.createdAt || localEvent.createdAt || newestEvent.createdAt || oldestEvent.createdAt || new Date().toISOString(),
+  };
+}
+
+function mergeEventCollections(remoteEvents = [], localEvents = []) {
+  const mergedById = new globalThis.Map();
+  [...remoteEvents, ...localEvents].forEach((event) => {
+    if (!event?.id) return;
+    const previous = mergedById.get(event.id);
+    mergedById.set(event.id, mergeEventEntity(previous, event));
+  });
+  return [...mergedById.values()].sort((a, b) => toTimestamp(a.createdAt || a.updatedAt) - toTimestamp(b.createdAt || b.updatedAt));
+}
+
+function stampUpdatedEvents(previousEvents = [], nextEvents = []) {
+  const previousById = new globalThis.Map(previousEvents.map((event) => [event.id, event]));
+  const now = new Date().toISOString();
+  return nextEvents.map((event) => {
+    const previous = previousById.get(event.id);
+    if (!previous) {
+      return {
+        ...event,
+        createdAt: event.createdAt || now,
+        updatedAt: now,
+      };
+    }
+    const previousSerialized = JSON.stringify(previous);
+    const nextSerialized = JSON.stringify(event);
+    return {
+      ...event,
+      createdAt: previous.createdAt || event.createdAt || now,
+      updatedAt: previousSerialized === nextSerialized ? previous.updatedAt || event.updatedAt || now : now,
+    };
+  });
+}
+
 function isFixedMissionsEvent(event) {
   if (event?.missionTemplate !== FIXED_MISSION_TEMPLATE) return false;
   const currentMissionIds = buildFixedMissionList().map((mission) => mission.id);
@@ -1707,11 +1867,29 @@ function App() {
     const serializedEvents = JSON.stringify(store.events || []);
     if (serializedEvents === lastRemoteEventsRef.current) return undefined;
 
-    lastRemoteEventsRef.current = serializedEvents;
     if (!serverConfig.supabaseConfigured) return undefined;
 
     const timer = window.setTimeout(() => {
-      saveRemoteState(store.events || []).catch((error) => console.error(error));
+      (async () => {
+        try {
+          const remoteState = await fetchRemoteState();
+          const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
+          const mergedEvents = normalizeEventsForProduct(mergeEventCollections(normalizedRemoteEvents, store.events || []));
+          const mergedSerialized = JSON.stringify(mergedEvents);
+          lastRemoteEventsRef.current = mergedSerialized;
+          await saveRemoteState(mergedEvents);
+          setStore((current) =>
+            JSON.stringify(current.events || []) === mergedSerialized
+              ? current
+              : {
+                  ...current,
+                  events: mergedEvents,
+                },
+          );
+        } catch (error) {
+          console.error(error);
+        }
+      })();
     }, 250);
 
     return () => window.clearTimeout(timer);
@@ -2007,7 +2185,14 @@ function App() {
   ) : null;
 
   function updateEvents(updater) {
-    setStore((current) => ({ ...current, events: updater(current.events || []) }));
+    setStore((current) => {
+      const previousEvents = current.events || [];
+      const nextEvents = updater(previousEvents);
+      return {
+        ...current,
+        events: stampUpdatedEvents(previousEvents, nextEvents),
+      };
+    });
   }
 
   function markTeamPresence(eventId, teamIdx, memberName) {
@@ -4328,6 +4513,9 @@ function App() {
               <>
                 {devQuickSwitch}
                 <div className="topbar-status-strip">
+                  <span className={`topbar-api-pill${apiConfigured ? " is-connected" : ""}`}>
+                    {apiConfigured ? "API ligada" : "API não configurada"}
+                  </span>
                   {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
                     <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
                   ) : null}

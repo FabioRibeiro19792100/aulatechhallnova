@@ -623,6 +623,8 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
 .help-badge{margin-left:8px;padding:4px 8px;background:var(--amber-light);color:var(--amber)}
 .topbar-help-pill{padding:6px 10px;background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
 .topbar-live-pill{padding:6px 10px;background:var(--green-light);color:var(--green);border:1px solid var(--green-border);gap:6px}
+.topbar-api-pill{display:inline-flex;align-items:center;justify-content:center;padding:6px 10px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.04em;background:#fff;color:var(--text2);border:1px solid var(--border)}
+.topbar-api-pill.is-connected{background:var(--green-light);color:var(--green);border-color:var(--green-border)}
 .event-summary-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;margin-bottom:20px;box-shadow:var(--shadow-sm)}
 .event-summary-item{padding:18px 20px;display:flex;flex-direction:column;gap:6px;border-right:1px solid var(--border);min-width:0}
 .event-summary-item:last-child{border-right:none}

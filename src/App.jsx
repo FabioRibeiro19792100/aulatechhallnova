@@ -2820,7 +2820,7 @@ function App() {
     }, 15000);
 
     return () => window.clearInterval(timer);
-  }, [activeStudentName, screen, team?.name, teamEvent, timeTeamIdx]);
+  }, [activeStudentName, screen, team?.name, teamEvent?.id, timeTeamIdx]);
 
 
   const openEventsForTeamEntry = useMemo(
@@ -2854,6 +2854,7 @@ function App() {
     setStore((current) => {
       const previousEvents = current.events || [];
       const nextEvents = updater(previousEvents);
+      if (nextEvents === previousEvents) return current;
       return {
         ...current,
         events: stampUpdatedEvents(previousEvents, nextEvents),
@@ -2864,24 +2865,27 @@ function App() {
   function markTeamPresence(eventId, teamIdx, memberName) {
     if (!eventId || teamIdx === null || teamIdx === undefined) return;
     const normalizedName = normalizeStudentName(memberName || "");
-    const lastSeenAt = new Date().toISOString();
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id === eventId
-          ? {
-              ...event,
-              presenceMap: {
-                ...(event.presenceMap || {}),
-                [teamIdx]: {
-                  teamIdx,
-                  memberName: normalizedName || event.teams?.[teamIdx]?.name || `Time ${Number(teamIdx) + 1}`,
-                  lastSeenAt,
-                },
-              },
-            }
-          : event,
-      ),
-    );
+    const now = Date.now();
+    updateEvents((current) => {
+      let changed = false;
+      const next = current.map((event) => {
+        if (event.id !== eventId) return event;
+        const existing = event.presenceMap?.[teamIdx];
+        const nextName = normalizedName || event.teams?.[teamIdx]?.name || `Time ${Number(teamIdx) + 1}`;
+        if (existing && existing.memberName === nextName && now - new Date(existing.lastSeenAt).getTime() < 10000) {
+          return event;
+        }
+        changed = true;
+        return {
+          ...event,
+          presenceMap: {
+            ...(event.presenceMap || {}),
+            [teamIdx]: { teamIdx, memberName: nextName, lastSeenAt: new Date(now).toISOString() },
+          },
+        };
+      });
+      return changed ? next : current;
+    });
   }
 
   function showToast(message) {

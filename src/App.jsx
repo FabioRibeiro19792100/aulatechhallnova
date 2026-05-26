@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, Coins, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
@@ -15,6 +15,7 @@ const CHAT_AI_MODE = "chat";
 const CODING_AI_MODE = "coding";
 const CODING_AI_MODEL = "gpt-5.1-codex-mini";
 const CODING_AI_FALLBACK_MODEL = "gpt-4.1-mini";
+const CODING_AI_REASONING_EFFORT = "medium";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const FACILITATOR_PASSWORD = "camila";
 const DEFAULT_MISSION_TOKEN_LIMIT = 15000;
@@ -2219,6 +2220,7 @@ async function fetchResponsesCompletionStream({
   previousResponseId,
   reasoningEffort,
   onDelta,
+  onReasoning,
 }) {
   const requestBody = {
     model,
@@ -2253,13 +2255,44 @@ async function fetchResponsesCompletionStream({
   let responseId = "";
   let usage = null;
   let streamingFailed = false;
+  let reasoning = "";
+  const UI_FLUSH_INTERVAL_MS = 60;
+  let lastEmitAt = 0;
+  let lastReasoningAt = 0;
+
+  function emitDelta(force = false) {
+    if (!onDelta) return;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (!force && now - lastEmitAt < UI_FLUSH_INTERVAL_MS) return;
+    lastEmitAt = now;
+    onDelta(accumulated);
+  }
+
+  function emitReasoning(force = false) {
+    if (!onReasoning) return;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (!force && now - lastReasoningAt < UI_FLUSH_INTERVAL_MS) return;
+    lastReasoningAt = now;
+    onReasoning(reasoning);
+  }
 
   function handleStreamEvent(payload) {
     if (!payload || typeof payload !== "object") return;
 
+    if (payload.type === "response.reasoning_summary_text.delta" && typeof payload.delta === "string") {
+      reasoning += payload.delta;
+      emitReasoning(false);
+      return;
+    }
+
+    if (payload.type === "response.reasoning_summary_part.added" && reasoning) {
+      reasoning += "\n\n";
+      return;
+    }
+
     if (payload.type === "response.output_text.delta" && typeof payload.delta === "string") {
       accumulated += payload.delta;
-      onDelta?.(accumulated, payload);
+      emitDelta(false);
       return;
     }
 
@@ -2270,8 +2303,9 @@ async function fetchResponsesCompletionStream({
       const finalOutput = extractResponsesOutputText(completed);
       if (finalOutput && finalOutput !== accumulated) {
         accumulated = finalOutput;
-        onDelta?.(accumulated, payload);
       }
+      emitReasoning(true);
+      emitDelta(true);
       return;
     }
 
@@ -2334,9 +2368,13 @@ async function fetchResponsesCompletionStream({
     throw error;
   }
 
+  emitReasoning(true);
+  emitDelta(true);
+
   return {
     id: responseId || "",
     output: accumulated.trim() || "Sem conteudo retornado.",
+    reasoningText: reasoning.trim(),
     inputTokens: usage?.input_tokens || 0,
     outputTokens: usage?.output_tokens || estimateStreamedOutputTokens(accumulated),
   };
@@ -2352,6 +2390,7 @@ async function executarComIA({
   historyContext,
   previousResponseId = "",
   onDelta,
+  onReasoning,
 }) {
   const aiMode = getMissionAiMode(mission);
   const runtimeBaseModel = aiMode === CODING_AI_MODE ? CODING_AI_MODEL : model;
@@ -2365,29 +2404,22 @@ async function executarComIA({
   });
   const codingDeliveryHint = aiMode === CODING_AI_MODE ? buildCodingDeliveryHint(input) : "";
   const promptApplied = [promptBase, codingDeliveryHint].filter(Boolean).join("\n\n");
-  const userMessageContent = buildUserMessageContent(input, attachments);
   let effectiveRuntime = { ...planningRuntime };
+  if (aiMode === CODING_AI_MODE && !effectiveRuntime.reasoningEffort) {
+    effectiveRuntime.reasoningEffort = CODING_AI_REASONING_EFFORT;
+  }
   let result;
 
   try {
-    result =
-      aiMode === CODING_AI_MODE
-        ? await fetchResponsesCompletionStream({
-            model: effectiveRuntime.requestModel,
-            instructions: promptApplied,
-            input: buildResponsesApiInput(input, attachments),
-            previousResponseId,
-            reasoningEffort: effectiveRuntime.reasoningEffort,
-            onDelta,
-          })
-        : await fetchChatCompletion({
-            model: effectiveRuntime.requestModel,
-            reasoningEffort: effectiveRuntime.reasoningEffort,
-            messages: [
-              { role: "system", content: promptApplied },
-              { role: "user", content: userMessageContent },
-            ],
-          });
+    result = await fetchResponsesCompletionStream({
+      model: effectiveRuntime.requestModel,
+      instructions: promptApplied,
+      input: buildResponsesApiInput(input, attachments),
+      previousResponseId: aiMode === CODING_AI_MODE ? previousResponseId : "",
+      reasoningEffort: effectiveRuntime.reasoningEffort,
+      onDelta,
+      onReasoning,
+    });
   } catch (error) {
     const canFallbackCodingModel =
       aiMode === CODING_AI_MODE &&
@@ -2404,22 +2436,14 @@ async function executarComIA({
       planningResolution: "coding-model-fallback",
     };
 
-    result = aiMode === CODING_AI_MODE
-      ? await fetchResponsesCompletionStream({
-          model: effectiveRuntime.requestModel,
-          instructions: promptApplied,
-          input: buildResponsesApiInput(input, attachments),
-          previousResponseId,
-          onDelta,
-        })
-      : await fetchChatCompletion({
-          model: effectiveRuntime.requestModel,
-          reasoningEffort: effectiveRuntime.reasoningEffort,
-          messages: [
-            { role: "system", content: promptApplied },
-            { role: "user", content: userMessageContent },
-          ],
-        });
+    result = await fetchResponsesCompletionStream({
+      model: effectiveRuntime.requestModel,
+      instructions: promptApplied,
+      input: buildResponsesApiInput(input, attachments),
+      previousResponseId,
+      onDelta,
+      onReasoning,
+    });
   }
 
   const custo = estimateCost(effectiveRuntime.requestModel, result.inputTokens, result.outputTokens);
@@ -2436,6 +2460,7 @@ async function executarComIA({
     planningModeReal: effectiveRuntime.planningModeReal,
     planningResolution: effectiveRuntime.planningResolution,
     responseId: result.id || "",
+    reasoningText: result.reasoningText || "",
   };
 }
 
@@ -2518,8 +2543,11 @@ function App() {
   const [timeMissionIdx, setTimeMissionIdx] = useState(null);
   const [missionInput, setMissionInput] = useState("");
   const [missionAttachments, setMissionAttachments] = useState([]);
+  const [activePrompt, setActivePrompt] = useState("");
+  const [activeAttachments, setActiveAttachments] = useState([]);
   const [running, setRunning] = useState(false);
   const [runState, setRunState] = useState(null);
+  const liveAnswerRef = useRef(null);
   const [runError, setRunError] = useState("");
   const [toastText, setToastText] = useState("");
   const [newEventOpen, setNewEventOpen] = useState(false);
@@ -3051,7 +3079,7 @@ function App() {
     }, 15000);
 
     return () => window.clearInterval(timer);
-  }, [activeStudentName, screen, team?.name, teamEvent, timeTeamIdx]);
+  }, [activeStudentName, screen, team?.name, teamEvent?.id, timeTeamIdx]);
 
 
   const openEventsForTeamEntry = useMemo(
@@ -3085,6 +3113,7 @@ function App() {
     setStore((current) => {
       const previousEvents = current.events || [];
       const nextEvents = updater(previousEvents);
+      if (nextEvents === previousEvents) return current;
       return {
         ...current,
         events: stampUpdatedEvents(previousEvents, nextEvents),
@@ -3095,24 +3124,27 @@ function App() {
   function markTeamPresence(eventId, teamIdx, memberName) {
     if (!eventId || teamIdx === null || teamIdx === undefined) return;
     const normalizedName = normalizeStudentName(memberName || "");
-    const lastSeenAt = new Date().toISOString();
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id === eventId
-          ? {
-              ...event,
-              presenceMap: {
-                ...(event.presenceMap || {}),
-                [teamIdx]: {
-                  teamIdx,
-                  memberName: normalizedName || event.teams?.[teamIdx]?.name || `Time ${Number(teamIdx) + 1}`,
-                  lastSeenAt,
-                },
-              },
-            }
-          : event,
-      ),
-    );
+    const now = Date.now();
+    updateEvents((current) => {
+      let changed = false;
+      const next = current.map((event) => {
+        if (event.id !== eventId) return event;
+        const existing = event.presenceMap?.[teamIdx];
+        const nextName = normalizedName || event.teams?.[teamIdx]?.name || `Time ${Number(teamIdx) + 1}`;
+        if (existing && existing.memberName === nextName && now - new Date(existing.lastSeenAt).getTime() < 10000) {
+          return event;
+        }
+        changed = true;
+        return {
+          ...event,
+          presenceMap: {
+            ...(event.presenceMap || {}),
+            [teamIdx]: { teamIdx, memberName: nextName, lastSeenAt: new Date(now).toISOString() },
+          },
+        };
+      });
+      return changed ? next : current;
+    });
   }
 
   function showToast(message) {
@@ -4671,6 +4703,11 @@ function App() {
       return;
     }
 
+    setActivePrompt(input);
+    setActiveAttachments(attachments);
+    setMissionInput("");
+    setMissionAttachments([]);
+
     setRunning(true);
     setRunError("");
     setMissionFlow({ stage: "executando", exec: null });
@@ -4679,6 +4716,7 @@ function App() {
       stepIndex: 0,
       displayedOutput: "",
       fullOutput: "",
+      reasoningText: "",
       processingSteps: buildRunSteps(apiConfigured),
       reasoningDetails: null,
       usedHistory: historyContext.length > 0,
@@ -4737,24 +4775,14 @@ function App() {
             planningMode: store.planningMode,
             historyContext,
             previousResponseId: previousCodingResponseId,
-            onDelta: shouldStreamCoding
+            onDelta: apiConfigured
               ? (nextText) => {
-                  setRunState((current) =>
-                    current
-                      ? {
-                          ...current,
-                          phase: "gerando",
-                          stepIndex: 2,
-                          displayedOutput: nextText,
-                          fullOutput: nextText,
-                          outputTokens: estimateStreamedOutputTokens(nextText),
-                          processingSteps: current.processingSteps.map((step, stepIndex) => ({
-                            ...step,
-                            status: stepIndex < 2 ? "done" : stepIndex === 2 ? "active" : "pending",
-                          })),
-                        }
-                      : current,
-                  );
+                  liveAnswerRef.current?.pushAnswer(nextText);
+                }
+              : undefined,
+            onReasoning: apiConfigured
+              ? (nextReasoning) => {
+                  liveAnswerRef.current?.pushReasoning(nextReasoning);
                 }
               : undefined,
           })
@@ -4775,7 +4803,7 @@ function App() {
               stepIndex: 2,
               fullOutput: result.output,
               inputTokens: result.inputTokens,
-              outputTokens: shouldStreamCoding ? result.outputTokens : 0,
+              outputTokens: result.outputTokens,
               custo: result.custo,
               reasoningDetails: null,
               processingSteps: current.processingSteps.map((step, stepIndex) => ({
@@ -4786,22 +4814,13 @@ function App() {
           : current,
       );
 
-      if (!shouldStreamCoding) {
+      if (!apiConfigured) {
         let cursor = 0;
-        const chunkSize = apiConfigured ? 42 : 30;
+        const chunkSize = 30;
         while (cursor < result.output.length) {
           cursor = Math.min(result.output.length, cursor + chunkSize);
-          const nextText = result.output.slice(0, cursor);
-          setRunState((current) =>
-            current
-              ? {
-                  ...current,
-                  displayedOutput: nextText,
-                  outputTokens: Math.round((cursor / result.output.length) * result.outputTokens),
-                }
-              : current,
-          );
-          await sleep(apiConfigured ? 12 : 75);
+          liveAnswerRef.current?.pushAnswer(result.output.slice(0, cursor));
+          await sleep(40);
         }
       }
 
@@ -4887,6 +4906,7 @@ function App() {
         selectedModel: result.selectedModel || store.model,
         effectiveModel: result.effectiveModel || store.model,
         codingResponseId: result.responseId || "",
+        reasoningText: result.reasoningText || "",
         planningMode: store.planningMode,
         planningModeReal: Boolean(result.planningModeReal),
         planningResolution: result.planningResolution || "off",
@@ -4921,8 +4941,6 @@ function App() {
           }),
         );
       }
-      setMissionInput("");
-      setMissionAttachments([]);
       setRunState(null);
       setMissionFlow({ stage: "cot_aberto", exec: execRecord });
       showToast(apiConfigured ? "Execucao concluida" : "Execucao simulada");
@@ -4989,6 +5007,8 @@ function App() {
       setRunError("Falha ao executar com IA. Verifique a chave, o modelo ou a conexao.");
       setRunState(null);
       setMissionFlow({ stage: "idle", exec: null });
+      setMissionInput(input);
+      setMissionAttachments(attachments);
       console.error(error);
     } finally {
       setRunning(false);
@@ -6744,9 +6764,10 @@ function App() {
                         <div className="prompt-composer">
                           <PromptConversation
                             execs={currentExecs}
-                            pendingPrompt={missionInput}
-                            pendingAttachments={missionAttachments}
+                            pendingPrompt={activePrompt}
+                            pendingAttachments={activeAttachments}
                             runState={running ? runState : null}
+                            liveAnswerRef={liveAnswerRef}
                           />
                           {!isTrainingEvent ? (
                             <div className="prompt-composer-top-actions">
@@ -6792,6 +6813,7 @@ function App() {
                             <textarea
                               value={missionInput}
                               onChange={(event) => setMissionInput(event.target.value)}
+                              disabled={running || teamTimerLockActive}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter" && !event.shiftKey) {
                                   event.preventDefault();
@@ -7749,6 +7771,58 @@ function TransparencyPanel({ exec, open, onToggle, forceOpen = false }) {
   );
 }
 
+function ReasoningPanel({ text, live = false }) {
+  const [open, setOpen] = useState(live);
+  const [userToggled, setUserToggled] = useState(false);
+
+  useEffect(() => {
+    if (!userToggled) setOpen(live);
+  }, [live, userToggled]);
+
+  if (!text) return null;
+
+  return (
+    <div className={`reasoning-panel${live ? " is-live" : ""}`}>
+      <button
+        type="button"
+        className="reasoning-toggle"
+        onClick={() => {
+          setUserToggled(true);
+          setOpen((value) => !value);
+        }}
+      >
+        {live ? (
+          <span className="thinking-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        ) : null}
+        <span className="reasoning-toggle-label">{live ? "Pensando" : "Raciocínio"}</span>
+        <span className="reasoning-toggle-caret">{open ? "▴" : "▾"}</span>
+      </button>
+      {open ? (
+        <div className="reasoning-body">
+          <MarkdownMessage text={text} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ThinkingIndicator({ label = "Pensando" }) {
+  return (
+    <div className="thinking-indicator" role="status" aria-live="polite">
+      <span className="thinking-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="thinking-label">{label}</span>
+    </div>
+  );
+}
+
 function LiveRunCard({ runState }) {
   return (
     <div className="output-card live-run-card">
@@ -7868,20 +7942,58 @@ function GeneratedArtifactsPanel({ exec, compact = false }) {
   );
 }
 
-function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState }) {
+const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpdate }, ref) {
+  const [answer, setAnswer] = useState("");
+  const [reasoning, setReasoning] = useState("");
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      pushAnswer: (text) => setAnswer(text),
+      pushReasoning: (text) => setReasoning(text),
+      reset: () => {
+        setAnswer("");
+        setReasoning("");
+      },
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    onUpdate?.();
+  }, [answer, reasoning, onUpdate]);
+
+  return (
+    <>
+      {reasoning ? <ReasoningPanel text={reasoning} live={!answer} /> : null}
+      {answer ? (
+        <>
+          <MarkdownMessage text={answer} />
+          <span className="streaming-cursor" />
+        </>
+      ) : !reasoning ? (
+        <ThinkingIndicator label={simulationMode === "openai-live" ? "Pensando" : "Preparando resposta"} />
+      ) : null}
+    </>
+  );
+});
+
+function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState, liveAnswerRef }) {
   const hasHistory = execs.length > 0;
   const hasPending = Boolean(runState && (pendingPrompt.trim() || pendingAttachments.length));
   const threadRef = useRef(null);
-  const outputSignal = runState?.displayedOutput || "";
 
-  useEffect(() => {
+  const scrollToBottom = useCallback(() => {
     const node = threadRef.current;
     if (!node) return;
-    const frame = requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
       node.scrollTop = node.scrollHeight;
     });
-    return () => cancelAnimationFrame(frame);
-  }, [execs.length, hasPending, outputSignal]);
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [execs.length, hasPending, scrollToBottom]);
 
   return (
     <div className={`prompt-thread${!hasHistory && !hasPending ? " is-empty" : ""}`} ref={threadRef}>
@@ -7903,6 +8015,7 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
                 <span>{exec.tokens?.toLocaleString() || 0} tokens</span>
               </div>
               {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
+              {exec.reasoningText ? <ReasoningPanel text={exec.reasoningText} /> : null}
               <MarkdownMessage text={exec.output} />
               <GeneratedArtifactsPanel exec={exec} compact />
             </div>
@@ -7930,12 +8043,7 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
               <div className="context-banner">Esta nova resposta está considerando o histórico anterior desta missão.</div>
             ) : null}
             <div className="prompt-thread-text is-live">
-              {runState?.displayedOutput ? (
-                <MarkdownMessage text={runState.displayedOutput} />
-              ) : (
-                runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA..."
-              )}
-              <span className="streaming-cursor" />
+              <LiveAnswer ref={liveAnswerRef} simulationMode={runState?.simulationMode} onUpdate={scrollToBottom} />
             </div>
           </div>
         </div>
@@ -7949,7 +8057,8 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
 function ComposerResponseInline({ exec, runState, onOpenExplanation }) {
   const isRunning = Boolean(runState);
   const responseContent = isRunning ? (runState?.displayedOutput || "") : (exec?.output || "");
-  const responsePlaceholder = runState?.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA...";
+  const reasoningText = isRunning ? (runState?.reasoningText || "") : (exec?.reasoningText || "");
+  const thinkingLabel = runState?.simulationMode === "openai-live" ? "Pensando" : "Preparando resposta";
 
   if (!isRunning && !exec) return null;
 
@@ -7972,9 +8081,16 @@ function ComposerResponseInline({ exec, runState, onOpenExplanation }) {
             {isRunning && runState?.usedHistory ? "Esta nova resposta está considerando o histórico anterior desta missão." : exec?.historySignal}
           </div>
         ) : null}
+        {reasoningText ? <ReasoningPanel text={reasoningText} live={isRunning && !responseContent} /> : null}
         <div className={`output-text${isRunning ? " output-text-live" : ""}`}>
-          {responseContent ? <MarkdownMessage text={responseContent} /> : (isRunning ? responsePlaceholder : null)}
-          {isRunning ? <span className="streaming-cursor" /> : null}
+          {responseContent ? (
+            <>
+              <MarkdownMessage text={responseContent} />
+              {isRunning ? <span className="streaming-cursor" /> : null}
+            </>
+          ) : (
+            isRunning && !reasoningText ? <ThinkingIndicator label={thinkingLabel} /> : null
+          )}
         </div>
         {!isRunning && exec && onOpenExplanation ? (
           <div className="prompt-composer-response-actions">
@@ -8372,6 +8488,7 @@ function OutputCard({ exec, compact = false }) {
       <div className="output-body">
         {exec.processingSteps?.length ? <ProcessingPipeline processingSteps={exec.processingSteps} /> : null}
         {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
+        {exec.reasoningText ? <ReasoningPanel text={exec.reasoningText} /> : null}
         <MarkdownMessage text={exec.output} />
         <GeneratedArtifactsPanel exec={exec} compact={compact} />
       </div>

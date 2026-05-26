@@ -2895,7 +2895,7 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
   }
 }
 
-.markdown-body{font-size:13.5px;line-height:1.65;color:var(--text);word-break:break-word;overflow-wrap:anywhere}
+.markdown-body{font-size:13.5px;line-height:1.65;color:var(--text);word-break:break-word;overflow-wrap:anywhere;white-space:normal}
 .markdown-body>*:first-child{margin-top:0}
 .markdown-body>*:last-child{margin-bottom:0}
 .markdown-body p{margin:.6em 0}

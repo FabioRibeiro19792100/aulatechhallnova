@@ -177,6 +177,43 @@ const EXPLICACOES = {
     "Estratégia: abordagem orientada a implementação. A IA lê o pedido como problema técnico, prioriza debugging, arquitetura, refatoração e exemplos concretos, e tenta responder com passos reproduzíveis e decisões de engenharia justificadas.",
 };
 
+const ANALYSIS_NOT_APPLICABLE = "não aplicável nesta rodada";
+const TECHNICAL_PANEL_BLOCKS = {
+  promptReading: {
+    index: "①",
+    title: "LEITURA DO PROMPT",
+    anchor: "Como o modelo interpretou o que foi escrito. Todo prompt passa por três camadas de leitura antes de gerar uma resposta.",
+  },
+  chainOfThought: {
+    index: "②",
+    title: "CHAIN OF THOUGHT",
+    anchor:
+      "Cadeia de raciocínio. Modelos de linguagem não pensam de forma linear, mas é possível reconstruir as etapas de interpretação e escolha que guiaram a resposta gerada.",
+    expanded:
+      "Cada etapa do chain of thought representa uma decisão implícita do modelo: o que considerar, o que descartar, qual estratégia adotar. Tornar isso visível é o que diferencia um usuário avançado de um iniciante.",
+  },
+  responseConstruction: {
+    index: "③",
+    title: "CONSTRUÇÃO DA RESPOSTA",
+    anchor: "Como a resposta foi montada: tom, formato, extensão e conceitos ativados.",
+  },
+  outputEvaluation: {
+    index: "④",
+    title: "AVALIAÇÃO DA SAÍDA",
+    anchor: "Análise crítica do que foi entregue em relação ao que foi pedido.",
+  },
+  nextStep: {
+    index: "⑤",
+    title: "PRÓXIMO PASSO SUGERIDO",
+    anchor: "Sugestões concretas para o aluno evoluir o prompt e obter respostas mais precisas.",
+  },
+  glossary: {
+    index: "⑥",
+    title: "GLOSSÁRIO DA RODADA",
+    anchor: "Termos técnicos usados nesta análise.",
+  },
+};
+
 const STORE = "techhall:v3";
 const MODEL_OPTIONS = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-5-mini", "gpt-5"];
 const MODEL_PRICING = {
@@ -337,6 +374,7 @@ function makeEvent({ name, desc, rawTeams }) {
     questionariosPendentes: {},
     conclusoes: {},
     preservedMissionUsage: {},
+    missionGlossaries: {},
     missionTokenPolicies: {},
     tokenGrants: [],
     tokenOperationalLogs: [],
@@ -383,6 +421,10 @@ function makeDevLabEvent() {
 
 function getEventMode(evento) {
   return evento?.eventMode || MISSIONS_MODE_EVENT;
+}
+
+function isEventHidden(evento) {
+  return Boolean(evento?.hiddenAt);
 }
 
 function getExecucoes(evento, teamIdx, missionId) {
@@ -447,9 +489,23 @@ function getMissionUsageKey(teamIdx, missionId) {
   return `${teamIdx}__${missionId}`;
 }
 
+function getMissionGlossaryKey(teamIdx, missionId) {
+  return `${teamIdx}__${missionId}`;
+}
+
 function getTokenMissionId(missionId, { isTraining = false } = {}) {
   if (isTraining || missionId === TRAINING_THREAD_ID) return TOKEN_MISSION_TRAINING_ID;
   return missionId;
+}
+
+function getAnalysisMissionId(missionId, { isTraining = false } = {}) {
+  if (isTraining || missionId === TRAINING_THREAD_ID || !missionId) return TRAINING_THREAD_ID;
+  return missionId;
+}
+
+function getMissionGlossary(evento, teamIdx, missionId, { isTraining = false } = {}) {
+  const analysisMissionId = getAnalysisMissionId(missionId, { isTraining });
+  return evento?.missionGlossaries?.[getMissionGlossaryKey(teamIdx, analysisMissionId)] || [];
 }
 
 function getPreservedMissionUsage(evento, teamIdx, missionId) {
@@ -1158,6 +1214,15 @@ function mergeTokenOperationalLogs(remoteItems = [], localItems = []) {
   return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
 }
 
+function mergeMissionGlossaries(remoteGlossaries = {}, localGlossaries = {}) {
+  const keys = new Set([...Object.keys(remoteGlossaries || {}), ...Object.keys(localGlossaries || {})]);
+  const merged = {};
+  keys.forEach((key) => {
+    merged[key] = mergeGlossaryEntries(remoteGlossaries?.[key] || [], localGlossaries?.[key] || []);
+  });
+  return merged;
+}
+
 function mergeScreenShareState(remoteState = {}, localState = {}) {
   return pickLatestByTimestamp(remoteState, localState, ["startedAt", "endedAt"]);
 }
@@ -1194,6 +1259,7 @@ function mergeEventEntity(remoteEvent, localEvent) {
       ...(remoteEvent.preservedMissionUsage || {}),
       ...(localEvent.preservedMissionUsage || {}),
     },
+    missionGlossaries: mergeMissionGlossaries(remoteEvent.missionGlossaries, localEvent.missionGlossaries),
     missionTokenPolicies: mergeTokenPolicies(remoteEvent.missionTokenPolicies, localEvent.missionTokenPolicies),
     tokenGrants: mergeTokenGrants(remoteEvent.tokenGrants, localEvent.tokenGrants),
     tokenOperationalLogs: mergeTokenOperationalLogs(remoteEvent.tokenOperationalLogs, localEvent.tokenOperationalLogs),
@@ -1282,6 +1348,7 @@ function migrateEventToFixedMissions(event) {
     announcements,
     announcement: null,
     sessionTimerNotice: event.sessionTimerNotice || null,
+    missionGlossaries: event.missionGlossaries || {},
     missionTokenPolicies: event.missionTokenPolicies || {},
     tokenGrants: event.tokenGrants || [],
     tokenOperationalLogs: event.tokenOperationalLogs || [],
@@ -1314,6 +1381,7 @@ function migrateEventToFixedMissions(event) {
     questionariosPendentes: alreadyCanonical ? baseEvent.questionariosPendentes || {} : {},
     conclusoes: alreadyCanonical ? baseEvent.conclusoes || {} : {},
     preservedMissionUsage: alreadyCanonical ? baseEvent.preservedMissionUsage || {} : {},
+    missionGlossaries: alreadyCanonical ? baseEvent.missionGlossaries || {} : {},
     helpRequests: alreadyCanonical ? baseEvent.helpRequests || [] : [],
     helpDisabledMap: alreadyCanonical ? baseEvent.helpDisabledMap || {} : {},
   };
@@ -1539,6 +1607,257 @@ function buildHistoryContext(execs) {
 function buildHistorySignal(historyContext) {
   if (!historyContext.length) return "Esta resposta foi gerada como uma primeira rodada desta missao.";
   return `Esta resposta considerou ${historyContext.length} execu${historyContext.length === 1 ? "cao anterior" : "coes anteriores"} desta missao.`;
+}
+
+function isMeaningfulAnalysisText(value) {
+  const normalized = `${value || ""}`.trim();
+  if (!normalized) return false;
+  return normalized.toLowerCase() !== ANALYSIS_NOT_APPLICABLE.toLowerCase();
+}
+
+function normalizeAnalysisItemArray(value) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value
+          .split(/\n+/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
+  const normalized = values.map((item) => `${item || ""}`.trim()).filter(Boolean);
+  return normalized.length ? normalized : [ANALYSIS_NOT_APPLICABLE];
+}
+
+function normalizeGlossaryEntries(entries = []) {
+  const source = Array.isArray(entries) ? entries : [];
+  return source
+    .map((entry) => {
+      if (typeof entry === "string") {
+        const term = entry.trim();
+        return term ? { term, definition: "Definição não informada nesta rodada." } : null;
+      }
+      const term = `${entry?.term || entry?.name || ""}`.trim();
+      const definition = `${entry?.definition || entry?.meaning || entry?.explanation || ""}`.trim();
+      if (!term) return null;
+      return {
+        term,
+        definition: definition || "Definição não informada nesta rodada.",
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeGlossaryEntries(existingEntries = [], nextEntries = []) {
+  const merged = new globalThis.Map();
+  [...normalizeGlossaryEntries(existingEntries), ...normalizeGlossaryEntries(nextEntries)].forEach((entry) => {
+    const key = entry.term.toLowerCase();
+    if (!merged.has(key)) {
+      merged.set(key, entry);
+      return;
+    }
+    const previous = merged.get(key);
+    const previousDefinition = `${previous?.definition || ""}`.trim();
+    if (!previousDefinition || previousDefinition === "Definição não informada nesta rodada.") {
+      merged.set(key, entry);
+    }
+  });
+  return [...merged.values()];
+}
+
+function buildTechnicalAnalysisFallbackBlocks() {
+  return {
+    promptReading: {
+      explicit: [ANALYSIS_NOT_APPLICABLE],
+      inferred: [ANALYSIS_NOT_APPLICABLE],
+      assumed: [ANALYSIS_NOT_APPLICABLE],
+      ambiguities: [ANALYSIS_NOT_APPLICABLE],
+    },
+    chainOfThought: {
+      contextConsidered: [ANALYSIS_NOT_APPLICABLE],
+      strategyChosen: [ANALYSIS_NOT_APPLICABLE],
+      discarded: [ANALYSIS_NOT_APPLICABLE],
+      expandedExplanation: ANALYSIS_NOT_APPLICABLE,
+    },
+    responseConstruction: {
+      toneAndFormat: [ANALYSIS_NOT_APPLICABLE],
+      conceptsActivated: [ANALYSIS_NOT_APPLICABLE],
+      generationLimitations: [ANALYSIS_NOT_APPLICABLE],
+    },
+    outputEvaluation: {
+      whatWorked: [ANALYSIS_NOT_APPLICABLE],
+      whatStayedGeneric: [ANALYSIS_NOT_APPLICABLE],
+      gapBetweenRequestAndDelivery: [ANALYSIS_NOT_APPLICABLE],
+    },
+    nextStep: {
+      howToReformulate: [ANALYSIS_NOT_APPLICABLE],
+      whatToTestNext: [ANALYSIS_NOT_APPLICABLE],
+    },
+  };
+}
+
+function normalizeTechnicalAnalysis(details = {}, { historyContext = [], accumulatedGlossary = [] } = {}) {
+  const fallbackBlocks = buildTechnicalAnalysisFallbackBlocks();
+  const legacyPromptBreakdown = Array.isArray(details.promptBreakdown) ? details.promptBreakdown : [];
+  const legacyConcepts = Array.isArray(details.conceptsAndTerminologies) ? details.conceptsAndTerminologies : [];
+  const legacyConstruction = details.constructionProcess || {};
+  const legacyInferredPoints = Array.isArray(legacyConstruction.inferredPoints) ? legacyConstruction.inferredPoints : [];
+  const legacyAssumptions = Array.isArray(legacyConstruction.assumptionsMade) ? legacyConstruction.assumptionsMade : [];
+  const legacyAmbiguities = Array.isArray(legacyConstruction.ambiguities) ? legacyConstruction.ambiguities : [];
+  const historyFallback = details.usedHistoryContext || historyContext.length > 0 ? [details.historySignal || buildHistorySignal(historyContext)] : [];
+  const contextFallback = isMeaningfulAnalysisText(details.contextUse) ? [details.contextUse] : historyFallback;
+  const explicitFallback = legacyPromptBreakdown
+    .filter((item) => `${item.segment || ""}`.toLowerCase().includes("exp"))
+    .map((item) => item.function || item.segment)
+    .filter(Boolean);
+  const inferredFallback = legacyInferredPoints.length
+    ? legacyInferredPoints
+    : isMeaningfulAnalysisText(details.objectiveInterpreted)
+      ? [details.objectiveInterpreted]
+      : [];
+  const roundGlossary = normalizeGlossaryEntries(
+    details.glossary?.round ||
+      details.glossary ||
+      details.technicalTerms ||
+      legacyConcepts.map((item) => ({
+        term: item.term || item.name || item.segment,
+        definition: item.meaning || item.function || item.relevance,
+      })),
+  );
+  const glossaryAccumulated = mergeGlossaryEntries(accumulatedGlossary, roundGlossary);
+
+  const normalized = {
+    ...details,
+    promptReading: {
+      explicit: normalizeAnalysisItemArray(details.promptReading?.explicit?.length ? details.promptReading.explicit : explicitFallback),
+      inferred: normalizeAnalysisItemArray(details.promptReading?.inferred?.length ? details.promptReading.inferred : inferredFallback),
+      assumed: normalizeAnalysisItemArray(details.promptReading?.assumed?.length ? details.promptReading.assumed : legacyAssumptions),
+      ambiguities: normalizeAnalysisItemArray(details.promptReading?.ambiguities?.length ? details.promptReading.ambiguities : legacyAmbiguities),
+    },
+    chainOfThought: {
+      contextConsidered: normalizeAnalysisItemArray(
+        details.chainOfThought?.contextConsidered?.length ? details.chainOfThought.contextConsidered : contextFallback,
+      ),
+      strategyChosen: normalizeAnalysisItemArray(
+        details.chainOfThought?.strategyChosen || details.strategyUsed || details.strategy,
+      ),
+      discarded: normalizeAnalysisItemArray(
+        details.chainOfThought?.discarded || details.alternativeAnswerPaths || details.limitationsAndGaps,
+      ),
+      expandedExplanation: `${details.chainOfThought?.expandedExplanation || details.summary || details.mechanismSummary || details.whyThisAnswer || ""}`.trim() ||
+        ANALYSIS_NOT_APPLICABLE,
+    },
+    responseConstruction: {
+      toneAndFormat: normalizeAnalysisItemArray(
+        details.responseConstruction?.toneAndFormat ||
+          (isMeaningfulAnalysisText(details.actionInfluence) ? [details.actionInfluence] : []),
+      ),
+      conceptsActivated: normalizeAnalysisItemArray(
+        details.responseConstruction?.conceptsActivated ||
+          legacyConcepts.map((item) => item.term || item.name).filter(Boolean),
+      ),
+      generationLimitations: normalizeAnalysisItemArray(
+        details.responseConstruction?.generationLimitations || details.limitations || details.limitationsAndGaps,
+      ),
+    },
+    outputEvaluation: {
+      whatWorked: normalizeAnalysisItemArray(
+        details.outputEvaluation?.whatWorked ||
+          (isMeaningfulAnalysisText(details.whyThisAnswer) ? [details.whyThisAnswer] : []),
+      ),
+      whatStayedGeneric: normalizeAnalysisItemArray(
+        details.outputEvaluation?.whatStayedGeneric || details.limitationsAndGaps || details.limitations,
+      ),
+      gapBetweenRequestAndDelivery: normalizeAnalysisItemArray(
+        details.outputEvaluation?.gapBetweenRequestAndDelivery || details.limitationsAndGaps,
+      ),
+    },
+    nextStep: {
+      howToReformulate: normalizeAnalysisItemArray(
+        details.nextStep?.howToReformulate || details.refinementSuggestions || details.howToAskBetter,
+      ),
+      whatToTestNext: normalizeAnalysisItemArray(details.nextStep?.whatToTestNext || details.bestPractices),
+    },
+    glossary: {
+      round: roundGlossary,
+      accumulated: glossaryAccumulated,
+    },
+  };
+
+  Object.keys(fallbackBlocks).forEach((blockKey) => {
+    normalized[blockKey] = normalized[blockKey] || fallbackBlocks[blockKey];
+  });
+
+  return {
+    ...normalized,
+    objectiveInterpreted:
+      normalized.promptReading.explicit.find(isMeaningfulAnalysisText) ||
+      normalized.promptReading.inferred.find(isMeaningfulAnalysisText) ||
+      details.objectiveInterpreted ||
+      ANALYSIS_NOT_APPLICABLE,
+    strategyUsed:
+      normalized.chainOfThought.strategyChosen.find(isMeaningfulAnalysisText) ||
+      details.strategyUsed ||
+      ANALYSIS_NOT_APPLICABLE,
+    promptBreakdown:
+      legacyPromptBreakdown.length
+        ? legacyPromptBreakdown
+        : [
+            { segment: "Explícito", function: normalized.promptReading.explicit.join(" • ") },
+            { segment: "Inferido", function: normalized.promptReading.inferred.join(" • ") },
+            { segment: "Assumido", function: normalized.promptReading.assumed.join(" • ") },
+            { segment: "Ambiguidades", function: normalized.promptReading.ambiguities.join(" • ") },
+          ],
+    conceptsAndTerminologies:
+      legacyConcepts.length
+        ? legacyConcepts
+        : normalized.glossary.round.map((item) => ({
+            term: item.term,
+            meaning: item.definition,
+          })),
+    constructionProcess: {
+      explicitRequests: normalized.promptReading.explicit,
+      inferredPoints: normalized.promptReading.inferred,
+      assumptionsMade: normalized.promptReading.assumed,
+      ambiguities: normalized.promptReading.ambiguities,
+    },
+    limitationsAndGaps: normalized.outputEvaluation.whatStayedGeneric,
+    refinementSuggestions: [
+      ...normalized.nextStep.howToReformulate,
+      ...normalized.nextStep.whatToTestNext,
+    ].filter((item, index, array) => array.indexOf(item) === index),
+    contextUse: normalized.chainOfThought.contextConsidered.join(" • "),
+    technicalTerms: normalized.glossary.accumulated.map((item) => ({
+      term: item.term,
+      meaning: item.definition,
+    })),
+    mechanismSummary: normalized.chainOfThought.expandedExplanation,
+    summary: normalized.chainOfThought.expandedExplanation,
+    selectionLogic: normalized.chainOfThought.strategyChosen.join(" • "),
+    whyThisAnswer: normalized.outputEvaluation.whatWorked.join(" • "),
+    alternativeAnswerPaths: normalized.chainOfThought.discarded,
+    actionInfluence: normalized.responseConstruction.toneAndFormat.join(" • "),
+    limitations: normalized.responseConstruction.generationLimitations.join(" • "),
+    howToAskBetter: normalized.nextStep.howToReformulate,
+    bestPractices: normalized.nextStep.whatToTestNext,
+  };
+}
+
+function getTechnicalAnalysisLeadText(technicalAnalysis = {}) {
+  return (
+    technicalAnalysis.objectiveInterpreted ||
+    technicalAnalysis.unavailableReason ||
+    technicalAnalysis.promptReading?.explicit?.find(isMeaningfulAnalysisText) ||
+    ANALYSIS_NOT_APPLICABLE
+  );
+}
+
+function getTechnicalAnalysisReasoningSummary(technicalAnalysis = {}) {
+  return (
+    technicalAnalysis.strategyUsed ||
+    technicalAnalysis.chainOfThought?.strategyChosen?.find(isMeaningfulAnalysisText) ||
+    technicalAnalysis.unavailableReason ||
+    ANALYSIS_NOT_APPLICABLE
+  );
 }
 
 function isFreeInstructionAction(acao) {
@@ -1769,7 +2088,7 @@ function buildReasoningDetails({ mission, input, acao, historyContext, promptApp
 }
 
 function buildTechnicalAnalysisUnavailable({ apiConfigured, historyContext, reason = "" }) {
-  return {
+  return normalizeTechnicalAnalysis({
     unavailable: true,
     analysisTarget: "latest_prompt",
     usedHistoryContext: historyContext.length > 0,
@@ -1781,11 +2100,11 @@ function buildTechnicalAnalysisUnavailable({ apiConfigured, historyContext, reas
       (apiConfigured
         ? "A resposta principal foi gerada, mas a análise pedagógica desta rodada não pôde ser retornada pela API."
         : "Conecte a OpenAI para gerar a análise pedagógica desta rodada."),
-  };
+  }, { historyContext });
 }
 
 function buildTechnicalAnalysisPending({ historyContext }) {
-  return {
+  return normalizeTechnicalAnalysis({
     pending: true,
     analysisTarget: "latest_prompt",
     usedHistoryContext: historyContext.length > 0,
@@ -1793,7 +2112,7 @@ function buildTechnicalAnalysisPending({ historyContext }) {
     sourceLabel: "Análise técnica em processamento",
     sourceType: "openai-pending",
     unavailableReason: "A resposta principal já foi entregue. A análise técnica desta rodada ainda está sendo preparada.",
-  };
+  }, { historyContext });
 }
 
 function tryParseJson(text) {
@@ -2051,34 +2370,61 @@ function renderPreviewWindowPlaceholder(previewWindow, title, message) {
   );
 }
 
-async function gerarExplicacaoGuiadaIA({ model, mission, input, acao, output, historyContext }) {
-  const conceptGuide = (MISSION_CONCEPTS[mission.id] || [])
-    .map((concept) => `- ${concept.name}: ${concept.explanation}`)
-    .join("\n");
+async function gerarExplicacaoGuiadaIA({ model, mission, input, attachments = [], acao, output, historyContext }) {
   const historySignal = buildHistorySignal(historyContext);
   const compactHistory = historyContext.slice(-2).map((item) => truncateForAnalysis(item, 260));
   const historyBlock = compactHistory.length
     ? compactHistory.map((item, index) => `Rodada ${index + 1}: ${item}`).join("\n\n")
     : "Sem histórico anterior nesta missão.";
+  const attachmentSummary = attachments.length
+    ? attachments.map((attachment, index) => `Arquivo ${index + 1}: ${attachment.name} (${attachment.kind})`).join("\n")
+    : "Sem arquivos anexados nesta rodada.";
   const aiMode = getMissionAiMode(mission);
   const analysisModel = TECHNICAL_ANALYSIS_MODEL;
   const prompt = [
-    "Você é um analisador pedagógico de prompts e respostas.",
-    "Gere uma análise técnica e didática curta da resposta produzida pela IA.",
-    "O objeto principal da análise é sempre o ÚLTIMO prompt enviado pelo usuário nesta rodada.",
-    "O histórico anterior da missão deve entrar apenas como contexto secundário de continuidade, nunca como pedido principal.",
-    "Diferencie claramente fatos explícitos do prompt atual, inferências sustentadas pelo contexto e suposições necessárias.",
-    "Seja compacto. Prefira listas curtas e trechos objetivos.",
-    "Retorne JSON válido com estas chaves:",
-    "objectiveInterpreted, strategyUsed, promptBreakdown, conceptsAndTerminologies, constructionProcess, limitationsAndGaps, refinementSuggestions, contextUse",
-    "objectiveInterpreted: 1 frase.",
-    "strategyUsed: 1 ou 2 frases.",
-    "promptBreakdown: no máximo 3 itens.",
-    "conceptsAndTerminologies: no máximo 3 itens, só se úteis.",
-    "constructionProcess: objeto com arrays curtos explicitRequests, inferredPoints, assumptionsMade, ambiguities.",
-    "limitationsAndGaps: no máximo 3 itens.",
-    "refinementSuggestions: no máximo 3 itens.",
-    "contextUse: 1 frase.",
+    "Você é um sistema de análise pedagógica em tempo real.",
+    "Seu trabalho é explicar para o aluno, de forma técnica e didática, como a IA leu o prompt e construiu a resposta desta rodada.",
+    "O objeto principal da análise é sempre o ÚLTIMO prompt enviado nesta rodada.",
+    "O histórico anterior da missão entra apenas como contexto secundário.",
+    "Reconstrua o chain of thought de modo pedagógico. Nunca exponha raciocínio interno literal bruto.",
+    "Use linguagem direta e simples.",
+    `Quando faltar conteúdo em qualquer campo, use exatamente: "${ANALYSIS_NOT_APPLICABLE}".`,
+    "Retorne JSON válido, sem markdown, com esta estrutura exata:",
+    `{
+  "promptReading": {
+    "explicit": ["..."],
+    "inferred": ["..."],
+    "assumed": ["..."],
+    "ambiguities": ["..."]
+  },
+  "chainOfThought": {
+    "contextConsidered": ["..."],
+    "strategyChosen": ["..."],
+    "discarded": ["..."],
+    "expandedExplanation": "..."
+  },
+  "responseConstruction": {
+    "toneAndFormat": ["..."],
+    "conceptsActivated": ["..."],
+    "generationLimitations": ["..."]
+  },
+  "outputEvaluation": {
+    "whatWorked": ["..."],
+    "whatStayedGeneric": ["..."],
+    "gapBetweenRequestAndDelivery": ["..."]
+  },
+  "nextStep": {
+    "howToReformulate": ["..."],
+    "whatToTestNext": ["..."]
+  },
+  "glossary": {
+    "round": [
+      { "term": "...", "definition": "..." }
+    ]
+  }
+}`,
+    "Cada array deve ter no máximo 3 itens curtos.",
+    "Cada definição do glossário deve ter uma linha em linguagem simples.",
     aiMode === CODING_AI_MODE
       ? "Missão em modo coding: enfatize implementação, debugging, arquitetura e refatoração."
       : "Missão em modo chat: enfatize clareza estrutural, intenção do prompt e qualidade da resposta.",
@@ -2089,9 +2435,9 @@ async function gerarExplicacaoGuiadaIA({ model, mission, input, acao, output, hi
       : `Ação escolhida: ${getActionLabel(acao)}`,
     `Sinal de histórico: ${historySignal}`,
     `Último prompt do usuário (foco principal):\n${truncateForAnalysis(input, 1200)}`,
+    `Arquivos anexados considerados nesta rodada:\n${attachmentSummary}`,
     `Histórico anterior da missão (apenas contexto secundário):\n${historyBlock}`,
     `Resposta da IA para esta rodada:\n${truncateForAnalysis(output, 1600)}`,
-    conceptGuide ? `Conceitos sugeridos para esta missão:\n${conceptGuide}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -2113,7 +2459,7 @@ async function gerarExplicacaoGuiadaIA({ model, mission, input, acao, output, hi
 
   const parsed = tryParseJson(result.output) || tryParseJson(extractJsonObject(result.output));
   if (!parsed) return null;
-  return {
+  return normalizeTechnicalAnalysis({
     ...parsed,
     sourceType: "openai-guided",
     sourceLabel: "Análise pedagógica gerada com OpenAI",
@@ -2127,7 +2473,7 @@ async function gerarExplicacaoGuiadaIA({ model, mission, input, acao, output, hi
       cost: estimateCost(analysisModel, result.inputTokens, result.outputTokens),
       model: analysisModel,
     },
-  };
+  }, { historyContext });
 }
 
 async function fetchChatCompletion({ model, messages, reasoningEffort }) {
@@ -2828,11 +3174,18 @@ function App() {
   useEffect(() => {
     if (!isLocalDev) return;
     if (!(store.events || []).length) return;
-    if (!facSelectedId) setFacSelectedId(store.events[0].id);
-    if (!timeEventId) setTimeEventId(store.events[0].id);
+    const firstVisibleEvent = (store.events || []).find((event) => !isEventHidden(event));
+    if (!firstVisibleEvent) return;
+    if (!facSelectedId || !(store.events || []).some((event) => event.id === facSelectedId && !isEventHidden(event))) {
+      setFacSelectedId(firstVisibleEvent.id);
+    }
+    if (!timeEventId || !(store.events || []).some((event) => event.id === timeEventId && !isEventHidden(event))) {
+      setTimeEventId(firstVisibleEvent.id);
+    }
   }, [facSelectedId, isLocalDev, store.events, timeEventId]);
 
-  const events = store.events || [];
+  const allEvents = store.events || [];
+  const events = allEvents.filter((event) => !isEventHidden(event));
   const selectedEvent = events.find((event) => event.id === facSelectedId) || null;
   const teamEvent = events.find((event) => event.id === timeEventId) || null;
   const selectedEventMode = getEventMode(selectedEvent);
@@ -2857,6 +3210,27 @@ function App() {
   const teamTimerLockActive = isSessionTimerLockActive(teamEvent, clockNow);
   const selectedEventScreenShare = selectedEvent ? getScreenShareState(selectedEvent) : null;
   const teamEventScreenShare = teamEvent ? getScreenShareState(teamEvent) : null;
+
+  useEffect(() => {
+    if (!events.length) {
+      if (facSelectedId) setFacSelectedId(null);
+      if (timeEventId) {
+        setTimeEventId(null);
+        setTimeTeamIdx(null);
+        setTimeMissionIdx(null);
+      }
+      return;
+    }
+    if (facSelectedId && !events.some((event) => event.id === facSelectedId)) {
+      setFacSelectedId(events[0].id);
+    }
+    if (timeEventId && !events.some((event) => event.id === timeEventId)) {
+      setTimeEventId(null);
+      setTimeTeamIdx(null);
+      setTimeMissionIdx(null);
+      if (screen !== "home") setScreen("entry");
+    }
+  }, [events, facSelectedId, timeEventId, screen]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
   const currentExecs = currentMission && teamEvent
     ? isTrainingEvent
@@ -3373,6 +3747,7 @@ function App() {
       confirmLabel: options.confirmLabel || "Senha de confirmacao",
       confirmPlaceholder: options.confirmPlaceholder || "",
       confirmHint: options.confirmHint || "",
+      confirmActionLabel: options.confirmActionLabel || "Confirmar",
     });
   }
 
@@ -3390,10 +3765,21 @@ function App() {
       confirmLabel: "",
       confirmPlaceholder: "",
       confirmHint: "",
+      confirmActionLabel: "Confirmar",
     });
   }
 
-  function openDeleteConfirm({ eventId, title, body, onConfirm, onArchive, passwordMode = "event_code" }) {
+  function openDeleteConfirm({
+    eventId,
+    title,
+    body,
+    onConfirm,
+    onArchive,
+    passwordMode = "event_code",
+    confirmActionLabel = "Confirmar",
+    secondaryActionLabel = "Salvar histórico",
+    facilitatorHint = "Digite a mesma senha do facilitador para liberar esta exclusão.",
+  }) {
     const usesFacilitatorPassword = passwordMode === "facilitator";
     openConfirm(title, body, onConfirm, {
       requiresPassword: true,
@@ -3401,15 +3787,16 @@ function App() {
       confirmLabel: "Senha de seguranca",
       confirmPlaceholder: usesFacilitatorPassword ? "Digite a senha do facilitador" : `Digite o codigo do evento (${eventId})`,
       confirmHint: usesFacilitatorPassword
-        ? "Digite a mesma senha do facilitador para liberar esta exclusão."
+        ? facilitatorHint
         : "Digite exatamente o codigo do evento para liberar esta exclusao.",
       secondaryAction: onArchive
         ? {
-            label: "Salvar histórico",
+            label: secondaryActionLabel,
             className: "btn-primary",
             onClick: onArchive,
           }
         : null,
+      confirmActionLabel,
     });
   }
 
@@ -3568,10 +3955,19 @@ function App() {
       showToast("Não foi possível localizar o evento para excluir");
       return;
     }
-    const nextEventsSnapshot = currentEvents.filter((event) => event.id !== eventId);
+    const hiddenAt = new Date().toISOString();
+    const nextEventsSnapshot = currentEvents.map((event) =>
+      event.id !== eventId
+        ? event
+        : {
+            ...event,
+            hiddenAt,
+            hiddenReason: archive ? "archived" : "hidden",
+          },
+    );
     const archivedRecord = archive
       ? {
-          archivedAt: new Date().toISOString(),
+          archivedAt: hiddenAt,
           event: removedEvent,
         }
       : null;
@@ -3596,10 +3992,10 @@ function App() {
         lastRemoteEventsRef.current = JSON.stringify(normalizedEvents);
         await saveRemoteState(normalizedEvents);
       }
-      showToast(archive ? "Histórico do evento salvo" : "Evento excluido");
+      showToast(archive ? "Evento ocultado e histórico salvo" : "Evento ocultado da lista ativa");
     } catch (error) {
       console.error(error);
-      showToast(archive ? "Histórico salvo localmente, mas falhou na sincronização" : "Evento removido localmente, mas falhou na sincronização");
+      showToast(archive ? "Evento ocultado localmente e histórico salvo, mas falhou na sincronização" : "Evento ocultado localmente, mas falhou na sincronização");
     }
   }
 
@@ -3917,6 +4313,16 @@ function App() {
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
+        const isTraining = !missionId;
+        const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
+        const currentGlossary = getMissionGlossary(event, teamIdx, glossaryMissionId, { isTraining });
+        const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
+          accumulatedGlossary: currentGlossary,
+        });
+        const missionGlossaries = {
+          ...(event.missionGlossaries || {}),
+          [getMissionGlossaryKey(teamIdx, glossaryMissionId)]: normalizedAnalysis.glossary.accumulated,
+        };
         if (missionId) {
           const key = `${teamIdx}__${missionId}`;
           const execucoes = { ...(event.execucoes || {}) };
@@ -3925,15 +4331,14 @@ function App() {
               ? exec
               : {
                   ...exec,
-                  explicacao: technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.explicacao,
-                  reasoningSummary:
-                    technicalAnalysis.strategyUsed || technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.reasoningSummary,
-                  reasoningDetails: technicalAnalysis,
-                  technicalAnalysis,
+                  explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
+                  reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
+                  reasoningDetails: normalizedAnalysis,
+                  technicalAnalysis: normalizedAnalysis,
                   technicalAnalysisUsage,
                 },
           );
-          return { ...event, execucoes };
+          return { ...event, execucoes, missionGlossaries };
         }
 
         const key = `${teamIdx}`;
@@ -3943,18 +4348,20 @@ function App() {
             ? exec
             : {
                 ...exec,
-                explicacao: technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.explicacao,
-                reasoningSummary:
-                  technicalAnalysis.strategyUsed || technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || exec.reasoningSummary,
-                reasoningDetails: technicalAnalysis,
-                technicalAnalysis,
+                explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
+                reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
+                reasoningDetails: normalizedAnalysis,
+                technicalAnalysis: normalizedAnalysis,
                 technicalAnalysisUsage,
               },
         );
-        return { ...event, trainingRuns };
+        return { ...event, trainingRuns, missionGlossaries };
       }),
     );
 
+    const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
+      accumulatedGlossary: missionFlow.exec?.technicalAnalysis?.glossary?.accumulated || [],
+    });
     setMissionFlow((current) =>
       current.exec?.id !== execId
         ? current
@@ -3962,11 +4369,10 @@ function App() {
             ...current,
             exec: {
               ...current.exec,
-              explicacao: technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || current.exec.explicacao,
-              reasoningSummary:
-                technicalAnalysis.strategyUsed || technicalAnalysis.objectiveInterpreted || technicalAnalysis.unavailableReason || current.exec.reasoningSummary,
-              reasoningDetails: technicalAnalysis,
-              technicalAnalysis,
+              explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || current.exec.explicacao,
+              reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || current.exec.reasoningSummary,
+              reasoningDetails: normalizedAnalysis,
+              technicalAnalysis: normalizedAnalysis,
               technicalAnalysisUsage,
             },
           },
@@ -4710,7 +5116,17 @@ function App() {
 
     setRunning(true);
     setRunError("");
-    setMissionFlow({ stage: "executando", exec: null });
+    setMissionFlow({
+      stage: "executando",
+      exec: {
+        id: `pending_${Date.now()}`,
+        iterationNumber: currentExecs.length + 1,
+        historySignal: buildHistorySignal(historyContext),
+        technicalAnalysis: buildTechnicalAnalysisPending({
+          historyContext,
+        }),
+      },
+    });
     setRunState({
       phase: "analisando",
       stepIndex: 0,
@@ -4877,9 +5293,8 @@ function App() {
         actionMode: isFreeInstructionAction(acao) ? "free" : "preset",
         isFreeInstruction: isFreeInstructionAction(acao),
         output: result.output,
-        explicacao: initialTechnicalAnalysis.objectiveInterpreted || initialTechnicalAnalysis.unavailableReason || "",
-        reasoningSummary:
-          initialTechnicalAnalysis.strategyUsed || initialTechnicalAnalysis.objectiveInterpreted || initialTechnicalAnalysis.unavailableReason || "",
+        explicacao: getTechnicalAnalysisLeadText(initialTechnicalAnalysis),
+        reasoningSummary: getTechnicalAnalysisReasoningSummary(initialTechnicalAnalysis),
         reasoningDetails: initialTechnicalAnalysis,
         technicalAnalysis: initialTechnicalAnalysis,
         technicalAnalysisUsage: {
@@ -4950,6 +5365,7 @@ function App() {
           model: result.effectiveModel || store.model,
           mission: currentMission,
           input,
+          attachments,
           acao,
           output: result.output,
           historyContext,
@@ -6037,15 +6453,18 @@ function App() {
                             onClick={() =>
                               openDeleteConfirm({
                                 eventId: event.id,
-                                title: "Excluir evento",
-                                body: "Escolha se voce quer salvar o histórico deste evento antes de removê-lo da lista ativa, ou deletá-lo para sempre. Para liberar as duas opções, digite a senha do facilitador.",
+                                title: "Ocultar evento",
+                                body: "Escolha se você quer apenas ocultar este evento da lista ativa ou ocultar e salvar um histórico local antes disso. Para liberar as opções, digite a senha do facilitador.",
                                 onConfirm: () => handleDeleteEvent(event.id),
                                 onArchive: () => archiveEventSnapshot(event.id),
                                 passwordMode: "facilitator",
+                                confirmActionLabel: "Ocultar evento",
+                                secondaryActionLabel: "Ocultar e salvar histórico",
+                                facilitatorHint: "Digite a mesma senha do facilitador para ocultar este evento da lista ativa.",
                               })
                             }
                           >
-                            Excluir evento
+                            Ocultar evento
                           </button>
                         ) : null}
                       </div>
@@ -6546,40 +6965,46 @@ function App() {
         <div className="screen active workspace-screen">
           <Topbar
             onLogoClick={goHome}
+            leftMeta={
+              <div className="topbar-context-strip">
+                <span className="topbar-context-item">
+                  <CalendarDays size={16} strokeWidth={1.8} aria-hidden="true" />
+                  <span className="topbar-context-value">{teamEvent.name}</span>
+                </span>
+                <span className="topbar-context-item">
+                  <Users size={16} strokeWidth={1.8} aria-hidden="true" />
+                  <span className="topbar-context-value">{team.name}</span>
+                </span>
+              </div>
+            }
             right={
               <>
-                <span className="topbar-caption soft">{teamEvent.name}</span>
-                <span className="team-badge">{team.name}</span>
                 {teamEventAnnouncements.length ? (
-                  <button className="btn btn-sm topbar-team-messages-btn" onClick={handleOpenTeamAnnouncementInbox}>
+                  <button className="btn btn-sm topbar-participant-action" onClick={handleOpenTeamAnnouncementInbox}>
                     <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
                     Mensagens
                     {teamUnreadAnnouncementCount ? <span className="help-trigger-badge">{teamUnreadAnnouncementCount}</span> : null}
                   </button>
                 ) : null}
                 {!teamEventScreenShare?.active ? (
-                  <button className="btn btn-sm topbar-tokens-btn" onClick={() => setTokenDrawerOpen(true)}>
+                  <button className="btn btn-sm topbar-participant-action" onClick={() => setTokenDrawerOpen(true)}>
+                    <FileText size={14} strokeWidth={1.7} aria-hidden="true" />
                     Extrato de tokens
                   </button>
                 ) : null}
                 {(currentMission || isTrainingEvent) && !teamEventScreenShare?.active ? (
                   <>
                     <button
-                      className={`btn btn-sm topbar-help-toggle-btn${teamHelpDisabled ? " is-off" : ""}`}
-                      onClick={handleToggleHelpDisabled}
-                    >
-                      {teamHelpDisabled ? "Ajuda off" : "Ajuda on"}
-                    </button>
-                    <button
-                      className={`btn btn-sm topbar-help-btn${teamHelpDisabled ? " is-disabled" : ""}`}
+                      className={`btn btn-sm topbar-participant-action${teamHelpDisabled ? " is-disabled" : ""}`}
                       onClick={handleOpenHelp}
                       disabled={teamHelpDisabled}
                     >
+                      <LifeBuoy size={14} strokeWidth={1.7} aria-hidden="true" />
                       {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
                       {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
                     </button>
                     <button
-                      className={`btn btn-sm topbar-token-request-btn${teamHelpDisabled ? " is-disabled" : ""}`}
+                      className={`btn btn-sm topbar-participant-action topbar-token-request-btn${teamHelpDisabled ? " is-disabled" : ""}`}
                       onClick={handleSendTokenRequest}
                       disabled={teamHelpDisabled || !currentMission || !currentTokenBudget?.blocked || Boolean(currentOpenTokenRequest)}
                       title={!currentTokenBudget?.blocked ? "Disponível quando o limite da missão for atingido" : undefined}
@@ -7467,7 +7892,7 @@ function App() {
               closeConfirm();
             }}
           >
-            {confirmState.secondaryAction ? "Deletar para sempre" : "Confirmar"}
+            {confirmState.confirmActionLabel || (confirmState.secondaryAction ? "Confirmar" : "Confirmar")}
           </button>
         </div>
       </Modal>
@@ -7581,13 +8006,16 @@ function App() {
   );
 }
 
-function Topbar({ onLogoClick, right, roleBadge }) {
+function Topbar({ onLogoClick, right, roleBadge, leftMeta = null }) {
   return (
     <div className="topbar">
-      <button className="logo" onClick={onLogoClick}>
-        <img src={techHallLogoDark} alt="Tech Hall" className="brand-wordmark topbar-wordmark" />
-        {roleBadge ? <span className="badge-role">{roleBadge}</span> : null}
-      </button>
+      <div className="topbar-left">
+        <button className="logo" onClick={onLogoClick}>
+          <img src={techHallLogoDark} alt="Tech Hall" className="brand-wordmark topbar-wordmark" />
+          {roleBadge ? <span className="badge-role">{roleBadge}</span> : null}
+        </button>
+        {leftMeta ? <div className="topbar-left-meta">{leftMeta}</div> : null}
+      </div>
       <div className="topbar-right">{right}</div>
     </div>
   );
@@ -8129,46 +8557,73 @@ function LearningSlide({ index, kicker, title, subtitle, accent = "blue", childr
   );
 }
 
+function TechnicalReadingList({ items = [] }) {
+  const normalizedItems = normalizeAnalysisItemArray(items);
+  return (
+    <div className="tech-reading-list">
+      {normalizedItems.map((item, index) => (
+        <div className="tech-reading-item" key={`${item}-${index}`}>
+          <span className="tech-reading-item-bullet" />
+          <span>{item}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TechnicalReadingBlock({ blockKey, children }) {
+  const copy = TECHNICAL_PANEL_BLOCKS[blockKey];
+  return (
+    <section className="tech-reading-structured-block">
+      <div className="tech-reading-structured-head">
+        <span className="tech-reading-structured-index">{copy.index}</span>
+        <div className="tech-reading-structured-copy">
+          <div className="tech-reading-structured-title">{copy.title}</div>
+          <div className="tech-reading-structured-anchor">{copy.anchor}</div>
+        </div>
+      </div>
+      <div className="tech-reading-structured-body">{children}</div>
+    </section>
+  );
+}
+
 function MissionReadingPanel({ exec }) {
-  const details = exec.technicalAnalysis || exec.reasoningDetails || {};
-  const promptBreakdown = Array.isArray(details.promptBreakdown) ? details.promptBreakdown : [];
-  const concepts = Array.isArray(details.conceptsAndTerminologies) ? details.conceptsAndTerminologies : [];
-  const construction = details.constructionProcess || {};
-  const constructionGroups = [
-    { label: "Pedido explícito", items: construction.explicitRequests || [] },
-    { label: "Inferido", items: construction.inferredPoints || [] },
-    { label: "Assumido", items: construction.assumptionsMade || [] },
-    { label: "Ambiguidades", items: construction.ambiguities || [] },
-  ].filter((group) => Array.isArray(group.items) && group.items.length);
-  const limitations = Array.isArray(details.limitationsAndGaps) ? details.limitationsAndGaps : [];
-  const suggestions = Array.isArray(details.refinementSuggestions) ? details.refinementSuggestions : [];
+  const details = normalizeTechnicalAnalysis(exec.technicalAnalysis || exec.reasoningDetails || {}, {
+    accumulatedGlossary: exec.technicalAnalysis?.glossary?.accumulated || exec.reasoningDetails?.glossary?.accumulated || [],
+  });
+  const [chainExpanded, setChainExpanded] = useState(false);
+  const glossaryItems = details.glossary?.accumulated?.length ? details.glossary.accumulated : [];
+
+  if (details.pending) {
+    return (
+      <section className="tech-reading-panel">
+        <div className="tech-reading-header">
+          <div className="tech-reading-meta">
+            <span>Rodada {exec.iterationNumber || "-"}</span>
+          </div>
+        </div>
+        <div className="tech-reading-body">
+          <div className="tech-reading-unavailable tech-reading-pending">
+            <div className="tech-reading-block-label">Análise em processamento</div>
+            <div className="tech-reading-copy">{details.unavailableReason}</div>
+            <div className="tech-reading-loader" aria-hidden="true">
+              <img className="tech-reading-loader-icon" src={techHallFooterIcon} alt="" />
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="tech-reading-panel">
       <div className="tech-reading-header">
-        <div className="tech-reading-kicker">Leitura da última rodada</div>
-        <div className="tech-reading-title">Explicação técnica</div>
         <div className="tech-reading-meta">
           <span>Rodada {exec.iterationNumber || "-"}</span>
-          <span>{exec.tokens?.toLocaleString() || 0} tokens na resposta</span>
-          {exec.technicalAnalysisUsage?.totalTokens ? <span>{exec.technicalAnalysisUsage.totalTokens.toLocaleString()} tokens na análise</span> : null}
-          {details.sourceLabel ? <span>{details.sourceLabel}</span> : null}
         </div>
       </div>
 
       <div className="tech-reading-body">
-        {details.pending ? (
-          <div className="tech-reading-unavailable tech-reading-pending">
-            <div className="tech-reading-block-label">Análise em processamento</div>
-            <div className="tech-reading-loading" aria-hidden="true">
-              <span className="tech-reading-loading-dot" />
-              <span className="tech-reading-loading-dot" />
-              <span className="tech-reading-loading-dot" />
-            </div>
-            <div className="tech-reading-copy">{details.unavailableReason}</div>
-          </div>
-        ) : null}
-
         {details.unavailable ? (
           <div className="tech-reading-unavailable">
             <div className="tech-reading-block-label">Análise indisponível</div>
@@ -8180,113 +8635,104 @@ function MissionReadingPanel({ exec }) {
           <div className="tech-reading-banner">{exec.historySignal}</div>
         ) : null}
 
-        {!details.unavailable && !details.pending && details.objectiveInterpreted ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Objetivo interpretado</div>
-            <div className="tech-reading-copy">{details.objectiveInterpreted}</div>
+        <TechnicalReadingBlock blockKey="promptReading">
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">EXPLÍCITO</div>
+            <TechnicalReadingList items={details.promptReading?.explicit} />
           </div>
-        ) : null}
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">INFERIDO</div>
+            <TechnicalReadingList items={details.promptReading?.inferred} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">ASSUMIDO</div>
+            <TechnicalReadingList items={details.promptReading?.assumed} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">AMBIGUIDADES</div>
+            <TechnicalReadingList items={details.promptReading?.ambiguities} />
+          </div>
+        </TechnicalReadingBlock>
 
-        {!details.unavailable && !details.pending && (details.strategyUsed || details.contextUse) ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Estratégia utilizada</div>
-            <div className="tech-reading-list">
-              {details.strategyUsed ? (
-                <div className="tech-reading-item">
-                  <span className="tech-reading-item-bullet" />
-                  <span>{details.strategyUsed}</span>
-                </div>
-              ) : null}
-              {details.contextUse ? (
-                <div className="tech-reading-item">
-                  <span className="tech-reading-item-bullet" />
-                  <span>{details.contextUse}</span>
-                </div>
-              ) : null}
+        <TechnicalReadingBlock blockKey="chainOfThought">
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Contexto considerado</div>
+            <TechnicalReadingList items={details.chainOfThought?.contextConsidered} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Estratégia escolhida</div>
+            <TechnicalReadingList items={details.chainOfThought?.strategyChosen} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Descartado</div>
+            <TechnicalReadingList items={details.chainOfThought?.discarded} />
+          </div>
+          <button className="tech-reading-expand-btn" type="button" onClick={() => setChainExpanded((value) => !value)}>
+            Entender mais {chainExpanded ? "▴" : "▾"}
+          </button>
+          {chainExpanded ? (
+            <div className="tech-reading-expanded-copy">
+              {TECHNICAL_PANEL_BLOCKS.chainOfThought.expanded}
+              <span>{details.chainOfThought?.expandedExplanation || ANALYSIS_NOT_APPLICABLE}</span>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </TechnicalReadingBlock>
 
-        {!details.unavailable && !details.pending && promptBreakdown.length ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Decomposição do prompt</div>
-            <div className="tech-reading-list">
-              {promptBreakdown.map((item, index) => (
-                <div className="tech-reading-item tech-reading-item-stack" key={`${item.segment}-${index}`}>
-                  <span className="tech-reading-item-bullet" />
-                  <span>
-                    <strong>{item.segment}</strong>
-                    {item.function ? `: ${item.function}` : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
+        <TechnicalReadingBlock blockKey="responseConstruction">
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Tom e formato escolhidos</div>
+            <TechnicalReadingList items={details.responseConstruction?.toneAndFormat} />
           </div>
-        ) : null}
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Conceitos e terminologias ativados</div>
+            <TechnicalReadingList items={details.responseConstruction?.conceptsActivated} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Limitações encontradas durante a geração</div>
+            <TechnicalReadingList items={details.responseConstruction?.generationLimitations} />
+          </div>
+        </TechnicalReadingBlock>
 
-        {!details.unavailable && !details.pending && concepts.length ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Conceitos e terminologias</div>
-            <div className="tech-reading-concept-list">
-              {concepts.map((item, index) => (
-                <div className="tech-reading-concept" key={`${item.term}-${index}`}>
+        <TechnicalReadingBlock blockKey="outputEvaluation">
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">O que a resposta faz bem</div>
+            <TechnicalReadingList items={details.outputEvaluation?.whatWorked} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">O que ficou genérico ou em aberto</div>
+            <TechnicalReadingList items={details.outputEvaluation?.whatStayedGeneric} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Gap entre pedido e entrega</div>
+            <TechnicalReadingList items={details.outputEvaluation?.gapBetweenRequestAndDelivery} />
+          </div>
+        </TechnicalReadingBlock>
+
+        <TechnicalReadingBlock blockKey="nextStep">
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">Como reformular o prompt para ir mais fundo</div>
+            <TechnicalReadingList items={details.nextStep?.howToReformulate} />
+          </div>
+          <div className="tech-reading-subsection">
+            <div className="tech-reading-subtitle">O que vale testar na próxima rodada</div>
+            <TechnicalReadingList items={details.nextStep?.whatToTestNext} />
+          </div>
+        </TechnicalReadingBlock>
+
+        <TechnicalReadingBlock blockKey="glossary">
+          {glossaryItems.length ? (
+            <div className="tech-reading-glossary-list">
+              {glossaryItems.map((item, index) => (
+                <div className="tech-reading-glossary-item" key={`${item.term}-${index}`}>
                   <strong>{item.term}</strong>
-                  <span>{item.meaning}</span>
-                  {item.relevance ? <small>{item.relevance}</small> : null}
+                  <span>{item.definition}</span>
                 </div>
               ))}
             </div>
-          </div>
-        ) : null}
-
-        {!details.unavailable && !details.pending && constructionGroups.length ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Processo de construção</div>
-            <div className="tech-reading-process-grid">
-              {constructionGroups.map((group) => (
-                <div className="tech-reading-process-group" key={group.label}>
-                  <div className="tech-reading-process-label">{group.label}</div>
-                  <div className="tech-reading-list">
-                    {group.items.map((item, index) => (
-                      <div className="tech-reading-item" key={`${group.label}-${index}`}>
-                        <span className="tech-reading-item-bullet" />
-                        <span>{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {!details.unavailable && !details.pending && limitations.length ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Limitações e lacunas</div>
-            <div className="tech-reading-list">
-              {limitations.map((item, index) => (
-                <div className="tech-reading-item" key={`limits-${index}`}>
-                  <span className="tech-reading-item-bullet" />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {!details.unavailable && !details.pending && suggestions.length ? (
-          <div className="tech-reading-block">
-            <div className="tech-reading-block-label">Sugestões de refinamento</div>
-            <div className="tech-reading-list">
-              {suggestions.map((item, index) => (
-                <div className="tech-reading-item" key={`improve-${index}`}>
-                  <span className="tech-reading-item-bullet" />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
+          ) : (
+            <div className="tech-reading-copy">{ANALYSIS_NOT_APPLICABLE}</div>
+          )}
+        </TechnicalReadingBlock>
       </div>
     </section>
   );

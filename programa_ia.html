@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IA para Líderes · Pré-programa</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;1,400&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F7F6F2;
+    --surface: #FFFFFF;
+    --surface2: #F2F1ED;
+    --border: #E4E2DA;
+    --border-hi: #C8C5BA;
+    --text: #1A1917;
+    --muted: #6B6860;
+    --hint: #B0AEA6;
+    --accent: #2D5BE3;
+    --accent-light: #EEF2FD;
+    --accent-dark: #1A3DAF;
+    --success: #16A34A;
+    --success-light: #F0FDF4;
+    --success-border: #BBF7D0;
+    --yes: #16A34A;
+    --yes-light: #F0FDF4;
+    --yes-border: #86EFAC;
+    --no: #DC2626;
+    --no-light: #FEF2F2;
+    --no-border: #FECACA;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .page { max-width: 700px; margin: 0 auto; padding: 0 24px 100px; }
+
+  /* HEADER */
+  .program-name {
+    font-family: 'Lora', serif;
+    font-size: clamp(13px, 2vw, 15px);
+    font-weight: 500;
+    letter-spacing: .04em;
+    color: var(--accent);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .program-name::before {
+    content: '';
+    display: inline-block;
+    width: 28px; height: 2px;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  header { padding: 48px 0 40px; border-bottom: 1px solid var(--border); }
+  .eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px; letter-spacing: .12em; color: var(--muted);
+    text-transform: uppercase; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  h1 {
+    font-family: 'Lora', serif;
+    font-size: clamp(28px, 4.5vw, 44px);
+    font-weight: 400; line-height: 1.18; letter-spacing: -.01em;
+    margin-bottom: 14px;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .subtitle { font-size: 16px; color: var(--muted); max-width: 520px; line-height: 1.75; margin-bottom: 22px; }
+  .header-meta {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px; letter-spacing: .08em; color: var(--hint); text-transform: uppercase;
+  }
+  .header-meta span::before { content: '·'; margin-right: 6px; }
+
+  /* TABS */
+  .tabs-wrap {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(247,246,242,0.96);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .tabs {
+    display: flex; gap: 0;
+  }
+  .tab {
+    flex: 1; padding: 14px 16px;
+    font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 400;
+    color: var(--hint); cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .2s; text-align: center;
+    user-select: none;
+  }
+  .tab:hover { color: var(--muted); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+  .tab-badge {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    margin-left: 7px; color: var(--hint);
+    letter-spacing: .04em;
+  }
+  .tab.active .tab-badge { color: var(--accent); opacity: .7; }
+
+  /* PROGRESS */
+  .prog-bar-wrap { padding: 10px 0 11px; border-bottom: 1px solid var(--border); background: rgba(247,246,242,0.96); }
+  .progress-inner { display: flex; align-items: center; gap: 12px; }
+  .prog-track { flex: 1; height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .prog-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s ease; width: 0%; }
+  .prog-label { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--hint); white-space: nowrap; letter-spacing: .04em; }
+
+  /* PANELS */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ANAMNESE */
+  .block { padding: 40px 0 0; }
+  .block-header { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .block-num { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--hint); letter-spacing: .08em; margin-bottom: 2px; }
+  .block-title { font-family: 'Lora', serif; font-size: 19px; font-weight: 400; color: var(--text); }
+  .block-desc { font-size: 14px; color: var(--muted); line-height: 1.65; margin-top: 4px; }
+
+  .question { margin-bottom: 26px; }
+  .q-label {
+    font-size: 15px; font-weight: 400; color: var(--text);
+    line-height: 1.5; margin-bottom: 11px;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .q-num { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--hint); padding-top: 3px; flex-shrink: 0; }
+
+  .opts { display: flex; flex-direction: column; gap: 6px; }
+  .opt {
+    display: flex; align-items: flex-start; gap: 11px;
+    padding: 11px 14px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface);
+    cursor: pointer; font-size: 14px; color: var(--muted);
+    transition: all .15s; user-select: none; line-height: 1.45;
+  }
+  .opt:hover { border-color: var(--border-hi); color: var(--text); background: var(--surface2); }
+  .opt.sel { border-color: var(--accent); background: var(--accent-light); color: var(--text); }
+  .opt-mark {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1.5px solid var(--border-hi); flex-shrink: 0; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center; transition: all .15s;
+  }
+  .opt.sel .opt-mark { background: var(--accent); border-color: var(--accent); }
+  .opt-mark-inner { width: 6px; height: 6px; border-radius: 50%; background: white; display: none; }
+  .opt.sel .opt-mark-inner { display: block; }
+  .opt-sq .opt-mark { border-radius: 4px; }
+  .opt-sq .opt-mark-inner { border-radius: 2px; width: 8px; height: 8px; }
+
+  .scale-pills { display: flex; flex-wrap: wrap; gap: 7px; }
+  .scale-pill {
+    padding: 8px 16px; border-radius: 20px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-size: 13px; color: var(--muted);
+    cursor: pointer; transition: all .15s; user-select: none;
+  }
+  .scale-pill:hover { border-color: var(--border-hi); color: var(--text); }
+  .scale-pill.sel { border-color: var(--accent); background: var(--accent-light); color: var(--accent-dark); font-weight: 500; }
+
+  textarea {
+    width: 100%; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px;
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 300;
+    color: var(--text); resize: none; outline: none;
+    transition: border-color .2s; line-height: 1.6;
+  }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--hint); }
+
+  /* PROGNOSTICOS */
+  .axis { padding: 40px 0 0; }
+  .axis-header { margin-bottom: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 14px; }
+  .axis-num { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--hint); letter-spacing: .08em; flex-shrink: 0; }
+  .axis-title { font-family: 'Lora', serif; font-size: 21px; font-weight: 400; color: var(--text); }
+  .axis-intro { font-size: 15px; color: var(--muted); line-height: 1.75; margin-bottom: 18px; }
+
+  .pred {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; margin-bottom: 10px;
+    transition: border-color .2s, background .2s;
+  }
+  .pred-top { display: flex; gap: 16px; align-items: flex-start; }
+  .pred-body { flex: 1; min-width: 0; }
+  .pred-stmt { font-size: 15px; color: var(--text); line-height: 1.65; margin-bottom: 9px; }
+  .pred-alt { font-size: 13px; color: var(--hint); line-height: 1.6; font-style: italic; transition: color .2s; }
+  .pred-votes { display: flex; flex-direction: column; gap: 7px; flex-shrink: 0; }
+  .pill {
+    font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500;
+    padding: 9px 18px; border-radius: 20px; border: 1px solid;
+    cursor: pointer; transition: all .15s; white-space: nowrap; text-align: center;
+  }
+  .pill-y { color: var(--yes); border-color: var(--yes-border); }
+  .pill-y:hover { background: var(--yes-light); }
+  .pill-y.active { background: var(--yes-light); border-color: var(--yes); }
+  .pill-n { color: var(--no); border-color: var(--no-border); }
+  .pill-n:hover { background: var(--no-light); }
+  .pill-n.active { background: var(--no-light); border-color: var(--no); }
+  .pred.voted-y { border-color: var(--yes-border); background: var(--yes-light); }
+  .pred.voted-n { border-color: var(--no-border); background: var(--no-light); }
+  .pred.voted-y .pred-alt, .pred.voted-n .pred-alt { color: var(--muted); }
+
+  .pred-stats {
+    display: none; margin-top: 14px;
+    padding-top: 13px; border-top: 1px solid rgba(0,0,0,0.07);
+  }
+  .pred.voted-y .pred-stats,
+  .pred.voted-n .pred-stats { display: block; }
+  .stats-label {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--hint); margin-bottom: 10px;
+  }
+  .stats-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+  .stats-row:last-child { margin-bottom: 0; }
+  .stats-tag { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; width: 36px; flex-shrink: 0; }
+  .stats-tag.y { color: var(--yes); }
+  .stats-tag.n { color: var(--no); }
+  .stats-track { flex: 1; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .stats-fill { height: 100%; border-radius: 3px; transition: width .6s ease; width: 0%; }
+  .stats-fill.y { background: var(--yes); }
+  .stats-fill.n { background: var(--no); }
+  .stats-pct { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--muted); width: 36px; text-align: right; flex-shrink: 0; }
+  .stats-mine { font-size: 11px; color: var(--hint); margin-top: 8px; font-style: italic; }
+
+  /* PROG instructions */
+  .prog-instructions { padding: 20px 0 24px; border-bottom: 1px solid var(--border); }
+  .prog-instructions p { font-size: 15px; color: var(--muted); line-height: 1.75; max-width: 560px; }
+  .legend { display: flex; gap: 20px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .legend-pill { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; padding: 4px 11px; border-radius: 20px; border: 1px solid; }
+  .legend-pill.y { color: var(--yes); border-color: var(--yes-border); background: var(--yes-light); }
+  .legend-pill.n { color: var(--no); border-color: var(--no-border); background: var(--no-light); }
+
+  /* SUBMIT */
+  .submit-area { margin-top: 48px; padding-top: 28px; border-top: 1px solid var(--border); }
+  .submit-note { font-size: 13px; color: var(--hint); margin-bottom: 18px; line-height: 1.7; max-width: 500px; }
+  .btn-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .btn-primary {
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 8px; padding: 14px 36px;
+    font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 500;
+    cursor: pointer; transition: background .2s;
+  }
+  .btn-primary:hover { background: var(--accent-dark); }
+  .btn-primary:disabled { background: var(--border); color: var(--hint); cursor: not-allowed; }
+  .btn-status { font-size: 13px; color: var(--hint); font-family: 'DM Mono', monospace; letter-spacing: .03em; }
+
+  /* RESULTS */
+  .result-box {
+    display: none; border-radius: 12px; padding: 28px; margin-top: 32px;
+  }
+  .result-box.anam { background: var(--success-light); border: 1px solid var(--success-border); }
+  .result-box.prog { background: var(--yes-light); border: 1px solid var(--yes-border); }
+  .result-eyebrow { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 12px; }
+  .result-box.anam .result-eyebrow { color: var(--success); }
+  .result-box.prog .result-eyebrow { color: var(--yes); }
+  .result-title { font-family: 'Lora', serif; font-size: 22px; font-weight: 400; margin-bottom: 12px; line-height: 1.3; }
+  .result-body { font-size: 15px; color: var(--muted); line-height: 1.75; }
+  .result-divider { height: 1px; margin: 20px 0; }
+  .result-box.anam .result-divider { background: var(--success-border); }
+  .result-box.prog .result-divider { background: var(--yes-border); }
+  .result-next { font-size: 14px; color: var(--muted); }
+  .result-next button {
+    background: none; border: none; color: var(--accent); font-size: 14px;
+    font-family: 'DM Sans', sans-serif; font-weight: 500; cursor: pointer;
+    padding: 0; text-decoration: underline;
+  }
+  .rs-axis { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 14px 0 8px; }
+  .rs-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--yes-border); gap: 14px; }
+  .rs-row:last-child { border-bottom: none; }
+  .rs-stmt { font-size: 13px; color: var(--muted); flex: 1; line-height: 1.45; }
+  .rs-vote { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; flex-shrink: 0; }
+  .rv-y { color: var(--yes); }
+  .rv-n { color: var(--no); }
+
+  @media (max-width: 480px) {
+    .page { padding: 0 16px 80px; }
+    header { padding: 32px 0 28px; }
+    .tab { font-size: 12px; padding: 12px 10px; }
+    .pred { padding: 16px; }
+    .pred-top { flex-direction: column; gap: 12px; }
+    .pred-votes { flex-direction: row; width: 100%; }
+    .pill { flex: 1; }
+    .btn-primary { width: 100%; text-align: center; }
+    .btn-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="program-name">Check-in Tech Hall 2026</div>
+  <h1>Antes de<br><em>começarmos.</em></h1>
+  <p class="subtitle">Duas etapas. A anamnese é obrigatória e orienta a curadoria dos 10 encontros. Os prognósticos são opcionais e constroem o mapa de percepções do grupo.</p>
+  <div class="header-meta">
+    <span>Confidencial</span>
+    <span>~16 minutos no total</span>
+  </div>
+</header>
+
+<!-- TABS -->
+<div class="tabs-wrap">
+  <div class="tabs">
+    <div class="tab active" id="tab-anam" onclick="switchTab('anam')">
+      Anamnese <span class="tab-badge" id="badge-anam">0/12</span>
+    </div>
+    <div class="tab" id="tab-prog" onclick="switchTab('prog')">
+      Prognósticos <span class="tab-badge" id="badge-prog">0/16</span>
+    </div>
+  </div>
+  <div class="prog-bar-wrap">
+    <div class="progress-inner">
+      <div class="prog-track"><div class="prog-fill" id="prog-fill-active"></div></div>
+      <div class="prog-label" id="prog-label-active">0 de 12</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     PANEL: ANAMNESE
+══════════════════════════════════════ -->
+<div class="panel active" id="panel-anam">
+
+  <div class="block">
+    <div class="block-header">
+      <div class="block-num">A</div>
+      <div class="block-title">Posição e influência</div>
+      <div class="block-desc">Como você está posicionado para influenciar decisões de IA na sua organização.</div>
+    </div>
+    <div class="question" id="wrap-q1">
+      <div class="q-label"><span class="q-num">01</span>Qual é o seu papel atual na organização?</div>
+      <div class="opts" id="opts-q1">
+        <div class="opt" onclick="pickSingle('q1',0,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>CEO / Fundador</div>
+        <div class="opt" onclick="pickSingle('q1',1,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>C-level ou equivalente (CFO, COO, CMO, CTO, CHRO)</div>
+        <div class="opt" onclick="pickSingle('q1',2,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Diretor ou VP de área</div>
+        <div class="opt" onclick="pickSingle('q1',3,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Conselheiro ou membro de board</div>
+        <div class="opt" onclick="pickSingle('q1',4,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Outro</div>
+      </div>
+    </div>
+    <div class="question" id="wrap-q2">
+      <div class="q-label"><span class="q-num">02</span>Quando se trata de IA na sua organização, você se descreveria como...</div>
+      <div class="opts" id="opts-q2">
+        <div class="opt" onclick="pickSingle('q2',0,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Quem toma as decisões. Tenho autonomia e orçamento</div>
+        <div class="opt" onclick="pickSingle('q2',1,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Quem influencia. Participo das decisões, mas não decido sozinho</div>
+        <div class="opt" onclick="pickSingle('q2',2,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Quem executa. Recebo as diretrizes e implemento</div>
+        <div class="opt" onclick="pickSingle('q2',3,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Quem ainda está buscando espaço para isso</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-header">
+      <div class="block-num">B</div>
+      <div class="block-title">Histórico com IA</div>
+      <div class="block-desc">O que você já viveu, tentativas, aprendizados e experiências concretas.</div>
+    </div>
+    <div class="question" id="wrap-q3">
+      <div class="q-label"><span class="q-num">03</span>Como você descreveria sua relação pessoal com IA até hoje?</div>
+      <div class="scale-pills" id="opts-q3">
+        <div class="scale-pill" onclick="pickScale('q3',0,this)">Observador distante</div>
+        <div class="scale-pill" onclick="pickScale('q3',1,this)">Curioso, mas sem prática</div>
+        <div class="scale-pill" onclick="pickScale('q3',2,this)">Uso no dia a dia</div>
+        <div class="scale-pill" onclick="pickScale('q3',3,this)">Já conduzi iniciativas</div>
+        <div class="scale-pill" onclick="pickScale('q3',4,this)">Referência no tema</div>
+      </div>
+    </div>
+    <div class="question" id="wrap-q4">
+      <div class="q-label"><span class="q-num">04</span>Sua organização já tentou alguma iniciativa de IA nos últimos 2 anos? O que aconteceu?</div>
+      <div class="opts" id="opts-q4">
+        <div class="opt" onclick="pickSingle('q4',0,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Sim, e está funcionando com resultados claros</div>
+        <div class="opt" onclick="pickSingle('q4',1,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Sim, mas ficou no piloto e não escalou</div>
+        <div class="opt" onclick="pickSingle('q4',2,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Sim, mas não funcionou. Aprendemos com isso</div>
+        <div class="opt" onclick="pickSingle('q4',3,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Ainda não iniciamos nada formalmente</div>
+      </div>
+    </div>
+    <div class="question" id="wrap-q5">
+      <div class="q-label"><span class="q-num">05</span>Se houve tentativas, o que você identifica hoje como o fator que mais pesou no resultado?</div>
+      <textarea rows="3" placeholder="Pode ser uma decisão, uma pessoa, um contexto, uma escolha de tecnologia..." id="input-q5" oninput="onOpen('q5')"></textarea>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-header">
+      <div class="block-num">C</div>
+      <div class="block-title">Prioridades estratégicas</div>
+      <div class="block-desc">Para onde o negócio está indo e onde IA poderia ou não importar.</div>
+    </div>
+    <div class="question" id="wrap-q6">
+      <div class="q-label"><span class="q-num">06</span>Quais são as 2 ou 3 prioridades mais urgentes do seu negócio nos próximos 12 a 24 meses?</div>
+      <textarea rows="3" placeholder="Crescimento, eficiência, novo mercado, reestruturação, M&A, regulação..." id="input-q6" oninput="onOpen('q6')"></textarea>
+    </div>
+    <div class="question" id="wrap-q7">
+      <div class="q-label"><span class="q-num">07</span>Considerando essas prioridades, onde você acha que IA poderia fazer mais diferença para o seu negócio?</div>
+      <div class="opts" id="opts-q7">
+        <div class="opt opt-sq" onclick="pickMulti('q7',0,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Eficiência operacional e redução de custo</div>
+        <div class="opt opt-sq" onclick="pickMulti('q7',1,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Experiência e personalização para o cliente</div>
+        <div class="opt opt-sq" onclick="pickMulti('q7',2,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Velocidade de decisão e inteligência de mercado</div>
+        <div class="opt opt-sq" onclick="pickMulti('q7',3,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Desenvolvimento de novos produtos ou modelos de negócio</div>
+        <div class="opt opt-sq" onclick="pickMulti('q7',4,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Gestão e desenvolvimento de pessoas</div>
+        <div class="opt opt-sq" onclick="pickMulti('q7',5,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Ainda não consigo visualizar claramente</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-header">
+      <div class="block-num">D</div>
+      <div class="block-title">Time e cultura interna</div>
+      <div class="block-desc">Como você lê o ambiente humano ao redor da IA na sua organização.</div>
+    </div>
+    <div class="question" id="wrap-q8">
+      <div class="q-label"><span class="q-num">08</span>Como você percebe o estado geral da sua organização em relação à IA hoje?</div>
+      <div class="opts" id="opts-q8">
+        <div class="opt" onclick="pickSingle('q8',0,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Há energia e vontade, mas falta clareza de direção</div>
+        <div class="opt" onclick="pickSingle('q8',1,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Há interesse, mas também medo e resistência</div>
+        <div class="opt" onclick="pickSingle('q8',2,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>É indiferente. O tema ainda não chegou com força</div>
+        <div class="opt" onclick="pickSingle('q8',3,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Há ceticismo ativo. Precisamos convencer internamente</div>
+        <div class="opt" onclick="pickSingle('q8',4,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Já há movimento e estamos construindo momentum</div>
+      </div>
+    </div>
+    <div class="question" id="wrap-q9">
+      <div class="q-label"><span class="q-num">09</span>Quem, dentro da sua organização, mais importa engajar para que IA avance de verdade?</div>
+      <textarea rows="2" placeholder="Pode ser um papel, uma área, um nome, um grupo..." id="input-q9" oninput="onOpen('q9')"></textarea>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-header">
+      <div class="block-num">E</div>
+      <div class="block-title">Expectativas com o programa</div>
+      <div class="block-desc">O que você quer levar daqui.</div>
+    </div>
+    <div class="question" id="wrap-q10">
+      <div class="q-label"><span class="q-num">10</span>O que você espera que mude na sua forma de atuar após os 10 encontros?</div>
+      <div class="opts" id="opts-q10">
+        <div class="opt opt-sq" onclick="pickMulti('q10',0,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Ter clareza de onde priorizar investimentos em IA</div>
+        <div class="opt opt-sq" onclick="pickMulti('q10',1,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Conseguir liderar conversas de IA com mais segurança</div>
+        <div class="opt opt-sq" onclick="pickMulti('q10',2,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Ter um plano concreto para minha organização</div>
+        <div class="opt opt-sq" onclick="pickMulti('q10',3,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Entender os riscos reais e como lidar com eles</div>
+        <div class="opt opt-sq" onclick="pickMulti('q10',4,this)"><div class="opt-mark"><div class="opt-mark-inner"></div></div>Construir uma rede com outros líderes no mesmo momento</div>
+      </div>
+    </div>
+    <div class="question" id="wrap-q11">
+      <div class="q-label"><span class="q-num">11</span>Se você pudesse sair deste programa com uma resposta clara para uma única pergunta, qual seria ela?</div>
+      <textarea rows="3" placeholder="Escreva a pergunta que mais te preocupa ou intriga sobre IA..." id="input-q11" oninput="onOpen('q11')"></textarea>
+    </div>
+    <div class="question" id="wrap-q12">
+      <div class="q-label"><span class="q-num">12</span>Há algo sobre o seu contexto atual que você quer que a coordenação saiba antes do início?</div>
+      <textarea rows="3" placeholder="Restrições, projetos em curso, questões sensíveis, ou nada por enquanto." id="input-q12" oninput="onOpen('q12')"></textarea>
+    </div>
+  </div>
+
+  <div class="submit-area">
+    <p class="submit-note">Suas respostas são confidenciais e serão usadas exclusivamente pela coordenação do programa para curadoria dos encontros.</p>
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-anam" onclick="submitAnam()" disabled>Enviar anamnese</button>
+      <span class="btn-status" id="status-anam">0 de 12 respondidas</span>
+    </div>
+  </div>
+
+  <div class="result-box anam" id="result-anam">
+    <div class="result-eyebrow">Anamnese recebida</div>
+    <div class="result-title">Obrigado.</div>
+    <div class="result-body">Suas respostas foram registradas e entram diretamente na curadoria dos 10 encontros.</div>
+    <div class="result-divider"></div>
+    <div class="result-next">Os prognósticos são opcionais, mas as suas posições constroem o mapa de percepções do grupo. <button onclick="switchTab('prog')">Acessar prognósticos</button></div>
+  </div>
+
+</div><!-- /panel-anam -->
+
+<!-- ══════════════════════════════════════
+     PANEL: PROGNÓSTICOS
+══════════════════════════════════════ -->
+<div class="panel" id="panel-prog">
+
+  <div class="prog-instructions">
+    <p>Oito eixos, dezesseis hipóteses. Para cada uma, indique se você acredita que vai se confirmar no seu setor nos próximos dois anos. Vote com base na sua percepção do seu contexto, não no que parece mais consensual.</p>
+    <div class="legend">
+      <div class="legend-item"><span class="legend-pill y">SIM</span>Vai se confirmar no meu setor</div>
+      <div class="legend-item"><span class="legend-pill n">NÃO</span>Não vai se confirmar</div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">01</span><span class="axis-title">Cultura e pessoas</span></div>
+    <p class="axis-intro">A adoção de IA nas organizações coloca em movimento duas dinâmicas simultâneas. A pressão da liderança por avançar e a reação das equipes diante de uma mudança que ainda não está totalmente compreendida. Como essas forças vão se equilibrar é uma das perguntas mais abertas do momento.</p>
+    <div class="pred" id="pred-p1a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">O fator humano, a adesão das equipes e da liderança, vai pesar mais do que a escolha tecnológica no resultado das iniciativas de IA nas organizações</div>
+          <div class="pred-alt">a clareza de estratégia e a qualidade de execução técnica pesam mais do que o engajamento cultural</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p1a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p1a">0%</span></div><div class="stats-mine" id="mine-p1a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p1a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p1a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p1b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Organizações que desenvolverem capacidade de trabalhar com IA em toda a liderança vão operar de forma distinta das que concentrarem esse desenvolvimento apenas nas áreas técnicas</div>
+          <div class="pred-alt">o ganho está em concentrar formação nas funções onde IA gera mais resultado, não em distribuí-la amplamente</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p1b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p1b">0%</span></div><div class="stats-mine" id="mine-p1b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p1b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p1b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">02</span><span class="axis-title">ROI e priorização</span></div>
+    <p class="axis-intro">A pressão para justificar investimentos em IA é real e crescente. Os horizontes de retorno variam muito conforme o tipo de aplicação. Produtividade individual, automação de processos ou reconfiguração de modelos de negócio operam em escalas de tempo completamente diferentes.</p>
+    <div class="pred" id="pred-p2a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">A maior parte dos projetos de IA que estão sendo iniciados hoje vai levar mais de 24 meses para apresentar retorno mensurável</div>
+          <div class="pred-alt">em muitos casos os ganhos de produtividade já aparecem em semanas. 24 meses é um horizonte conservador para o estágio atual das ferramentas</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p2a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p2a">0%</span></div><div class="stats-mine" id="mine-p2a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p2a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p2a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p2b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Nos próximos dois anos, as aplicações de IA voltadas a eficiência operacional vão gerar mais retorno do que as voltadas a novos produtos ou novas receitas</div>
+          <div class="pred-alt">as maiores oportunidades estão em criar novos modelos de negócio e diferenciação de produto, não em otimizar processos existentes</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p2b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p2b">0%</span></div><div class="stats-mine" id="mine-p2b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p2b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p2b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">03</span><span class="axis-title">Qualidade de dados</span></div>
+    <p class="axis-intro">Os modelos de IA dependem de dados para funcionar, mas o grau dessa dependência varia. Há quem argumente que dados proprietários e bem estruturados são a principal vantagem competitiva da era da IA. Há quem argumente que os modelos evoluíram a ponto de tornar essa vantagem cada vez menos decisiva.</p>
+    <div class="pred" id="pred-p3a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">A disponibilidade e a qualidade dos dados internos vão determinar os resultados de IA mais do que a escolha do modelo ou da plataforma</div>
+          <div class="pred-alt">os modelos atuais já lidam bem com dados imperfeitos. A variável mais crítica é a clareza sobre o problema que se quer resolver</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p3a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p3a">0%</span></div><div class="stats-mine" id="mine-p3a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p3a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p3a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p3b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Ter dados proprietários sobre o próprio setor ou cliente vai ser um fator de diferenciação mais duradouro do que ter acesso aos modelos mais avançados</div>
+          <div class="pred-alt">à medida que modelos ficam mais capazes e acessíveis, dados brutos também tendem a perder exclusividade como vantagem competitiva</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p3b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p3b">0%</span></div><div class="stats-mine" id="mine-p3b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p3b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p3b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">04</span><span class="axis-title">Velocidade de adoção</span></div>
+    <p class="axis-intro">Organizações de todos os tamanhos estão tomando decisões sobre o ritmo de adoção de IA. Essa escolha envolve variáveis que apontam em direções opostas. Aprender rápido exige testar muito, mas testar muito sem critério pode gerar desperdício e confusão interna.</p>
+    <div class="pred" id="pred-p4a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Organizações que foram mais seletivas na escolha de onde aplicar IA vão apresentar resultados mais consistentes do que as que priorizaram volume de iniciativas</div>
+          <div class="pred-alt">quem testou mais cedo e em mais frentes aprendeu mais rápido, e esse aprendizado acumulado vai contar mais do que a seletividade inicial</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p4a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p4a">0%</span></div><div class="stats-mine" id="mine-p4a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p4a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p4a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p4b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Nos próximos dois anos, as maiores mudanças de posição competitiva no setor vão vir de organizações menores usando IA, não das maiores</div>
+          <div class="pred-alt">escala, relacionamentos consolidados e capital são vantagens que organizações maiores vão usar para amplificar IA antes que entrantes menores consigam competir</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p4b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p4b">0%</span></div><div class="stats-mine" id="mine-p4b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p4b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p4b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">05</span><span class="axis-title">Governança e risco</span></div>
+    <p class="axis-intro">À medida que IA entra em decisões com consequências reais sobre pessoas, contratos, preços e crédito, a questão de quem é responsável pelo que fica em aberto. As organizações estão construindo estruturas de governança, mas ainda há pouco consenso sobre como fazê-lo sem criar gargalos.</p>
+    <div class="pred" id="pred-p5a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">As estruturas de governança de IA que as organizações vão criar nos próximos dois anos vão atuar mais como freio do que como facilitador da adoção</div>
+          <div class="pred-alt">sem processos de governança estruturados, as organizações vão encontrar problemas operacionais e legais que tornarão a adoção mais lenta ainda</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p5a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p5a">0%</span></div><div class="stats-mine" id="mine-p5a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p5a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p5a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p5b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Quando decisões baseadas em IA gerarem consequências relevantes, a responsabilidade vai recair sobre as lideranças que aprovaram o uso, não sobre os fornecedores de tecnologia</div>
+          <div class="pred-alt">a tendência regulatória aponta para responsabilização dos fornecedores de tecnologia, não das organizações que adotam as ferramentas</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p5b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p5b">0%</span></div><div class="stats-mine" id="mine-p5b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p5b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p5b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">06</span><span class="axis-title">Dependência de fornecedor</span></div>
+    <p class="axis-intro">O mercado de modelos de IA é hoje concentrado em poucos grandes fornecedores. As organizações estão escolhendo, às vezes sem perceber, o grau de integração e dependência que vão construir. Essa escolha arquitetural vai ter consequências que ainda não são totalmente visíveis.</p>
+    <div class="pred" id="pred-p6a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">As diferenças de capacidade entre os grandes modelos de IA vão diminuir a ponto de a escolha do fornecedor deixar de ser um fator estratégico relevante até 2026</div>
+          <div class="pred-alt">a disputa entre os grandes labs vai se intensificar, mantendo diferenças relevantes de capacidade por muito mais tempo do que se antecipa</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p6a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p6a">0%</span></div><div class="stats-mine" id="mine-p6a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p6a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p6a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p6b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">A arquitetura de IA adotada hoje vai se tornar uma decisão estratégica comparável à de infraestrutura de TI nos anos 2000</div>
+          <div class="pred-alt">integração profunda com um fornecedor vai continuar sendo a opção mais prática e eficiente para a maioria das organizações</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p6b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p6b">0%</span></div><div class="stats-mine" id="mine-p6b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p6b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p6b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">07</span><span class="axis-title">Ética e reputação</span></div>
+    <p class="axis-intro">O uso de IA em decisões que afetam pessoas levanta questões sobre transparência, viés e responsabilidade. Ainda não está claro em que medida o mercado vai incorporar esses critérios nas suas avaliações de fornecedores e parceiros.</p>
+    <div class="pred" id="pred-p7a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Incidentes relacionados ao uso de IA em decisões que afetam pessoas vão se tornar um fator relevante na avaliação de marca das organizações</div>
+          <div class="pred-alt">o mercado tende a reagir mais a preço, experiência e resultado do que à forma como as decisões foram tomadas internamente</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p7a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p7a">0%</span></div><div class="stats-mine" id="mine-p7a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p7a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p7a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p7b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">Comunicar de forma clara como IA é usada nas decisões que afetam clientes e parceiros vai passar a influenciar as relações comerciais e contratuais</div>
+          <div class="pred-alt">enquanto os resultados forem satisfatórios, clientes e parceiros vão continuar indiferentes ao processo pelo qual as decisões são tomadas</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p7b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p7b">0%</span></div><div class="stats-mine" id="mine-p7b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p7b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p7b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="axis">
+    <div class="axis-header"><span class="axis-num">08</span><span class="axis-title">Guerra por talentos</span></div>
+    <p class="axis-intro">A demanda por profissionais capazes de trabalhar com IA cresce mais rápido do que a oferta em praticamente todos os setores. O perfil mais valioso ainda é objeto de debate. Há quem defenda o especialista técnico, há quem aponte para o profissional que conecta tecnologia e negócio.</p>
+    <div class="pred" id="pred-p8a">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">O perfil profissional mais disputado nos próximos dois anos vai ser o de quem combina conhecimento de negócio com capacidade de trabalhar com IA, não o especialista técnico puro</div>
+          <div class="pred-alt">a competência técnica continuará sendo o principal filtro de contratação. Conhecimento de negócio sem profundidade técnica não resolve o problema</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p8a">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p8a">0%</span></div><div class="stats-mine" id="mine-p8a"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p8a','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p8a','n',event)">NÃO</span></div>
+      </div>
+    </div>
+    <div class="pred" id="pred-p8b">
+      <div class="pred-top">
+        <div class="pred-body">
+          <div class="pred-stmt">As condições de trabalho, autonomia, propósito e impacto percebido, vão pesar mais do que a remuneração nas decisões de profissionais com experiência em IA</div>
+          <div class="pred-alt">em contextos de incerteza econômica, a remuneração volta a ser o principal fator de decisão mesmo para perfis altamente qualificados</div>
+        <div class="pred-stats"><div class="stats-label">Respostas do grupo até agora</div><div class="stats-row"><span class="stats-tag y">SIM</span><div class="stats-track"><div class="stats-fill y" data-pct="0"></div></div><span class="stats-pct" id="pct-y-p8b">0%</span></div><div class="stats-row"><span class="stats-tag n">NÃO</span><div class="stats-track"><div class="stats-fill n" data-pct="0"></div></div><span class="stats-pct" id="pct-n-p8b">0%</span></div><div class="stats-mine" id="mine-p8b"></div></div></div>
+        <div class="pred-votes"><span class="pill pill-y" onclick="vote('p8b','y',event)">SIM</span><span class="pill pill-n" onclick="vote('p8b','n',event)">NÃO</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="submit-area">
+    <p class="submit-note">Suas respostas serão agregadas com as do grupo e apresentadas de forma anônima no primeiro encontro.</p>
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-prog" onclick="submitProg()" disabled>Enviar prognósticos</button>
+      <span class="btn-status" id="status-prog">0 de 16 respondidas</span>
+    </div>
+  </div>
+
+  <div class="result-box prog" id="result-prog">
+    <div class="result-eyebrow">Prognósticos registrados</div>
+    <div class="result-title">Obrigado.</div>
+    <div class="result-body" id="prog-result-body"></div>
+    <div class="result-divider"></div>
+    <div id="prog-result-summary"></div>
+  </div>
+
+</div><!-- /panel-prog -->
+
+</div><!-- /page -->
+<script>
+/* ── STATE ── */
+const anam = {};
+const multiState = { q7: [], q10: [] };
+const anamRequired = ['q1','q2','q3','q4','q5','q6','q7','q8','q9','q10','q11','q12'];
+const votes = {};
+const predIds = ['p1a','p1b','p2a','p2b','p3a','p3b','p4a','p4b','p5a','p5b','p6a','p6b','p7a','p7b','p8a','p8b'];
+let activeTab = 'anam';
+
+/* ── TABS ── */
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('panel-anam').classList.toggle('active', tab === 'anam');
+  document.getElementById('panel-prog').classList.toggle('active', tab === 'prog');
+  document.getElementById('tab-anam').classList.toggle('active', tab === 'anam');
+  document.getElementById('tab-prog').classList.toggle('active', tab === 'prog');
+  updateProgressBar();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateProgressBar() {
+  if (activeTab === 'anam') {
+    const n = anamRequired.filter(k => anam[k] !== undefined && anam[k] !== null && anam[k] !== '').length;
+    document.getElementById('prog-fill-active').style.width = `${Math.round(n * 100 / 12)}%`;
+    document.getElementById('prog-label-active').textContent = `${n} de 12`;
+  } else {
+    const n = predIds.filter(p => votes[p]).length;
+    document.getElementById('prog-fill-active').style.width = `${Math.round(n * 100 / 16)}%`;
+    document.getElementById('prog-label-active').textContent = `${n} de 16`;
+  }
+}
+
+/* ── ANAMNESE ── */
+function pickSingle(qid, idx, el) {
+  anam[qid] = idx;
+  document.querySelectorAll(`#opts-${qid} .opt`).forEach((o,i) => o.classList.toggle('sel', i===idx));
+  document.getElementById(`wrap-${qid}`).classList.add('answered');
+  updateAnam();
+}
+function pickScale(qid, idx, el) {
+  anam[qid] = idx;
+  document.querySelectorAll(`#opts-${qid} .scale-pill`).forEach((p,i) => p.classList.toggle('sel', i===idx));
+  document.getElementById(`wrap-${qid}`).classList.add('answered');
+  updateAnam();
+}
+function pickMulti(qid, idx, el) {
+  const arr = multiState[qid];
+  const pos = arr.indexOf(idx);
+  if (pos > -1) arr.splice(pos, 1); else arr.push(idx);
+  el.classList.toggle('sel', arr.includes(idx));
+  anam[qid] = arr.length > 0 ? arr : undefined;
+  document.getElementById(`wrap-${qid}`).classList.toggle('answered', arr.length > 0);
+  updateAnam();
+}
+function onOpen(qid) {
+  const val = document.getElementById(`input-${qid}`).value.trim();
+  anam[qid] = val || undefined;
+  document.getElementById(`wrap-${qid}`).classList.toggle('answered', !!val);
+  updateAnam();
+}
+function updateAnam() {
+  const n = anamRequired.filter(k => anam[k] !== undefined && anam[k] !== null && anam[k] !== '').length;
+  document.getElementById('badge-anam').textContent = `${n}/12`;
+  const done = n === 12;
+  document.getElementById('btn-anam').disabled = !done;
+  document.getElementById('status-anam').textContent = done ? 'Pronto para enviar' : `${12 - n} pergunta${12-n!==1?'s':''} restante${12-n!==1?'s':''}`;
+  if (activeTab === 'anam') updateProgressBar();
+}
+function submitAnam() {
+  document.getElementById('result-anam').style.display = 'block';
+  document.getElementById('btn-anam').disabled = true;
+  document.getElementById('btn-anam').textContent = 'Enviado';
+  setTimeout(() => document.getElementById('result-anam').scrollIntoView({ behavior:'smooth', block:'start' }), 100);
+}
+
+/* ── PROGNÓSTICOS ── */
+// Simulated group data (% SIM) — replace with real backend later
+const simData = {
+  p1a:68, p1b:74, p2a:61, p2b:55, p3a:77, p3b:71,
+  p4a:48, p4b:63, p5a:58, p5b:66, p6a:72, p6b:69,
+  p7a:54, p7b:61, p8a:73, p8b:57
+};
+
+function vote(pid, v, e) {
+  e.stopPropagation();
+  if (votes[pid]) return;
+  votes[pid] = v;
+  const card = document.getElementById(`pred-${pid}`);
+  card.classList.add(`voted-${v}`);
+  card.querySelectorAll('.pill').forEach(p => {
+    p.classList.remove('active');
+    p.style.pointerEvents = 'none';
+    p.style.opacity = p.classList.contains(`pill-${v}`) ? '1' : '0.35';
+  });
+  card.querySelector(`.pill-${v}`).classList.add('active');
+  showStats(pid, v);
+  updateProg();
+}
+
+function showStats(pid, myVote) {
+  const simY = simData[pid];
+  const simN = 100 - simY;
+  const fillY = card_fill(pid, 'y', simY);
+  const fillN = card_fill(pid, 'n', simN);
+  document.getElementById(`pct-y-${pid}`).textContent = simY + '%';
+  document.getElementById(`pct-n-${pid}`).textContent = simN + '%';
+  setTimeout(() => {
+    if (fillY) fillY.style.width = simY + '%';
+    if (fillN) fillN.style.width = simN + '%';
+  }, 40);
+  const mine = document.getElementById(`mine-${pid}`);
+  if (mine) {
+    const majority = simY >= 50 ? 'y' : 'n';
+    const withGroup = myVote === majority;
+    mine.textContent = withGroup
+      ? 'Você está com a maioria do grupo nesta hipótese.'
+      : 'Você diverge da maioria do grupo nesta hipótese.';
+  }
+}
+
+function card_fill(pid, side, pct) {
+  const card = document.getElementById(`pred-${pid}`);
+  if (!card) return null;
+  const fills = card.querySelectorAll(`.stats-fill.${side}`);
+  return fills.length ? fills[0] : null;
+}
+function updateProg() {
+  const n = predIds.filter(p => votes[p]).length;
+  document.getElementById('badge-prog').textContent = `${n}/16`;
+  const done = n === 16;
+  document.getElementById('btn-prog').disabled = !done;
+  document.getElementById('status-prog').textContent = done ? 'Pronto para enviar' : `${16 - n} pergunta${16-n!==1?'s':''} restante${16-n!==1?'s':''}`;
+  if (activeTab === 'prog') updateProgressBar();
+}
+
+const axisNames = ['Cultura e pessoas','ROI e priorização','Qualidade de dados','Velocidade de adoção','Governança e risco','Dependência de fornecedor','Ética e reputação','Guerra por talentos'];
+const axisKeys  = [['p1a','p1b'],['p2a','p2b'],['p3a','p3b'],['p4a','p4b'],['p5a','p5b'],['p6a','p6b'],['p7a','p7b'],['p8a','p8b']];
+const stmtShort = {
+  p1a:'O fator humano vai pesar mais do que a tecnologia escolhida',
+  p1b:'Formação ampla da liderança vai diferenciar as organizações',
+  p2a:'Maioria dos projetos vai levar mais de 24 meses para ter retorno',
+  p2b:'Eficiência operacional vai gerar mais retorno do que novos produtos',
+  p3a:'Qualidade dos dados internos vai determinar mais do que o modelo',
+  p3b:'Dados proprietários serão mais duradouros como diferencial do que modelos',
+  p4a:'Seletividade vai gerar resultados mais consistentes do que volume',
+  p4b:'As maiores mudanças de posição virão de organizações menores',
+  p5a:'Governança vai atuar mais como freio do que como facilitador',
+  p5b:'Responsabilidade por decisões de IA vai recair sobre a liderança',
+  p6a:'Diferenças entre modelos deixarão de ser fator estratégico até 2026',
+  p6b:'Arquitetura de IA vai se tornar decisão comparável à de infraestrutura de TI',
+  p7a:'Incidentes de IA vão se tornar fator relevante na avaliação de marca',
+  p7b:'Transparência sobre uso de IA vai influenciar relações comerciais',
+  p8a:'O perfil mais disputado vai combinar negócio e IA, não técnica pura',
+  p8b:'Condições de trabalho vão pesar mais do que remuneração para esse perfil'
+};
+
+function submitProg() {
+  const result = document.getElementById('result-prog');
+  result.style.display = 'block';
+  document.getElementById('btn-prog').disabled = true;
+  document.getElementById('btn-prog').textContent = 'Enviado';
+  setTimeout(() => result.scrollIntoView({ behavior:'smooth', block:'start' }), 100);
+  const yC = predIds.filter(p => votes[p]==='y').length;
+  const nC = predIds.filter(p => votes[p]==='n').length;
+  document.getElementById('prog-result-body').innerHTML = `${yC} SIM e ${nC} NÃO nos 16 prognósticos. As respostas do grupo serão apresentadas no primeiro encontro.`;
+  let html = '';
+  axisNames.forEach((ax, i) => {
+    html += `<div class="rs-axis">${String(i+1).padStart(2,'0')} · ${ax}</div>`;
+    axisKeys[i].forEach(pid => {
+      const v = votes[pid];
+      html += `<div class="rs-row"><div class="rs-stmt">${stmtShort[pid]}</div><div class="rs-vote ${v==='y'?'rv-y':'rv-n'}">${v==='y'?'SIM':'NÃO'}</div></div>`;
+    });
+  });
+  document.getElementById('prog-result-summary').innerHTML = html;
+}
+</script>
+</body>
+</html>

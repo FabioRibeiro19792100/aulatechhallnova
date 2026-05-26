@@ -13,13 +13,17 @@
     "@supabase/supabase-js": "^2.106.2",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
+    "highlight.js": "^11.11.1",
     "livekit-client": "^2.15.7",
     "livekit-server-sdk": "^2.13.1",
     "lucide-react": "^1.16.0",
     "mammoth": "^1.12.0",
     "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

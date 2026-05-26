@@ -3530,29 +3530,25 @@ function App() {
   }
 
   async function removeEventFromActiveList(eventId, { archive = false } = {}) {
-    let nextEventsSnapshot = [];
-    let removedEvent = null;
+    const currentEvents = store.events || [];
+    const removedEvent = currentEvents.find((event) => event.id === eventId) || null;
+    if (!removedEvent) {
+      showToast("Não foi possível localizar o evento para excluir");
+      return;
+    }
+    const nextEventsSnapshot = currentEvents.filter((event) => event.id !== eventId);
+    const archivedRecord = archive
+      ? {
+          archivedAt: new Date().toISOString(),
+          event: removedEvent,
+        }
+      : null;
 
-    setStore((current) => {
-      const currentEvents = current.events || [];
-      removedEvent = currentEvents.find((event) => event.id === eventId) || null;
-      if (!removedEvent) return current;
-      nextEventsSnapshot = currentEvents.filter((event) => event.id !== eventId);
-      const archivedRecord = archive
-        ? {
-            archivedAt: new Date().toISOString(),
-            event: removedEvent,
-          }
-        : null;
-
-      return {
-        ...current,
-        events: nextEventsSnapshot,
-        archivedEvents: archivedRecord ? [archivedRecord, ...(current.archivedEvents || [])] : current.archivedEvents || [],
-      };
-    });
-
-    if (!removedEvent) return;
+    setStore((current) => ({
+      ...current,
+      events: nextEventsSnapshot,
+      archivedEvents: archivedRecord ? [archivedRecord, ...(current.archivedEvents || [])] : current.archivedEvents || [],
+    }));
 
     if (facSelectedId === eventId) setFacSelectedId(null);
     if (timeEventId === eventId) {

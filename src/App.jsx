@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, Coins, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
@@ -38,6 +39,32 @@ const FACILITATOR_TOOL_VIEWS = {
   ROOM_MAP: "room-map",
   TOKENS: "tokens",
 };
+const STUDENT_RESOURCE_SECTIONS = [
+  {
+    id: "materials",
+    title: "Materiais de aula",
+    items: [
+      {
+        id: "class-1-2",
+        title: "Material da aula 1 e 2",
+        description: "PDF externo com o conteúdo das duas primeiras aulas",
+        href: "https://drive.google.com/file/d/1fWvpYy8qbm7QsnzeDpBuFhS8dTViupig/view?usp=sharing",
+      },
+    ],
+  },
+  {
+    id: "curation",
+    title: "Curadoria",
+    items: [
+      {
+        id: "curation-soon",
+        title: "Curadoria",
+        description: "Em breve",
+        href: "",
+      },
+    ],
+  },
+];
 const MAX_ATTACHMENT_COUNT = 3;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 12000;
@@ -92,13 +119,22 @@ function EventCardSectionLabel({ icon, children }) {
 }
 
 function FacilitatorTabLabel({ tab }) {
-  const Icon = tab === "dashboard" ? LayoutDashboard : tab === "missoes" ? BookOpen : MessageSquareText;
+  const Icon =
+    tab === "dashboard"
+      ? LayoutDashboard
+      : tab === "missoes"
+        ? BookOpen
+        : tab === "anamnese"
+          ? FileText
+          : MessageSquareText;
   return (
     <>
       <span className="tab-icon" aria-hidden="true">
         <Icon strokeWidth={1.6} />
       </span>
-      <span>{tab === "dashboard" ? "Dashboard" : tab === "missoes" ? "Missões" : "Prompts"}</span>
+      <span>
+        {tab === "dashboard" ? "Dashboard" : tab === "missoes" ? "Missões" : tab === "anamnese" ? "Anamnese" : "Prompts"}
+      </span>
     </>
   );
 }
@@ -162,6 +198,214 @@ const REFLECTION_TOPIC_SHORT_LABELS = {
   q2: "Aplicação",
   q3: "Conforto",
 };
+const ANAMNESIS_UNKNOWN_VALUE = "__unknown__";
+
+const ANAMNESIS_SECTIONS = [
+  {
+    id: "A",
+    title: "Posição e influência",
+    description: "Como você está posicionado para influenciar decisões de IA na sua organização.",
+  },
+  {
+    id: "B",
+    title: "Histórico com IA",
+    description: "O que você já viveu, tentativas, aprendizados e experiências concretas.",
+  },
+  {
+    id: "C",
+    title: "Prioridades estratégicas",
+    description: "Para onde o negócio está indo e onde IA poderia ou não importar.",
+  },
+  {
+    id: "D",
+    title: "Time e cultura interna",
+    description: "Como você lê o ambiente humano ao redor da IA na sua organização.",
+  },
+  {
+    id: "E",
+    title: "Expectativas com o programa",
+    description: "O que você quer levar daqui.",
+  },
+];
+
+const ANAMNESIS_QUESTIONS = [
+  {
+    id: "q1",
+    section: "A",
+    number: "01",
+    prompt: "Qual é o seu papel atual na organização?",
+    type: "single",
+    options: ["CEO / Fundador", "C-level ou equivalente", "Diretor ou VP de área", "Conselheiro ou membro de board", "Outro"],
+  },
+  {
+    id: "q2",
+    section: "A",
+    number: "02",
+    prompt: "Quando se trata de IA na sua organização, você se descreveria como...",
+    type: "single",
+    options: [
+      "Quem toma as decisões. Tenho autonomia e orçamento",
+      "Quem influencia. Participo das decisões, mas não decido sozinho",
+      "Quem executa. Recebo as diretrizes e implemento",
+      "Quem ainda está buscando espaço para isso",
+    ],
+  },
+  {
+    id: "q3",
+    section: "B",
+    number: "03",
+    prompt: "Como você descreveria sua relação pessoal com IA até hoje?",
+    type: "scale",
+    options: ["Observador distante", "Curioso, mas sem prática", "Uso no dia a dia", "Já conduzi iniciativas", "Referência no tema"],
+  },
+  {
+    id: "q4",
+    section: "B",
+    number: "04",
+    prompt: "Sua organização já tentou alguma iniciativa de IA nos últimos 2 anos? O que aconteceu?",
+    type: "single",
+    options: [
+      "Sim, e está funcionando com resultados claros",
+      "Sim, mas ficou no piloto e não escalou",
+      "Sim, mas não funcionou. Aprendemos com isso",
+      "Ainda não iniciamos nada formalmente",
+    ],
+  },
+  {
+    id: "q5",
+    section: "B",
+    number: "05",
+    prompt: "Se houve tentativas, o que você identifica hoje como o fator que mais pesou no resultado?",
+    type: "single",
+    optionalText: true,
+    textPrompt: "Se quiser, detalhe um pouco mais.",
+    placeholder: "Pode ser uma decisão, uma pessoa, um contexto, uma escolha de tecnologia...",
+    options: [
+      "Patrocínio da liderança",
+      "Clareza de objetivo e caso de uso",
+      "Qualidade de dados ou tecnologia",
+      "Capacidade do time para executar",
+      "Resistência cultural ou política interna",
+    ],
+  },
+  {
+    id: "q6",
+    section: "C",
+    number: "06",
+    prompt: "Quais são as 2 ou 3 prioridades mais urgentes do seu negócio nos próximos 12 a 24 meses?",
+    type: "multi",
+    optionalText: true,
+    textPrompt: "Se alguma prioridade não estiver na lista, complemente aqui.",
+    placeholder: "Crescimento, eficiência, novo mercado, reestruturação, M&A, regulação...",
+    options: [
+      "Crescimento de receita",
+      "Eficiência operacional e custo",
+      "Expansão comercial ou de mercado",
+      "Novos produtos ou inovação",
+      "Reorganização interna e pessoas",
+      "Risco, compliance ou regulação",
+    ],
+  },
+  {
+    id: "q7",
+    section: "C",
+    number: "07",
+    prompt: "Considerando essas prioridades, onde você acha que IA poderia fazer mais diferença para o seu negócio?",
+    type: "multi",
+    options: [
+      "Eficiência operacional e redução de custo",
+      "Experiência e personalização para o cliente",
+      "Velocidade de decisão e inteligência de mercado",
+      "Desenvolvimento de novos produtos ou modelos de negócio",
+      "Gestão e desenvolvimento de pessoas",
+      "Ainda não consigo visualizar claramente",
+    ],
+  },
+  {
+    id: "q8",
+    section: "D",
+    number: "08",
+    prompt: "Como você percebe o estado geral da sua organização em relação à IA hoje?",
+    type: "single",
+    options: [
+      "Há energia e vontade, mas falta clareza de direção",
+      "Há interesse, mas também medo e resistência",
+      "É indiferente. O tema ainda não chegou com força",
+      "Há ceticismo ativo. Precisamos convencer internamente",
+      "Já há movimento e estamos construindo momentum",
+    ],
+  },
+  {
+    id: "q9",
+    section: "D",
+    number: "09",
+    prompt: "Quem, dentro da sua organização, mais importa engajar para que IA avance de verdade?",
+    type: "multi",
+    optionalText: true,
+    textPrompt: "Se quiser, especifique nomes, áreas ou coalizões importantes.",
+    placeholder: "Pode ser um papel, uma área, um nome, um grupo...",
+    options: [
+      "Alta liderança / board",
+      "Lideranças de negócio",
+      "Tecnologia / dados",
+      "Jurídico / compliance",
+      "Operação / linha de frente",
+      "RH / desenvolvimento de pessoas",
+    ],
+  },
+  {
+    id: "q10",
+    section: "E",
+    number: "10",
+    prompt: "O que você espera que mude na sua forma de atuar após os 10 encontros?",
+    type: "multi",
+    options: [
+      "Ter clareza de onde priorizar investimentos em IA",
+      "Conseguir liderar conversas de IA com mais segurança",
+      "Ter um plano concreto para minha organização",
+      "Entender os riscos reais e como lidar com eles",
+      "Construir uma rede com outros líderes no mesmo momento",
+    ],
+  },
+  {
+    id: "q11",
+    section: "E",
+    number: "11",
+    prompt: "Se você pudesse sair deste programa com uma resposta clara para uma única pergunta, qual seria ela?",
+    type: "single",
+    optionalText: true,
+    textPrompt: "Se quiser, escreva a pergunta exata do seu jeito.",
+    placeholder: "Escreva a pergunta que mais te preocupa ou intriga sobre IA...",
+    options: [
+      "Onde priorizar IA no meu contexto",
+      "Como provar valor de negócio com IA",
+      "Como liderar a adoção com mais segurança",
+      "Como equilibrar risco e oportunidade",
+      "Como transformar IA em plano concreto",
+    ],
+  },
+  {
+    id: "q12",
+    section: "E",
+    number: "12",
+    prompt: "Há algo sobre o seu contexto atual que você quer que a coordenação saiba antes do início?",
+    type: "single",
+    optionalText: true,
+    textPrompt: "Se quiser, escreva o contexto com mais detalhes.",
+    placeholder: "Restrições, projetos em curso, questões sensíveis, ou nada por enquanto.",
+    options: [
+      "Existe projeto de IA já em andamento",
+      "Há contexto sensível ou político importante",
+      "Há restrição regulatória ou jurídica",
+      "Há restrição orçamentária ou operacional",
+      "Nada a sinalizar por enquanto",
+    ],
+  },
+];
+
+const ANAMNESIS_STOPWORDS = new Set([
+  "a","as","o","os","de","da","do","das","dos","e","em","para","por","com","sem","um","uma","uns","umas","na","no","nas","nos","que","se","ao","aos","à","às","ou","mais","menos","muito","muita","muitos","muitas","já","ainda","como","sobre","ser","estar","ter","há","hoje","amanhã","entre","pela","pelo","pelas","pelos","isso","essa","esse","esta","este","meu","minha","seu","sua","nosso","nossa","quer","quero","nada","algo",
+]);
 
 const MOCKS = {
   mission_general_chat: (input) =>
@@ -354,7 +598,11 @@ function buildTeamsFromStudents(students, mode, teamCount = 0) {
 
 function makeEvent({ name, desc, rawTeams }) {
   const teams = rawTeams
-    ? rawTeams.split(",").map((item) => item.trim()).filter(Boolean).map((team) => makeTeam(team))
+    ? rawTeams
+        .split(/\r?\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((team) => makeTeam(team))
     : [];
   const missions = buildFixedMissionList().map((mission, index) => ({
     ...mission,
@@ -380,6 +628,8 @@ function makeEvent({ name, desc, rawTeams }) {
     tokenOperationalLogs: [],
     helpRequests: [],
     helpDisabledMap: {},
+    anamnesisEnabled: false,
+    anamnesisResponses: {},
     trainingRuns: {},
     trainingHelpRequests: [],
     announcements: [],
@@ -421,6 +671,147 @@ function makeDevLabEvent() {
 
 function getEventMode(evento) {
   return evento?.eventMode || MISSIONS_MODE_EVENT;
+}
+
+function isAnamnesisEnabled(evento) {
+  return Boolean(evento?.anamnesisEnabled);
+}
+
+function getAnamnesisResponse(evento, teamIdx) {
+  if (!evento || teamIdx === null || teamIdx === undefined) return null;
+  return evento.anamnesisResponses?.[teamIdx] || null;
+}
+
+function hasCompletedAnamnesis(evento, teamIdx) {
+  return Boolean(getAnamnesisResponse(evento, teamIdx)?.submittedAt);
+}
+
+function getAnamnesisAnswerChoice(question, value) {
+  if (question.optionalText) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value.choice;
+    }
+    return undefined;
+  }
+  return value;
+}
+
+function getAnamnesisAnswerNote(question, value) {
+  if (!question.optionalText) return "";
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return normalizeAnamnesisText(value.note || "");
+  }
+  return typeof value === "string" ? normalizeAnamnesisText(value) : "";
+}
+
+function isAnamnesisUnknownChoice(choice) {
+  if (Array.isArray(choice)) return choice.includes(ANAMNESIS_UNKNOWN_VALUE);
+  return choice === ANAMNESIS_UNKNOWN_VALUE;
+}
+
+function isAnamnesisAnswerFilled(question, value) {
+  const note = getAnamnesisAnswerNote(question, value);
+  const choice = getAnamnesisAnswerChoice(question, value);
+  if (question.type === "text") return Boolean(note);
+  if (question.type === "multi") return (Array.isArray(choice) && choice.length > 0) || Boolean(note);
+  return (choice !== null && choice !== undefined && choice !== "") || Boolean(note);
+}
+
+function countAnsweredAnamnesisQuestions(answers = {}) {
+  return ANAMNESIS_QUESTIONS.filter((question) => isAnamnesisAnswerFilled(question, answers[question.id])).length;
+}
+
+function normalizeAnamnesisText(value = "") {
+  return `${value || ""}`.replace(/\s+/g, " ").trim();
+}
+
+function normalizeAnamnesisAnswer(question, value) {
+  const normalizeChoice = () => {
+    if (question.type === "text") return "";
+    if (question.type === "multi") {
+      const raw = question.optionalText ? getAnamnesisAnswerChoice(question, value) : value;
+      if (Array.isArray(raw)) {
+        if (raw.includes(ANAMNESIS_UNKNOWN_VALUE)) return [ANAMNESIS_UNKNOWN_VALUE];
+        return [...new Set(raw.map((item) => Number(item)).filter(Number.isFinite))].sort((a, b) => a - b);
+      }
+      return [];
+    }
+    const raw = question.optionalText ? getAnamnesisAnswerChoice(question, value) : value;
+    if (raw === ANAMNESIS_UNKNOWN_VALUE) return ANAMNESIS_UNKNOWN_VALUE;
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : "";
+  };
+
+  const normalizedNote = normalizeAnamnesisText(getAnamnesisAnswerNote(question, value));
+  if (!question.optionalText) {
+    if (question.type === "text") return normalizedNote;
+    return normalizeChoice();
+  }
+
+  return {
+    choice: normalizeChoice(),
+    note: normalizedNote,
+  };
+}
+
+function getAnamnesisQuestionResults(evento, question) {
+  const responses = Object.values(evento?.anamnesisResponses || {}).filter((entry) => entry?.submittedAt);
+  const notes = responses
+    .map((entry) => getAnamnesisAnswerNote(question, entry.answers?.[question.id]))
+    .filter(Boolean);
+
+  if (question.type === "text") {
+    return {
+      respondents: notes.length,
+      responseRate: responses.length ? Math.round((notes.length / responses.length) * 100) : 0,
+      texts: notes,
+    };
+  }
+
+  const choiceOptions = [...(question.options || []), "Não sei responder"];
+  const counts = choiceOptions.map((_, optionIdx) => {
+    let total = 0;
+    responses.forEach((entry) => {
+      const answer = getAnamnesisAnswerChoice(question, entry.answers?.[question.id]);
+      if (question.type === "multi") {
+        if (optionIdx === choiceOptions.length - 1) {
+          if (Array.isArray(answer) && answer.includes(ANAMNESIS_UNKNOWN_VALUE)) total += 1;
+        } else if (Array.isArray(answer) && answer.includes(optionIdx)) total += 1;
+      } else if (optionIdx === choiceOptions.length - 1 ? answer === ANAMNESIS_UNKNOWN_VALUE : answer === optionIdx) {
+        total += 1;
+      }
+    });
+    return total;
+  });
+
+  return {
+    respondents: responses.filter((entry) => isAnamnesisAnswerFilled(question, entry.answers?.[question.id])).length,
+    totalResponses: responses.length,
+    counts,
+    texts: notes,
+    noteResponseRate: responses.length ? Math.round((notes.length / responses.length) * 100) : 0,
+    optionLabels: choiceOptions,
+  };
+}
+
+function extractAnamnesisKeywords(texts = [], limit = 8) {
+  const counter = new globalThis.Map();
+  texts.forEach((text) => {
+    normalizeAnamnesisText(text)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .split(/[^a-z0-9à-ÿ]+/i)
+      .map((word) => word.trim())
+      .filter((word) => word.length >= 4 && !ANAMNESIS_STOPWORDS.has(word))
+      .forEach((word) => {
+        counter.set(word, (counter.get(word) || 0) + 1);
+      });
+  });
+  return [...counter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([term, count]) => ({ term, count }));
 }
 
 function isEventHidden(evento) {
@@ -1267,6 +1658,12 @@ function mergeEventEntity(remoteEvent, localEvent) {
     helpDisabledMap: mergeObjectMaps(remoteEvent.helpDisabledMap, localEvent.helpDisabledMap, (remoteValue, localValue) =>
       pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
     ),
+    anamnesisEnabled: newestEvent.anamnesisEnabled ?? oldestEvent.anamnesisEnabled ?? false,
+    anamnesisResponses: mergeObjectMaps(
+      remoteEvent.anamnesisResponses,
+      localEvent.anamnesisResponses,
+      (remoteValue, localValue) => pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "updatedAt"]),
+    ),
     trainingRuns: mergeExecucaoMaps(remoteEvent.trainingRuns, localEvent.trainingRuns),
     trainingHelpRequests: mergeHelpRequestArrays(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
     announcements: mergeAnnouncements(getEventAnnouncements(remoteEvent), getEventAnnouncements(localEvent)),
@@ -1352,6 +1749,8 @@ function migrateEventToFixedMissions(event) {
     missionTokenPolicies: event.missionTokenPolicies || {},
     tokenGrants: event.tokenGrants || [],
     tokenOperationalLogs: event.tokenOperationalLogs || [],
+    anamnesisEnabled: Boolean(event.anamnesisEnabled),
+    anamnesisResponses: event.anamnesisResponses || {},
   };
 
   if (getEventMode(baseEvent) !== MISSIONS_MODE_EVENT) {
@@ -1504,9 +1903,15 @@ async function createAttachmentRecord(file) {
       throw new Error(`${file.name}: não foi possível extrair texto do documento.`);
     } catch (error) {
       console.warn(`Falha ao extrair ${file.name}:`, error);
-      throw new Error(
-        `${file.name}: não foi possível ler o conteúdo do arquivo. Reanexe o documento ou tente outro formato com texto selecionável.`,
-      );
+      return {
+        ...base,
+        previewMode: "metadata",
+        extractedText: "",
+        extractionFailed: true,
+        summary: "Documento anexado sem leitura automática de conteúdo.",
+        warningMessage:
+          `${file.name}: o documento foi anexado, mas a leitura automática falhou. Só os metadados seguirão para a IA nesta rodada.`,
+      };
     }
   }
 
@@ -1530,7 +1935,7 @@ function buildAttachmentContext(attachments = []) {
     .filter((attachment) => attachment.kind === "document" && !attachment.extractedText)
     .map(
       (attachment, index) =>
-        `Arquivo ${index + 1}: ${attachment.name} (${attachment.extension.toUpperCase()}, ${attachment.sizeLabel})\nObservação: o arquivo foi anexado, mas nesta versão só os metadados seguem para a IA.`,
+        `Arquivo ${index + 1}: ${attachment.name} (${attachment.extension.toUpperCase()}, ${attachment.sizeLabel})\nObservação: o arquivo foi anexado, mas o conteúdo não pôde ser lido automaticamente. Só os metadados seguem para a IA nesta rodada.`,
     );
 
   return [...textBlocks, ...metadataBlocks].join("\n\n");
@@ -2833,9 +3238,14 @@ function executarMock({ mission, input, acao, model, planningMode, historyContex
 
 function Modal({ open, children, onClose, small = false, dismissible = true, className = "" }) {
   if (!open) return null;
-  return (
+  const modalNode = (
     <div className="overlay open" onClick={dismissible ? onClose : undefined}>
-      <div className={`modal${small ? " modal-small" : ""}${className ? ` ${className}` : ""}`} onClick={(event) => event.stopPropagation()}>
+      <div
+        className={`modal${small ? " modal-small" : ""}${className ? ` ${className}` : ""}`}
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         {onClose ? (
           <button
             type="button"
@@ -2850,6 +3260,8 @@ function Modal({ open, children, onClose, small = false, dismissible = true, cla
       </div>
     </div>
   );
+  if (typeof document === "undefined") return modalNode;
+  return createPortal(modalNode, document.body);
 }
 
 function BrandLoaderOverlay({ open }) {
@@ -2922,6 +3334,7 @@ function App() {
     desc: "",
     teams: "",
     eventMode: MISSIONS_MODE_EVENT,
+    anamnesisEnabled: false,
     teamMode: "manual",
     studentsRaw: "",
     importMode: "solo",
@@ -2943,11 +3356,17 @@ function App() {
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [teamAnnouncementOpen, setTeamAnnouncementOpen] = useState(false);
   const [teamAnnouncementInboxOpen, setTeamAnnouncementInboxOpen] = useState(false);
+  const [anamnesisOpen, setAnamnesisOpen] = useState(false);
+  const [anamnesisAnswers, setAnamnesisAnswers] = useState({});
+  const [anamnesisError, setAnamnesisError] = useState("");
+  const [anamnesisContext, setAnamnesisContext] = useState(null);
   const [reflectionComment, setReflectionComment] = useState("");
   const [reflectionError, setReflectionError] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [missionFeedbackOpen, setMissionFeedbackOpen] = useState({});
+  const [missionTeamRowsOpen, setMissionTeamRowsOpen] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
+  const [materialsDrawerOpen, setMaterialsDrawerOpen] = useState(false);
   const [tokenLimitModalOpen, setTokenLimitModalOpen] = useState(false);
   const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
   const [facilitatorToolView, setFacilitatorToolView] = useState(FACILITATOR_TOOL_VIEWS.MENU);
@@ -3275,6 +3694,9 @@ function App() {
     currentMission && teamEvent && timeTeamIdx !== null
       ? getMissionTokenOperationalLogs(teamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
       : [];
+  const facilitatorTabs = selectedEvent && isAnamnesisEnabled(selectedEvent)
+    ? ["dashboard", "missoes", "prompts", "anamnese"]
+    : ["dashboard", "missoes", "prompts"];
   const selectedTokenPolicy = selectedEvent && tokenGrantTargetMissionId
     ? getMissionTokenPolicy(selectedEvent, tokenGrantTargetMissionId, {
         isTraining: tokenGrantTargetMissionId === TOKEN_MISSION_TRAINING_ID,
@@ -3282,6 +3704,8 @@ function App() {
     : null;
   const teamHelpDisabled = teamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(teamEvent, timeTeamIdx) : false;
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
+  const anamnesisTargetEvent = anamnesisContext ? events.find((event) => event.id === anamnesisContext.eventId) || null : null;
+  const answeredAnamnesisCount = countAnsweredAnamnesisQuestions(anamnesisAnswers);
 
   useEffect(() => {
     if (screen !== "workspace" || !teamEvent || timeTeamIdx === null) {
@@ -3407,6 +3831,12 @@ function App() {
     selectedTokenPolicy?.customLimit,
     selectedTokenPolicy?.updatedAt,
   ]);
+
+  useEffect(() => {
+    if (facTab === "anamnese" && (!selectedEvent || !isAnamnesisEnabled(selectedEvent))) {
+      setFacTab("dashboard");
+    }
+  }, [facTab, selectedEvent]);
 
   useEffect(() => {
     if (!selectedEvent) return undefined;
@@ -3719,7 +4149,19 @@ function App() {
         return true;
       });
 
-      const records = await Promise.all(validFiles.map((file) => createAttachmentRecord(file)));
+      const settled = await Promise.allSettled(validFiles.map((file) => createAttachmentRecord(file)));
+      const records = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+      const failures = settled
+        .flatMap((result, index) =>
+          result.status === "rejected"
+            ? [{ fileName: validFiles[index]?.name || "arquivo", message: result.reason?.message || "Falha ao anexar arquivo." }]
+            : [],
+        );
+      const warnings = records
+        .map((record) => record.warningMessage)
+        .filter(Boolean);
+      failures.forEach((failure) => showToast(failure.message || `${failure.fileName}: falha ao anexar.`));
+      warnings.forEach((warning) => showToast(warning));
       if (!records.length) return;
       setMissionAttachments((current) => [...current, ...records].slice(0, MAX_ATTACHMENT_COUNT));
       showToast(`${records.length} arquivo(s) anexado(s)`);
@@ -3804,6 +4246,11 @@ function App() {
     setScreen("home");
     setEntryError("");
     setActiveStudentName("");
+    setMaterialsDrawerOpen(false);
+    setAnamnesisOpen(false);
+    setAnamnesisAnswers({});
+    setAnamnesisError("");
+    setAnamnesisContext(null);
   }
 
   function goFacilitador() {
@@ -3822,6 +4269,11 @@ function App() {
   }
 
   function goEntradaTime() {
+    setMaterialsDrawerOpen(false);
+    setAnamnesisOpen(false);
+    setAnamnesisAnswers({});
+    setAnamnesisError("");
+    setAnamnesisContext(null);
     runBrandLoaderTransition(() => {
       setScreen("entry");
       setEntryError("");
@@ -3833,6 +4285,11 @@ function App() {
   }
 
   function goEscolhaTime() {
+    setMaterialsDrawerOpen(false);
+    setAnamnesisOpen(false);
+    setAnamnesisAnswers({});
+    setAnamnesisError("");
+    setAnamnesisContext(null);
     setScreen("team");
     setTimeTeamIdx(null);
     setTimeMissionIdx(null);
@@ -3902,27 +4359,19 @@ function App() {
             desc: trimmedDesc,
             rawTeams: trimmedTeams,
           }),
-          { eventMode: newEventForm.eventMode },
+          {
+            eventMode: newEventForm.eventMode,
+            anamnesisEnabled: Boolean(newEventForm.anamnesisEnabled),
+          },
         ),
       );
 
       if (newEventForm.teamMode === "import") {
-        const generatedTeams = buildTeamsFromStudents(
-          newEventStudents,
-          newEventForm.importMode,
-          newEventForm.randomTeamCount,
-        );
         if (!newEventStudents.length) {
           showToast("Cole pelo menos um nome para importar");
           return;
         }
-        if (
-          newEventForm.importMode === "random" &&
-          (!newEventForm.randomTeamCount || newEventForm.randomTeamCount > newEventStudents.length)
-        ) {
-          showToast("Defina uma quantidade de times valida");
-          return;
-        }
+        const generatedTeams = buildTeamsFromStudents(newEventStudents, "solo", 1);
         event.teams = generatedTeams;
       }
 
@@ -3934,6 +4383,7 @@ function App() {
         desc: "",
         teams: "",
         eventMode: MISSIONS_MODE_EVENT,
+        anamnesisEnabled: false,
         teamMode: "manual",
         studentsRaw: "",
         importMode: "solo",
@@ -3946,6 +4396,13 @@ function App() {
       console.error(error);
       showToast(error?.message || "Falha ao criar evento");
     }
+  }
+
+  function handleSetAnamnesisEnabled(eventId, enabled) {
+    updateEvents((current) =>
+      current.map((event) => (event.id === eventId ? { ...event, anamnesisEnabled: enabled } : event)),
+    );
+    showToast(enabled ? "Anamnese habilitada no evento" : "Anamnese desabilitada no evento");
   }
 
   async function removeEventFromActiveList(eventId, { archive = false } = {}) {
@@ -4245,8 +4702,24 @@ function App() {
       selectedEvent && eventMode !== TRAINING_MODE_EVENT
         ? selectedEvent.missions.findIndex((mission) => mission.unlocked)
         : -1;
+    const normalizedMemberName = normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "";
+
+    if (selectedEvent && isAnamnesisEnabled(selectedEvent) && !hasCompletedAnamnesis(selectedEvent, index)) {
+      setActiveStudentName(normalizedMemberName);
+      setAnamnesisAnswers({});
+      setAnamnesisError("");
+      setAnamnesisContext({
+        eventId: selectedEvent.id,
+        teamIdx: index,
+        memberName: normalizedMemberName,
+        nextMissionIdx: pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null,
+      });
+      setAnamnesisOpen(true);
+      return;
+    }
+
     runBrandLoaderTransition(() => {
-      setActiveStudentName(normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "");
+      setActiveStudentName(normalizedMemberName);
       setTimeTeamIdx(index);
       setTimeMissionIdx(pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null);
       setScreen("workspace");
@@ -4270,6 +4743,116 @@ function App() {
       () => handleEscolherTime(teamIdx, label),
       { confirmTone: "primary" },
     );
+  }
+
+  function handleToggleAnamnesisOption(question, optionIdx) {
+    setAnamnesisError("");
+    setAnamnesisAnswers((current) => {
+      const currentValue = current[question.id];
+      const unknownSelected = optionIdx === ANAMNESIS_UNKNOWN_VALUE;
+      const currentChoice = question.optionalText ? getAnamnesisAnswerChoice(question, currentValue) : currentValue;
+      const currentNote = question.optionalText ? getAnamnesisAnswerNote(question, currentValue) : "";
+
+      if (question.type === "multi") {
+        const next = Array.isArray(currentChoice) ? [...currentChoice] : [];
+        let nextValue;
+        if (unknownSelected) {
+          nextValue = next.includes(ANAMNESIS_UNKNOWN_VALUE) ? [] : [ANAMNESIS_UNKNOWN_VALUE];
+        } else {
+          const withoutUnknown = next.filter((item) => item !== ANAMNESIS_UNKNOWN_VALUE);
+          nextValue = withoutUnknown.includes(optionIdx)
+            ? withoutUnknown.filter((item) => item !== optionIdx)
+            : [...withoutUnknown, optionIdx].sort((a, b) => a - b);
+        }
+        return {
+          ...current,
+          [question.id]: question.optionalText ? { choice: nextValue, note: currentNote } : nextValue,
+        };
+      }
+
+      const nextValue = currentChoice === optionIdx ? "" : optionIdx;
+      const finalChoice = unknownSelected ? ANAMNESIS_UNKNOWN_VALUE : nextValue;
+      return {
+        ...current,
+        [question.id]: question.optionalText ? { choice: finalChoice, note: currentNote } : finalChoice,
+      };
+    });
+  }
+
+  function handleChangeAnamnesisText(questionId, value) {
+    setAnamnesisError("");
+    const question = ANAMNESIS_QUESTIONS.find((item) => item.id === questionId);
+    if (!question) return;
+    setAnamnesisAnswers((current) => {
+      if (!question.optionalText) return { ...current, [questionId]: value };
+      const currentValue = current[questionId];
+      return {
+        ...current,
+        [questionId]: {
+          choice: getAnamnesisAnswerChoice(question, currentValue) ?? (question.type === "multi" ? [] : ""),
+          note: value,
+        },
+      };
+    });
+  }
+
+  function handleCloseAnamnesisModal() {
+    setAnamnesisOpen(false);
+    setAnamnesisAnswers({});
+    setAnamnesisError("");
+    setAnamnesisContext(null);
+    setActiveStudentName("");
+  }
+
+  function handleSubmitAnamnesis() {
+    if (!anamnesisContext) return;
+    const missingQuestion = ANAMNESIS_QUESTIONS.find(
+      (question) => !isAnamnesisAnswerFilled(question, anamnesisAnswers[question.id]),
+    );
+    if (missingQuestion) {
+      setAnamnesisError(`Responda a pergunta ${missingQuestion.number} antes de continuar.`);
+      return;
+    }
+
+    const normalizedAnswers = ANAMNESIS_QUESTIONS.reduce((accumulator, question) => {
+      accumulator[question.id] = normalizeAnamnesisAnswer(question, anamnesisAnswers[question.id]);
+      return accumulator;
+    }, {});
+    const submittedAt = new Date().toISOString();
+
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== anamnesisContext.eventId
+          ? event
+          : {
+              ...event,
+              anamnesisResponses: {
+                ...(event.anamnesisResponses || {}),
+                [anamnesisContext.teamIdx]: {
+                  teamIdx: anamnesisContext.teamIdx,
+                  memberName: anamnesisContext.memberName,
+                  answers: normalizedAnswers,
+                  submittedAt,
+                  updatedAt: submittedAt,
+                },
+              },
+            },
+      ),
+    );
+
+    setAnamnesisOpen(false);
+    setAnamnesisAnswers({});
+    setAnamnesisError("");
+    const nextContext = anamnesisContext;
+    setAnamnesisContext(null);
+    runBrandLoaderTransition(() => {
+      setTimeEventId(nextContext.eventId);
+      setTimeTeamIdx(nextContext.teamIdx);
+      setTimeMissionIdx(nextContext.nextMissionIdx);
+      setActiveStudentName(nextContext.memberName);
+      setScreen("workspace");
+    });
+    showToast("Anamnese registrada");
   }
 
   function handleSelectMission(index) {
@@ -6342,6 +6925,175 @@ function App() {
     );
   }
 
+  function renderAnamnesisInsights(evento) {
+    if (!isAnamnesisEnabled(evento)) {
+      return <div className="teams-empty">A anamnese está desabilitada neste evento.</div>;
+    }
+
+    const responses = Object.values(evento.anamnesisResponses || {}).filter((entry) => entry?.submittedAt);
+    if (!responses.length) {
+      return <div className="teams-empty">Nenhuma resposta de anamnese foi enviada ainda.</div>;
+    }
+
+    const completionRate = evento.teams.length ? Math.round((responses.length / evento.teams.length) * 100) : 0;
+    const openQuestions = ANAMNESIS_QUESTIONS.filter((question) => question.type === "text" || question.optionalText).length;
+    const choiceQuestions = ANAMNESIS_QUESTIONS.filter((question) => question.type !== "text").length;
+
+    return (
+      <div className="anamnesis-insights-shell">
+        <div className="section-header">
+          <span className="section-title section-title-with-icon">
+            <span className="section-title-icon" aria-hidden="true">
+              <FileText size={16} strokeWidth={1.6} />
+            </span>
+            <span>Perfil agregado da turma</span>
+          </span>
+          <span className="muted-mini">
+            {responses.length}/{evento.teams.length || responses.length} resposta(s) · {completionRate}% de adesão
+          </span>
+        </div>
+
+        <div className="anamnesis-summary-strip">
+          <div className="anamnesis-summary-item">
+            <span>Respondentes</span>
+            <strong>{responses.length}</strong>
+          </div>
+          <div className="anamnesis-summary-item">
+            <span>Cobertura</span>
+            <strong>{completionRate}%</strong>
+          </div>
+          <div className="anamnesis-summary-item">
+            <span>Perguntas de escolha</span>
+            <strong>{choiceQuestions}</strong>
+          </div>
+          <div className="anamnesis-summary-item">
+            <span>Perguntas abertas</span>
+            <strong>{openQuestions}</strong>
+          </div>
+        </div>
+
+        <div className="anamnesis-section-list">
+          {ANAMNESIS_SECTIONS.map((section) => {
+            const questions = ANAMNESIS_QUESTIONS.filter((question) => question.section === section.id);
+            return (
+              <section className="anamnesis-section-card" key={section.id}>
+                <div className="anamnesis-section-head">
+                  <div>
+                    <div className="anamnesis-section-kicker">{section.id}</div>
+                    <div className="anamnesis-section-title">{section.title}</div>
+                  </div>
+                  <div className="anamnesis-section-description">{section.description}</div>
+                </div>
+
+                <div className="anamnesis-question-grid">
+                  {questions.map((question) => {
+                    const results = getAnamnesisQuestionResults(evento, question);
+                    const isTextOnly = question.type === "text";
+                    const optionLabels = results.optionLabels || question.options || [];
+                    const maxCount = isTextOnly ? 0 : Math.max(1, ...(results.counts || [0]));
+                    const keywords = extractAnamnesisKeywords(results.texts || []);
+                    return (
+                      <article className="anamnesis-question-card" key={question.id}>
+                        <div className="anamnesis-question-head">
+                          <div className="anamnesis-question-number">{question.number}</div>
+                          <div>
+                            <div className="anamnesis-question-title">{question.prompt}</div>
+                            <div className="anamnesis-question-meta">
+                              {isTextOnly
+                                ? `${results.respondents} resposta(s) abertas`
+                                : question.optionalText
+                                  ? `${results.respondents} resposta(s) objetivas · ${results.texts?.length || 0} complemento(s)`
+                                  : `${results.respondents} resposta(s) computadas`}
+                            </div>
+                          </div>
+                        </div>
+
+                        {isTextOnly ? (
+                          <div className="anamnesis-text-summary">
+                            <div className="anamnesis-open-bar">
+                              <div
+                                className="anamnesis-open-bar-fill"
+                                style={{ width: `${results.responseRate ? Math.max(8, results.responseRate) : 0}%` }}
+                              />
+                            </div>
+                            <div className="anamnesis-open-meta">
+                              <span>Pergunta aberta</span>
+                              <strong>{results.responseRate}% da turma respondeu</strong>
+                            </div>
+                            {keywords.length ? (
+                              <div className="anamnesis-keyword-row">
+                                {keywords.map((keyword) => (
+                                  <span className="anamnesis-keyword-chip" key={`${question.id}-${keyword.term}`}>
+                                    {keyword.term}
+                                    <small>{keyword.count}</small>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="anamnesis-empty-note">Ainda não há termos recorrentes suficientes para sintetizar esta pergunta.</div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="anamnesis-bar-list">
+                            {optionLabels.map((option, optionIdx) => {
+                              const count = results.counts?.[optionIdx] || 0;
+                              const width = maxCount ? Math.max(4, (count / maxCount) * 100) : 0;
+                              const percent = responses.length ? Math.round((count / responses.length) * 100) : 0;
+                              return (
+                                <div className="anamnesis-bar-row" key={`${question.id}-${optionIdx}`}>
+                                  <div className="anamnesis-bar-copy">
+                                    <span>{option}</span>
+                                    <strong>{count}</strong>
+                                  </div>
+                                  <div className="anamnesis-bar-track" aria-hidden="true">
+                                    <div className="anamnesis-bar-fill" style={{ width: `${width}%` }} />
+                                  </div>
+                                  <div className="anamnesis-bar-meta">{percent}%</div>
+                                </div>
+                              );
+                            })}
+                            </div>
+                            {question.optionalText ? (
+                              <div className="anamnesis-text-summary is-secondary">
+                                <div className="anamnesis-open-bar">
+                                  <div
+                                    className="anamnesis-open-bar-fill"
+                                    style={{ width: `${results.noteResponseRate ? Math.max(8, results.noteResponseRate) : 0}%` }}
+                                  />
+                                </div>
+                                <div className="anamnesis-open-meta">
+                                  <span>Complemento opcional</span>
+                                  <strong>{results.noteResponseRate}% da turma detalhou</strong>
+                                </div>
+                                {keywords.length ? (
+                                  <div className="anamnesis-keyword-row">
+                                    {keywords.map((keyword) => (
+                                      <span className="anamnesis-keyword-chip" key={`${question.id}-${keyword.term}`}>
+                                        {keyword.term}
+                                        <small>{keyword.count}</small>
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="anamnesis-empty-note">Sem termos recorrentes suficientes nos complementos desta pergunta.</div>
+                                )}
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <BrandLoaderOverlay open={brandLoaderOpen} />
@@ -6481,13 +7233,10 @@ function App() {
                       {event.status === "open" ? <span className="live-dot" /> : null}
                       {event.name}
                     </div>
+                    {event.desc ? <div className="event-item-desc">{event.desc}</div> : null}
                   </button>
                   {isSelected && event.status === "open" ? (
                     <div className="event-item-details">
-                      <div className="event-item-detail-block">
-                        <EventCardSectionLabel icon="summary">Resumo rápido</EventCardSectionLabel>
-                        <div className="muted-body">{event.desc || "Sem descrição cadastrada para este evento."}</div>
-                      </div>
                       <div className="event-item-detail-block">
                         <EventCardSectionLabel icon="mode">Modo do evento</EventCardSectionLabel>
                         <div className="inline-choice-row event-mode-row">
@@ -6502,6 +7251,23 @@ function App() {
                             onClick={() => handleSetEventMode(event.id, TRAINING_MODE_EVENT)}
                           >
                             Treino
+                          </button>
+                        </div>
+                      </div>
+                      <div className="event-item-detail-block">
+                        <EventCardSectionLabel icon="summary">Anamnese da turma</EventCardSectionLabel>
+                        <div className="inline-choice-row event-mode-row">
+                          <button
+                            className={`choice-pill${!isAnamnesisEnabled(event) ? " active" : ""}`}
+                            onClick={() => handleSetAnamnesisEnabled(event.id, false)}
+                          >
+                            Desligada
+                          </button>
+                          <button
+                            className={`choice-pill${isAnamnesisEnabled(event) ? " active" : ""}`}
+                            onClick={() => handleSetAnamnesisEnabled(event.id, true)}
+                          >
+                            Ligada
                           </button>
                         </div>
                       </div>
@@ -6537,7 +7303,7 @@ function App() {
               ) : (
                 <>
                   <div className="tabs">
-                    {["dashboard", "missoes", "prompts"].map((tab) => (
+                    {facilitatorTabs.map((tab) => (
                       <button
                         key={tab}
                         className={`tab${facTab === tab ? " active" : ""}`}
@@ -6581,6 +7347,7 @@ function App() {
                                 const feedbackOpen = Boolean(missionFeedbackOpen[feedbackKey]);
                                 const missionHasOpenTeams = selectedEvent.teams.some((_, teamIdx) => getMissionClosureStatus(selectedEvent, teamIdx, mission.id) === "aberta");
                                 const missionHasReopenableTeams = selectedEvent.teams.some((_, teamIdx) => canFacilitatorReopenMissionForTeam(selectedEvent, teamIdx, mission.id));
+                                const teamRowsOpen = Boolean(missionTeamRowsOpen[feedbackKey]);
                                 const teamRows = selectedEvent.teams.map((teamItem, teamIdx) => {
                                   const execs = getExecucoes(selectedEvent, teamIdx, mission.id);
                                   const latestExec = execs[execs.length - 1] || null;
@@ -6732,77 +7499,98 @@ function App() {
                                               : null}
                                           </div>
                                         ) : null}
-                                        <div className="mission-team-list mission-team-list-rich">
-                                          {teamRows.map((teamRow) => (
-                                            <div className="mission-team-row mission-team-row-rich" key={`${mission.id}-${teamRow.teamName}`}>
-                                              <div className="mission-team-main">
-                                                <div className="mission-team-top">
-                                                  <div>
-                                                    <div className="mission-team-name">{teamRow.teamName}</div>
-                                                    <div className="mission-team-meta">
-                                                      {teamRow.runs ? `${teamRow.runs} prompt(s)` : "Sem prompts ainda"} · {teamRow.teamTokens.toLocaleString()} tokens
+                                        <div className="mission-team-collapsible">
+                                          <div className="mission-team-collapsible-head">
+                                            <span className="mission-team-collapsible-copy">
+                                              {teamRows.length} {teamRows.length === 1 ? "time" : "times"} nesta missão
+                                            </span>
+                                            <button
+                                              className="mission-feedback-toggle"
+                                              type="button"
+                                              onClick={() =>
+                                                setMissionTeamRowsOpen((current) => ({
+                                                  ...current,
+                                                  [feedbackKey]: !current[feedbackKey],
+                                                }))
+                                              }
+                                            >
+                                              {teamRowsOpen ? "Ocultar times" : "Ver times"}
+                                            </button>
+                                          </div>
+                                          {teamRowsOpen ? (
+                                            <div className="mission-team-list mission-team-list-rich">
+                                              {teamRows.map((teamRow) => (
+                                                <div className="mission-team-row mission-team-row-rich" key={`${mission.id}-${teamRow.teamName}`}>
+                                                  <div className="mission-team-main">
+                                                    <div className="mission-team-top">
+                                                      <div>
+                                                        <div className="mission-team-name">{teamRow.teamName}</div>
+                                                        <div className="mission-team-meta">
+                                                          {teamRow.runs ? `${teamRow.runs} prompt(s)` : "Sem prompts ainda"} · {teamRow.teamTokens.toLocaleString()} tokens
+                                                        </div>
+                                                      </div>
+                                                      <div className="team-mission-status">
+                                                        <span className={`team-inline-pill${teamRow.closureStatus === "concluida" ? " is-complete" : teamRow.closureStatus === "aguardando_questionario" ? " is-alert" : teamRow.runs ? "" : " is-muted"}`}>
+                                                          {teamRow.closureStatus === "concluida"
+                                                            ? "feito"
+                                                            : teamRow.closureStatus === "aguardando_questionario"
+                                                              ? "questionário"
+                                                              : teamRow.runs
+                                                                ? "em andamento"
+                                                                : "pendente"}
+                                                        </span>
+                                                        {teamRow.helpOpen ? (
+                                                          <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedido(s) de ajuda aberto(s) nesta missão`}>
+                                                            <span className="team-help-indicator-icon">!</span>
+                                                            <span className="team-help-indicator-count">{teamRow.helpOpen}</span>
+                                                          </span>
+                                                        ) : null}
+                                                      </div>
                                                     </div>
-                                                  </div>
-                                                  <div className="team-mission-status">
-                                                    <span className={`team-inline-pill${teamRow.closureStatus === "concluida" ? " is-complete" : teamRow.closureStatus === "aguardando_questionario" ? " is-alert" : teamRow.runs ? "" : " is-muted"}`}>
-                                                      {teamRow.closureStatus === "concluida"
-                                                        ? "feito"
-                                                        : teamRow.closureStatus === "aguardando_questionario"
-                                                          ? "questionário"
-                                                          : teamRow.runs
-                                                            ? "em andamento"
-                                                            : "pendente"}
-                                                    </span>
-                                                    {teamRow.helpOpen ? (
-                                                      <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedido(s) de ajuda aberto(s) nesta missão`}>
-                                                        <span className="team-help-indicator-icon">!</span>
-                                                        <span className="team-help-indicator-count">{teamRow.helpOpen}</span>
-                                                      </span>
+                                                    {teamRow.latestExec ? (
+                                                      <div className="mission-team-latest">
+                                                        <div className="mission-team-latest-label">Último prompt</div>
+                                                        <div className="mission-team-latest-copy">“{truncatePromptSnippet(teamRow.latestExec.input, 180)}”</div>
+                                                        <div className="mission-team-latest-meta">{formatDateTime(teamRow.latestExec.ts)}</div>
+                                                      </div>
+                                                    ) : null}
+                                                    <div className="mission-team-token-grid">
+                                                      <div className="mission-team-token-cell">
+                                                        <span>Resposta</span>
+                                                        <strong>{teamRow.responseTokens.toLocaleString()} tok</strong>
+                                                        <small>${teamRow.responseCost.toFixed(4)}</small>
+                                                      </div>
+                                                      <div className="mission-team-token-cell">
+                                                        <span>Análise</span>
+                                                        <strong>{teamRow.analysisTokens.toLocaleString()} tok</strong>
+                                                        <small>${teamRow.analysisCost.toFixed(4)}</small>
+                                                      </div>
+                                                      <div className="mission-team-token-cell is-total">
+                                                        <span>Total</span>
+                                                        <strong>{teamRow.teamTokens.toLocaleString()} tok</strong>
+                                                        <small>${(teamRow.responseCost + teamRow.analysisCost).toFixed(4)}</small>
+                                                      </div>
+                                                    </div>
+                                                    {teamRow.reflection ? (
+                                                      <div className="team-mission-feedback mission-team-feedback">
+                                                        <div className="team-admin-feedback-scores is-inline">
+                                                          {Object.entries(teamRow.reflection.respostas || {}).map(([key, value]) => (
+                                                            <span className="mission-feedback-chip is-rating" key={`${mission.id}-${teamRow.teamName}-${key}`}>
+                                                              <strong>{getReflectionTopicShortLabel(key)}</strong>
+                                                              <span className="mission-feedback-score" aria-label={`${Number(value).toFixed(1)} de 5`}>
+                                                                {Number(value).toFixed(1)}/5
+                                                              </span>
+                                                            </span>
+                                                          ))}
+                                                        </div>
+                                                        {teamRow.reflection.comment ? <div className="team-admin-feedback-comment">{teamRow.reflection.comment}</div> : null}
+                                                      </div>
                                                     ) : null}
                                                   </div>
                                                 </div>
-                                                {teamRow.latestExec ? (
-                                                  <div className="mission-team-latest">
-                                                    <div className="mission-team-latest-label">Último prompt</div>
-                                                    <div className="mission-team-latest-copy">“{truncatePromptSnippet(teamRow.latestExec.input, 180)}”</div>
-                                                    <div className="mission-team-latest-meta">{formatDateTime(teamRow.latestExec.ts)}</div>
-                                                  </div>
-                                                ) : null}
-                                                <div className="mission-team-token-grid">
-                                                  <div className="mission-team-token-cell">
-                                                    <span>Resposta</span>
-                                                    <strong>{teamRow.responseTokens.toLocaleString()} tok</strong>
-                                                    <small>${teamRow.responseCost.toFixed(4)}</small>
-                                                  </div>
-                                                  <div className="mission-team-token-cell">
-                                                    <span>Análise</span>
-                                                    <strong>{teamRow.analysisTokens.toLocaleString()} tok</strong>
-                                                    <small>${teamRow.analysisCost.toFixed(4)}</small>
-                                                  </div>
-                                                  <div className="mission-team-token-cell is-total">
-                                                    <span>Total</span>
-                                                    <strong>{teamRow.teamTokens.toLocaleString()} tok</strong>
-                                                    <small>${(teamRow.responseCost + teamRow.analysisCost).toFixed(4)}</small>
-                                                  </div>
-                                                </div>
-                                                {teamRow.reflection ? (
-                                                  <div className="team-mission-feedback mission-team-feedback">
-                                                    <div className="team-admin-feedback-scores is-inline">
-                                                      {Object.entries(teamRow.reflection.respostas || {}).map(([key, value]) => (
-                                                        <span className="mission-feedback-chip is-rating" key={`${mission.id}-${teamRow.teamName}-${key}`}>
-                                                          <strong>{getReflectionTopicShortLabel(key)}</strong>
-                                                          <span className="mission-feedback-score" aria-label={`${Number(value).toFixed(1)} de 5`}>
-                                                            {Number(value).toFixed(1)}/5
-                                                          </span>
-                                                        </span>
-                                                      ))}
-                                                    </div>
-                                                    {teamRow.reflection.comment ? <div className="team-admin-feedback-comment">{teamRow.reflection.comment}</div> : null}
-                                                  </div>
-                                                ) : null}
-                                              </div>
+                                              ))}
                                             </div>
-                                          ))}
+                                          ) : null}
                                         </div>
                                       </div>
                                       <div className="mission-actions">
@@ -6870,6 +7658,8 @@ function App() {
                   )}
 
                   {facTab === "prompts" && renderPromptInsights(selectedEvent)}
+
+                  {facTab === "anamnese" && renderAnamnesisInsights(selectedEvent)}
 
                 </>
               )}
@@ -7013,6 +7803,12 @@ function App() {
                       {currentOpenTokenRequest ? "Tokens solicitados" : "Solicitar tokens"}
                     </button>
                   </>
+                ) : null}
+                {!teamEventScreenShare?.active ? (
+                  <button className="btn btn-sm topbar-participant-action topbar-student-area-btn" onClick={() => setMaterialsDrawerOpen(true)}>
+                    <Users size={14} strokeWidth={1.7} aria-hidden="true" />
+                    Área do aluno
+                  </button>
                 ) : null}
               </>
             }
@@ -7220,7 +8016,15 @@ function App() {
                                   <div className={`composer-attachment-chip is-${attachment.kind}`} key={attachment.id}>
                                     <div className="composer-attachment-copy">
                                       <span>{attachment.name}</span>
-                                      <small>{attachment.kind === "document" ? `${attachment.sizeLabel} · sem extração automática` : attachment.sizeLabel}</small>
+                                      <small>
+                                        {attachment.kind === "document"
+                                          ? attachment.extractedText
+                                            ? `${attachment.sizeLabel} · texto extraído`
+                                            : attachment.extractionFailed
+                                              ? `${attachment.sizeLabel} · leitura indisponível`
+                                              : attachment.sizeLabel
+                                          : attachment.sizeLabel}
+                                      </small>
                                     </div>
                                     <button
                                       className="composer-attachment-remove"
@@ -7447,6 +8251,60 @@ function App() {
         </div>
       ) : null}
 
+      {screen === "workspace" && materialsDrawerOpen ? (
+        <div className="side-sheet-backdrop" onClick={() => setMaterialsDrawerOpen(false)}>
+          <aside className="side-sheet side-sheet-right" onClick={(event) => event.stopPropagation()}>
+            <div className="side-sheet-header">
+              <div>
+                <div className="side-sheet-kicker">Participante</div>
+                <div className="side-sheet-title">Área do aluno</div>
+              </div>
+              <button
+                className="side-sheet-close"
+                aria-label="Fechar materiais"
+                onClick={() => setMaterialsDrawerOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="side-sheet-body materials-sheet-body">
+              {STUDENT_RESOURCE_SECTIONS.map((section) => (
+                <section className="materials-section" key={section.id}>
+                  <div className="materials-section-title">{section.title}</div>
+                  <div className="materials-link-list">
+                    {section.items.map((item) =>
+                      item.href ? (
+                        <a
+                          key={item.id}
+                          className="materials-link-card"
+                          href={item.href}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <div className="materials-link-copy">
+                            <strong>{item.title}</strong>
+                            <span>{item.description}</span>
+                          </div>
+                          <span className="materials-link-action">Abrir</span>
+                        </a>
+                      ) : (
+                        <div key={item.id} className="materials-link-card is-disabled">
+                          <div className="materials-link-copy">
+                            <strong>{item.title}</strong>
+                            <span>{item.description}</span>
+                          </div>
+                          <span className="materials-link-action">Link pendente</span>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
       {screen === "facilitador" && facilitatorToolsOpen ? (
         <FacilitatorToolsDrawer
           event={selectedEvent}
@@ -7520,6 +8378,151 @@ function App() {
         </div>
       </Modal>
 
+      <Modal
+        open={anamnesisOpen}
+        onClose={handleCloseAnamnesisModal}
+        dismissible
+        className="anamnesis-modal-shell"
+      >
+        <div className="anamnesis-modal-header">
+          <div className="anamnesis-modal-kicker">Check-in da turma</div>
+          <div className="modal-title">Antes de começar</div>
+          <div className="modal-sub">
+            {anamnesisContext?.memberName ? `${anamnesisContext.memberName},` : "Antes de entrar,"} responda esta anamnese. Ela ajuda o facilitador a conhecer o perfil agregado da turma.
+          </div>
+          <div className="anamnesis-progress-row">
+            <div className="anamnesis-progress-track" aria-hidden="true">
+              <div className="anamnesis-progress-fill" style={{ width: `${(answeredAnamnesisCount / ANAMNESIS_QUESTIONS.length) * 100}%` }} />
+            </div>
+            <div className="anamnesis-progress-label">
+              {answeredAnamnesisCount}/{ANAMNESIS_QUESTIONS.length}
+            </div>
+          </div>
+          {anamnesisTargetEvent?.name ? <div className="anamnesis-context-line">{anamnesisTargetEvent.name}</div> : null}
+        </div>
+
+        <div className="anamnesis-modal-body">
+          {ANAMNESIS_SECTIONS.map((section) => {
+            const sectionQuestions = ANAMNESIS_QUESTIONS.filter((question) => question.section === section.id);
+            return (
+              <section className="anamnesis-form-section" key={section.id}>
+                <div className="anamnesis-form-section-head">
+                  <div className="anamnesis-form-section-kicker">{section.id}</div>
+                  <div>
+                    <div className="anamnesis-form-section-title">{section.title}</div>
+                    <div className="anamnesis-form-section-sub">{section.description}</div>
+                  </div>
+                </div>
+
+                <div className="anamnesis-form-question-list">
+                  {sectionQuestions.map((question) => {
+                    const answer = anamnesisAnswers[question.id];
+                    const choiceValue = getAnamnesisAnswerChoice(question, answer);
+                    const noteValue = getAnamnesisAnswerNote(question, answer);
+                    return (
+                      <div className="anamnesis-form-question" key={question.id}>
+                        <div className="anamnesis-form-question-label">
+                          <span className="anamnesis-form-question-number">{question.number}</span>
+                          <div className="anamnesis-form-question-copy">
+                            <span>{question.prompt}</span>
+                            {question.optionalText ? <span className="anamnesis-question-optional-tag">Complemento opcional</span> : null}
+                          </div>
+                        </div>
+
+                        {question.type === "text" ? (
+                          <textarea
+                            className="anamnesis-textarea"
+                            rows={question.id === "q9" ? 2 : 3}
+                            value={noteValue}
+                            placeholder={question.placeholder || ""}
+                            onChange={(event) => handleChangeAnamnesisText(question.id, event.target.value)}
+                          />
+                        ) : question.type === "scale" ? (
+                          <>
+                            <div className="scale-pills anamnesis-scale-pills">
+                              {question.options.map((option, optionIdx) => (
+                                <button
+                                  key={`${question.id}-${optionIdx}`}
+                                  type="button"
+                                  className={`scale-pill${choiceValue === optionIdx ? " sel" : ""}`}
+                                  onClick={() => handleToggleAnamnesisOption(question, optionIdx)}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              className={`anamnesis-unknown-btn${choiceValue === ANAMNESIS_UNKNOWN_VALUE ? " is-selected" : ""}`}
+                              onClick={() => handleToggleAnamnesisOption(question, ANAMNESIS_UNKNOWN_VALUE)}
+                            >
+                              Não sei responder
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="opts anamnesis-opts">
+                              {question.options.map((option, optionIdx) => {
+                                const selected = question.type === "multi"
+                                  ? Array.isArray(choiceValue) && choiceValue.includes(optionIdx)
+                                  : choiceValue === optionIdx;
+                                return (
+                                  <button
+                                    key={`${question.id}-${optionIdx}`}
+                                    type="button"
+                                    className={`opt${question.type === "multi" ? " opt-sq" : ""}${selected ? " sel" : ""}`}
+                                    onClick={() => handleToggleAnamnesisOption(question, optionIdx)}
+                                  >
+                                    <span className="opt-mark" aria-hidden="true">
+                                      <span className="opt-mark-inner" />
+                                    </span>
+                                    <span>{option}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <button
+                              type="button"
+                              className={`anamnesis-unknown-btn${isAnamnesisUnknownChoice(choiceValue) ? " is-selected" : ""}`}
+                              onClick={() => handleToggleAnamnesisOption(question, ANAMNESIS_UNKNOWN_VALUE)}
+                            >
+                              Não sei responder
+                            </button>
+                            {question.optionalText ? (
+                              <div className="anamnesis-optional-shell">
+                                <div className="anamnesis-optional-label">Campo opcional</div>
+                                <textarea
+                                  className="anamnesis-textarea anamnesis-textarea-optional"
+                                  rows={question.id === "q9" ? 2 : 3}
+                                  value={noteValue}
+                                  placeholder={question.placeholder || ""}
+                                  onChange={(event) => handleChangeAnamnesisText(question.id, event.target.value)}
+                                />
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        {anamnesisError ? <div className="error-box top-gap-sm">{anamnesisError}</div> : null}
+
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={handleCloseAnamnesisModal}>
+            Voltar
+          </button>
+          <button type="button" className="btn btn-primary" onClick={handleSubmitAnamnesis}>
+            Enviar anamnese
+          </button>
+        </div>
+      </Modal>
+
       <Modal open={newEventOpen} onClose={() => setNewEventOpen(false)}>
             <div className="modal-title">Criar novo evento</div>
         <div className="form-group">
@@ -7559,35 +8562,15 @@ function App() {
             </button>
           </div>
         </div>
-        <div className="form-group">
-          <label className="form-label">Modo do evento</label>
-          <div className="inline-choice-row">
-            <button
-              type="button"
-              className={`choice-pill${newEventForm.eventMode === MISSIONS_MODE_EVENT ? " active" : ""}`}
-              onClick={() => setNewEventForm((current) => ({ ...current, eventMode: MISSIONS_MODE_EVENT }))}
-            >
-              Missões
-            </button>
-            <button
-              type="button"
-              className={`choice-pill${newEventForm.eventMode === TRAINING_MODE_EVENT ? " active" : ""}`}
-              onClick={() => setNewEventForm((current) => ({ ...current, eventMode: TRAINING_MODE_EVENT }))}
-            >
-              Treino
-            </button>
-          </div>
-        </div>
         {newEventForm.teamMode === "manual" ? (
           <div className="form-group">
-            <label className="form-label">Times (separados por virgula)</label>
-            <input
-              type="text"
+            <label className="form-label">Times</label>
+            <textarea
               value={newEventForm.teams}
               onChange={(event) => setNewEventForm((current) => ({ ...current, teams: event.target.value }))}
-              placeholder="Ex: Alpha, Beta, Gamma"
+              placeholder={"Um por linha\nTime 1\nTime 2\nTime 3"}
             />
-            <div className="form-hint">Você pode adicionar times depois.</div>
+            <div className="form-hint">Um por linha.</div>
           </div>
         ) : (
           <>
@@ -7600,66 +8583,27 @@ function App() {
               />
               <div className="form-hint">{newEventStudents.length} aluno(s) validado(s).</div>
             </div>
-            <div className="form-group">
-              <label className="form-label">Destino da importação</label>
-              <div className="inline-choice-row">
-                <button
-                  type="button"
-                  className={`choice-pill${newEventForm.importMode === "solo" ? " active" : ""}`}
-                  onClick={() => setNewEventForm((current) => ({ ...current, importMode: "solo" }))}
-                >
-                  1 sala por aluno
-                </button>
-                <button
-                  type="button"
-                  className={`choice-pill${newEventForm.importMode === "random" ? " active" : ""}`}
-                  onClick={() => setNewEventForm((current) => ({ ...current, importMode: "random" }))}
-                >
-                  Randomizar em times
-                </button>
-              </div>
-            </div>
-            {newEventForm.importMode === "random" ? (
-              <div className="form-group">
-                <label className="form-label">Quantidade de times</label>
-                <input
-                  type="number"
-                  min="1"
-                  max={Math.max(1, newEventStudents.length || 1)}
-                  value={newEventForm.randomTeamCount}
-                  onChange={(event) =>
-                    setNewEventForm((current) => ({ ...current, randomTeamCount: Number(event.target.value) || 1 }))
-                  }
-                />
-                <div className="form-hint">A distribuição fica equilibrada, com diferença máxima de 1 aluno entre os grupos.</div>
-              </div>
-            ) : null}
-            {newEventStudents.length ? (
-              <div className="import-preview">
-                <div className="mini-label">Prévia</div>
-                <div className="import-preview-list">
-                  {newEventStudents.slice(0, 8).map((student) => (
-                    <span className="import-preview-chip" key={student}>
-                      {student}
-                    </span>
-                  ))}
-                  {newEventStudents.length > 8 ? <span className="import-preview-more">+{newEventStudents.length - 8} nomes</span> : null}
-                </div>
-              </div>
-            ) : null}
           </>
         )}
-        {newEventForm.eventMode === MISSIONS_MODE_EVENT ? (
-          <div className="form-group">
-            <label className="form-label">Missões do evento</label>
-            <div className="form-hint">Eventos novos nascem com 2 missões fixas: `Análise geral` e `Programação`. Elas entram bloqueadas e você libera na hora certa.</div>
+        <div className="form-group">
+          <label className="form-label">Anamnese antes do laboratório</label>
+          <div className="inline-choice-row">
+            <button
+              type="button"
+              className={`choice-pill${!newEventForm.anamnesisEnabled ? " active" : ""}`}
+              onClick={() => setNewEventForm((current) => ({ ...current, anamnesisEnabled: false }))}
+            >
+              Desligada
+            </button>
+            <button
+              type="button"
+              className={`choice-pill${newEventForm.anamnesisEnabled ? " active" : ""}`}
+              onClick={() => setNewEventForm((current) => ({ ...current, anamnesisEnabled: true }))}
+            >
+              Ligada
+            </button>
           </div>
-        ) : (
-          <div className="form-group">
-            <label className="form-label">Modo treino</label>
-            <div className="form-hint">O evento nasce como laboratório livre, sem catálogo de missões e sem presets pedagógicos.</div>
-          </div>
-        )}
+        </div>
         <div className="modal-actions">
           <button type="button" className="btn" onClick={() => setNewEventOpen(false)}>
             Cancelar
@@ -8754,7 +9698,13 @@ function MissionClosurePanel({
   const allAnswered = answeredCount === PERGUNTAS_REFLEXAO.length;
 
   return (
-    <Modal open small={false} dismissible onClose={onClose} className="mission-closure-modal-shell">
+    <Modal
+      open
+      small={false}
+      dismissible={canClose}
+      onClose={canClose ? onClose : undefined}
+      className="mission-closure-modal-shell"
+    >
       <section className="reading-panel mission-inline-panel mission-closure-modal">
         <div className="reading-panel-header">
           <div>

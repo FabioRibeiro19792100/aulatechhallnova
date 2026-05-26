@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, Coins, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -18,6 +18,11 @@ const CODING_AI_FALLBACK_MODEL = "gpt-4.1-mini";
 const CODING_AI_REASONING_EFFORT = "medium";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const FACILITATOR_PASSWORD = "camila";
+const DEFAULT_MISSION_TOKEN_LIMIT = 15000;
+const TOKEN_MISSION_TRAINING_ID = "training_lab";
+const TOKEN_POLICY_MODE_UNLIMITED = "unlimited";
+const TOKEN_POLICY_MODE_DEFAULT = "default_15000";
+const TOKEN_POLICY_MODE_CUSTOM = "custom";
 const PRESENCE_STALE_MS = 45000;
 const BRAND_LOADER_DURATION_MS = 700;
 const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
@@ -31,6 +36,7 @@ const FACILITATOR_TOOL_VIEWS = {
   SCREEN: "screen",
   TIMER: "timer",
   ROOM_MAP: "room-map",
+  TOKENS: "tokens",
 };
 const MAX_ATTACHMENT_COUNT = 3;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
@@ -331,6 +337,9 @@ function makeEvent({ name, desc, rawTeams }) {
     questionariosPendentes: {},
     conclusoes: {},
     preservedMissionUsage: {},
+    missionTokenPolicies: {},
+    tokenGrants: [],
+    tokenOperationalLogs: [],
     helpRequests: [],
     helpDisabledMap: {},
     trainingRuns: {},
@@ -438,6 +447,11 @@ function getMissionUsageKey(teamIdx, missionId) {
   return `${teamIdx}__${missionId}`;
 }
 
+function getTokenMissionId(missionId, { isTraining = false } = {}) {
+  if (isTraining || missionId === TRAINING_THREAD_ID) return TOKEN_MISSION_TRAINING_ID;
+  return missionId;
+}
+
 function getPreservedMissionUsage(evento, teamIdx, missionId) {
   return (
     evento.preservedMissionUsage?.[getMissionUsageKey(teamIdx, missionId)] || {
@@ -449,12 +463,160 @@ function getPreservedMissionUsage(evento, teamIdx, missionId) {
   );
 }
 
+function getMissionTokenPolicy(evento, missionId, { isTraining = false } = {}) {
+  const tokenMissionId = getTokenMissionId(missionId, { isTraining });
+  const policy = evento?.missionTokenPolicies?.[tokenMissionId] || {};
+  return {
+    missionId: tokenMissionId,
+    mode: policy.mode || TOKEN_POLICY_MODE_DEFAULT,
+    customLimit: Number(policy.customLimit || 0) || 0,
+    temporaryUnlimited: Boolean(policy.temporaryUnlimited),
+    updatedAt: policy.updatedAt || null,
+  };
+}
+
+function getMissionTokenBaseLimit(policy) {
+  if (!policy || policy.temporaryUnlimited || policy.mode === TOKEN_POLICY_MODE_UNLIMITED) return null;
+  if (policy.mode === TOKEN_POLICY_MODE_CUSTOM) {
+    const customLimit = Number(policy.customLimit || 0);
+    return customLimit > 0 ? customLimit : DEFAULT_MISSION_TOKEN_LIMIT;
+  }
+  return DEFAULT_MISSION_TOKEN_LIMIT;
+}
+
+function getMissionTokenGrants(evento, missionId, teamIdx = null, { isTraining = false } = {}) {
+  const tokenMissionId = getTokenMissionId(missionId, { isTraining });
+  return (evento?.tokenGrants || []).filter((grant) => {
+    if (grant.missionId !== tokenMissionId) return false;
+    if (grant.scope === "turma") return true;
+    if (teamIdx === null || teamIdx === undefined) return false;
+    return grant.teamIdx === teamIdx;
+  });
+}
+
+function getMissionTokenUsage(evento, teamIdx, missionId, { isTraining = false } = {}) {
+  if (!evento || teamIdx === null || teamIdx === undefined || !missionId) {
+    return {
+      missionId: getTokenMissionId(missionId, { isTraining }),
+      promptTokens: 0,
+      responseTokens: 0,
+      totalTokens: 0,
+      totalCost: 0,
+      analysisTokens: 0,
+      analysisCost: 0,
+    };
+  }
+
+  if (isTraining || missionId === TOKEN_MISSION_TRAINING_ID) {
+    const trainingRuns = getTrainingRuns(evento, teamIdx);
+    return trainingRuns.reduce(
+      (acc, exec) => ({
+        ...acc,
+        promptTokens: acc.promptTokens + (exec.inputTokens || 0),
+        responseTokens: acc.responseTokens + (exec.outputTokens || 0),
+        totalTokens: acc.totalTokens + (exec.tokens || 0),
+        totalCost: acc.totalCost + (exec.custo || 0),
+        analysisTokens: acc.analysisTokens + (exec.technicalAnalysisUsage?.totalTokens || 0),
+        analysisCost: acc.analysisCost + (exec.technicalAnalysisUsage?.cost || 0),
+      }),
+      {
+        missionId: TOKEN_MISSION_TRAINING_ID,
+        promptTokens: 0,
+        responseTokens: 0,
+        totalTokens: 0,
+        totalCost: 0,
+        analysisTokens: 0,
+        analysisCost: 0,
+      },
+    );
+  }
+
+  const execs = getExecucoes(evento, teamIdx, missionId);
+  const preservedUsage = getPreservedMissionUsage(evento, teamIdx, missionId);
+  return execs.reduce(
+    (acc, exec) => ({
+      ...acc,
+      promptTokens: acc.promptTokens + (exec.inputTokens || 0),
+      responseTokens: acc.responseTokens + (exec.outputTokens || 0),
+      totalTokens: acc.totalTokens + (exec.tokens || 0),
+      totalCost: acc.totalCost + (exec.custo || 0),
+      analysisTokens: acc.analysisTokens + (exec.technicalAnalysisUsage?.totalTokens || 0),
+      analysisCost: acc.analysisCost + (exec.technicalAnalysisUsage?.cost || 0),
+    }),
+    {
+      missionId,
+      promptTokens: preservedUsage.input || 0,
+      responseTokens: preservedUsage.output || 0,
+      totalTokens: preservedUsage.total || 0,
+      totalCost: preservedUsage.cost || 0,
+      analysisTokens: preservedUsage.explanationTotal || 0,
+      analysisCost: preservedUsage.explanationCost || 0,
+    },
+  );
+}
+
+function getEffectiveMissionTokenBudget(evento, teamIdx, missionId, options = {}) {
+  const policy = getMissionTokenPolicy(evento, missionId, options);
+  const grants = getMissionTokenGrants(evento, missionId, teamIdx, options);
+  const baseLimit = getMissionTokenBaseLimit(policy);
+  const extraTokens = grants.reduce((sum, grant) => sum + Math.max(0, Number(grant.amount || 0)), 0);
+  const effectiveLimit = baseLimit === null ? null : baseLimit + extraTokens;
+  const usage = getMissionTokenUsage(evento, teamIdx, missionId, options);
+  return {
+    missionId: policy.missionId,
+    policy,
+    grants,
+    usage,
+    extraTokens,
+    baseLimit,
+    effectiveLimit,
+    unlimited: effectiveLimit === null,
+    blocked: effectiveLimit !== null && usage.totalTokens >= effectiveLimit,
+  };
+}
+
+function getMissionTokenOperationalLogs(evento, missionId, teamIdx = null, { isTraining = false } = {}) {
+  const tokenMissionId = getTokenMissionId(missionId, { isTraining });
+  return (evento?.tokenOperationalLogs || [])
+    .filter((item) => {
+      if (item.missionId !== tokenMissionId) return false;
+      if (teamIdx === null || teamIdx === undefined) return true;
+      return item.teamIdx === null || item.teamIdx === undefined || item.teamIdx === teamIdx;
+    })
+    .sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
+}
+
+function formatTokenLimitLabel(limit) {
+  if (limit === null || limit === undefined) return "Ilimitado";
+  return `${Number(limit).toLocaleString("pt-BR")} tokens`;
+}
+
+function parseTokenLimitInput(value) {
+  const digits = `${value || ""}`.replace(/\D/g, "");
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function formatTokenLimitInput(value) {
+  const parsed = parseTokenLimitInput(value);
+  if (!parsed) return "";
+  return parsed.toLocaleString("pt-BR");
+}
+
 function getHelpRequests(evento, teamIdx, missionId) {
   return (evento.helpRequests || []).filter((request) => request.teamIdx === teamIdx && request.missionId === missionId);
 }
 
 function getTrainingHelpRequests(evento, teamIdx = null) {
   return (evento.trainingHelpRequests || []).filter((request) => teamIdx === null || request.teamIdx === teamIdx);
+}
+
+function getTrainingTokenRequests(evento, teamIdx = null) {
+  return (evento.helpRequests || []).filter(
+    (request) =>
+      request.missionId === TOKEN_MISSION_TRAINING_ID &&
+      (teamIdx === null || request.teamIdx === teamIdx),
+  );
 }
 
 function isHelpDisabledForTeam(evento, teamIdx) {
@@ -609,7 +771,7 @@ function isPresenceLive(presence) {
 
 function getOpenHelpRequests(evento) {
   return getEventMode(evento) === TRAINING_MODE_EVENT
-    ? getTrainingHelpRequests(evento).filter((request) => request.status === "open")
+    ? [...getTrainingHelpRequests(evento), ...getTrainingTokenRequests(evento)].filter((request) => request.status === "open")
     : (evento.helpRequests || []).filter((request) => request.status === "open");
 }
 
@@ -980,6 +1142,22 @@ function mergeHelpRequestArrays(remoteItems = [], localItems = []) {
   return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
 }
 
+function mergeTokenPolicies(remotePolicies = {}, localPolicies = {}) {
+  return mergeObjectMaps(remotePolicies, localPolicies, (remoteValue, localValue) =>
+    pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
+  );
+}
+
+function mergeTokenGrants(remoteItems = [], localItems = []) {
+  const merged = mergeRecordArraysById(remoteItems, localItems, ["updatedAt", "createdAt"]);
+  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
+}
+
+function mergeTokenOperationalLogs(remoteItems = [], localItems = []) {
+  const merged = mergeRecordArraysById(remoteItems, localItems, ["createdAt", "updatedAt"]);
+  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
+}
+
 function mergeScreenShareState(remoteState = {}, localState = {}) {
   return pickLatestByTimestamp(remoteState, localState, ["startedAt", "endedAt"]);
 }
@@ -1016,6 +1194,9 @@ function mergeEventEntity(remoteEvent, localEvent) {
       ...(remoteEvent.preservedMissionUsage || {}),
       ...(localEvent.preservedMissionUsage || {}),
     },
+    missionTokenPolicies: mergeTokenPolicies(remoteEvent.missionTokenPolicies, localEvent.missionTokenPolicies),
+    tokenGrants: mergeTokenGrants(remoteEvent.tokenGrants, localEvent.tokenGrants),
+    tokenOperationalLogs: mergeTokenOperationalLogs(remoteEvent.tokenOperationalLogs, localEvent.tokenOperationalLogs),
     helpRequests: mergeHelpRequestArrays(remoteEvent.helpRequests, localEvent.helpRequests),
     helpDisabledMap: mergeObjectMaps(remoteEvent.helpDisabledMap, localEvent.helpDisabledMap, (remoteValue, localValue) =>
       pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
@@ -1101,6 +1282,9 @@ function migrateEventToFixedMissions(event) {
     announcements,
     announcement: null,
     sessionTimerNotice: event.sessionTimerNotice || null,
+    missionTokenPolicies: event.missionTokenPolicies || {},
+    tokenGrants: event.tokenGrants || [],
+    tokenOperationalLogs: event.tokenOperationalLogs || [],
   };
 
   if (getEventMode(baseEvent) !== MISSIONS_MODE_EVENT) {
@@ -2418,8 +2602,11 @@ function App() {
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [missionFeedbackOpen, setMissionFeedbackOpen] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
+  const [tokenLimitModalOpen, setTokenLimitModalOpen] = useState(false);
   const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
   const [facilitatorToolView, setFacilitatorToolView] = useState(FACILITATOR_TOOL_VIEWS.MENU);
+  const [tokenGrantTargetMissionId, setTokenGrantTargetMissionId] = useState("");
+  const [tokenPolicyCustomInput, setTokenPolicyCustomInput] = useState("15000");
   const [activeStudentName, setActiveStudentName] = useState("");
   const [brandLoaderOpen, setBrandLoaderOpen] = useState(true);
   const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
@@ -2697,11 +2884,28 @@ function App() {
   const preservedUsage = currentMission && teamEvent && !isTrainingEvent ? getPreservedMissionUsage(teamEvent, timeTeamIdx, currentMission.id) : null;
   const currentHelpRequests = currentMission && teamEvent
     ? isTrainingEvent
-      ? getTrainingHelpRequests(teamEvent, timeTeamIdx)
+      ? [...getTrainingHelpRequests(teamEvent, timeTeamIdx), ...getTrainingTokenRequests(teamEvent, timeTeamIdx)]
       : getHelpRequests(teamEvent, timeTeamIdx, currentMission.id)
     : [];
-  const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open").length;
-  const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open") || null;
+  const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open" && request.kind !== "tokens").length;
+  const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open" && request.kind !== "tokens") || null;
+  const currentTokenMissionId = currentMission ? getTokenMissionId(currentMission.id, { isTraining: isTrainingEvent }) : null;
+  const currentTokenBudget = currentMission && teamEvent && timeTeamIdx !== null
+    ? getEffectiveMissionTokenBudget(teamEvent, timeTeamIdx, currentMission.id, { isTraining: isTrainingEvent })
+    : null;
+  const currentOpenTokenRequest =
+    currentMission && teamEvent
+      ? currentHelpRequests.find((request) => request.status === "open" && request.kind === "tokens") || null
+      : null;
+  const currentMissionOperationalLogs =
+    currentMission && teamEvent && timeTeamIdx !== null
+      ? getMissionTokenOperationalLogs(teamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
+      : [];
+  const selectedTokenPolicy = selectedEvent && tokenGrantTargetMissionId
+    ? getMissionTokenPolicy(selectedEvent, tokenGrantTargetMissionId, {
+        isTraining: tokenGrantTargetMissionId === TOKEN_MISSION_TRAINING_ID,
+      })
+    : null;
   const teamHelpDisabled = teamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(teamEvent, timeTeamIdx) : false;
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
 
@@ -2802,6 +3006,33 @@ function App() {
     setEventMetaForm(nextMeta);
     lastEventMetaSavedRef.current = { id: selectedEvent.id, ...nextMeta };
   }, [selectedEvent?.id, selectedEvent?.name, selectedEvent?.desc]);
+
+  useEffect(() => {
+    if (!selectedEvent) {
+      setTokenGrantTargetMissionId("");
+      return;
+    }
+    const availableMissionId =
+      getEventMode(selectedEvent) === TRAINING_MODE_EVENT
+        ? TOKEN_MISSION_TRAINING_ID
+        : selectedEvent.missions?.[0]?.id || "";
+    setTokenGrantTargetMissionId((current) => (current ? current : availableMissionId));
+  }, [selectedEvent]);
+
+  useEffect(() => {
+    if (!selectedEvent || !tokenGrantTargetMissionId || !selectedTokenPolicy) return;
+    setTokenPolicyCustomInput(
+      formatTokenLimitInput(
+        selectedTokenPolicy.mode === TOKEN_POLICY_MODE_CUSTOM ? Math.max(1, Number(selectedTokenPolicy.customLimit || 0)) : DEFAULT_MISSION_TOKEN_LIMIT,
+      ),
+    );
+  }, [
+    selectedEvent?.id,
+    tokenGrantTargetMissionId,
+    selectedTokenPolicy?.mode,
+    selectedTokenPolicy?.customLimit,
+    selectedTokenPolicy?.updatedAt,
+  ]);
 
   useEffect(() => {
     if (!selectedEvent) return undefined;
@@ -2918,6 +3149,164 @@ function App() {
 
   function showToast(message) {
     setToastText(message);
+  }
+
+  function appendTokenOperationalLog(event, entry) {
+    return {
+      ...event,
+      tokenOperationalLogs: [
+        ...(event.tokenOperationalLogs || []),
+        {
+          id: `token_log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: new Date().toISOString(),
+          ...entry,
+        },
+      ],
+    };
+  }
+
+  function handleUpdateMissionTokenPolicy(eventId, missionId, nextPolicyInput) {
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
+        const currentPolicy = getMissionTokenPolicy(event, tokenMissionId, { isTraining: tokenMissionId === TOKEN_MISSION_TRAINING_ID });
+        const nextPolicy = {
+          ...currentPolicy,
+          ...nextPolicyInput,
+          updatedAt: new Date().toISOString(),
+        };
+        const nextEvent = {
+          ...event,
+          missionTokenPolicies: {
+            ...(event.missionTokenPolicies || {}),
+            [tokenMissionId]: nextPolicy,
+          },
+        };
+        if (Object.prototype.hasOwnProperty.call(nextPolicyInput, "temporaryUnlimited")) {
+          return appendTokenOperationalLog(nextEvent, {
+            missionId: tokenMissionId,
+            teamIdx: null,
+            type: nextPolicyInput.temporaryUnlimited ? "temporary_unlimited_on" : "temporary_unlimited_off",
+            message: nextPolicyInput.temporaryUnlimited
+              ? "Missão ficou temporariamente ilimitada."
+              : "Missão voltou a respeitar o limite de tokens.",
+          });
+        }
+        if (Object.prototype.hasOwnProperty.call(nextPolicyInput, "mode")) {
+          const modeMessage =
+            nextPolicy.mode === TOKEN_POLICY_MODE_UNLIMITED
+              ? "Missão configurada como ilimitada."
+              : nextPolicy.mode === TOKEN_POLICY_MODE_CUSTOM
+                ? `Missão configurada com limite personalizado de ${Math.max(1, Number(nextPolicy.customLimit || 0)).toLocaleString("pt-BR")} tokens.`
+                : `Missão configurada com limite padrão de ${DEFAULT_MISSION_TOKEN_LIMIT.toLocaleString("pt-BR")} tokens.`;
+          return appendTokenOperationalLog(nextEvent, {
+            missionId: tokenMissionId,
+            teamIdx: null,
+            type: "policy_change",
+            message: modeMessage,
+          });
+        }
+        return nextEvent;
+      }),
+    );
+  }
+
+  function handleGrantTokens({ eventId, missionId, scope, teamIdx = null, amount, source = "facilitator", note = "" }) {
+    const numericAmount = Math.max(0, Number(amount || 0));
+    if (!numericAmount) {
+      showToast("Defina uma quantidade válida de tokens");
+      return;
+    }
+
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
+        const createdAt = new Date().toISOString();
+        const nextEvent = {
+          ...event,
+          tokenGrants: [
+            ...(event.tokenGrants || []),
+            {
+              id: `grant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              missionId: tokenMissionId,
+              scope,
+              teamIdx: scope === "turma" ? null : teamIdx,
+              amount: numericAmount,
+              createdAt,
+              updatedAt: createdAt,
+              note,
+              source,
+            },
+          ],
+          helpRequests: (event.helpRequests || []).map((request) =>
+            request.kind === "tokens" &&
+            request.status === "open" &&
+            request.missionId === tokenMissionId &&
+            (scope === "turma" || request.teamIdx === teamIdx)
+              ? {
+                  ...request,
+                  status: "resolved",
+                  resolvedAt: createdAt,
+                  updatedAt: createdAt,
+                }
+              : request,
+          ),
+        };
+        return appendTokenOperationalLog(nextEvent, {
+          missionId: tokenMissionId,
+          teamIdx: scope === "turma" ? null : teamIdx,
+          type: "grant",
+          message: `Facilitador liberou +${numericAmount.toLocaleString("pt-BR")} tokens.`,
+        });
+      }),
+    );
+
+    showToast(`+${numericAmount.toLocaleString("pt-BR")} tokens liberados`);
+  }
+
+  function handleSendTokenRequest() {
+    if (!teamEvent || timeTeamIdx === null || !currentMission || !currentTokenBudget) return;
+    if (teamHelpDisabled) {
+      showToast("Ajuda desativada para este time");
+      return;
+    }
+    if (!currentTokenBudget.blocked) {
+      showToast("A solicitação de tokens só libera quando o limite da missão for atingido");
+      return;
+    }
+    if (currentOpenTokenRequest) {
+      showToast("Já existe uma solicitação de tokens em aberto");
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id !== teamEvent.id
+          ? event
+          : {
+              ...event,
+              helpRequests: [
+                ...(event.helpRequests || []),
+                {
+                  id: `token_help_${Date.now()}`,
+                  kind: "tokens",
+                  teamIdx: timeTeamIdx,
+                  missionId: currentTokenBudget.missionId,
+                  message: "Solicitação de liberação de tokens.",
+                  status: "open",
+                  createdAt,
+                  updatedAt: createdAt,
+                  currentUsage: currentTokenBudget.usage.totalTokens,
+                  currentLimit: currentTokenBudget.effectiveLimit,
+                },
+              ],
+            },
+      ),
+    );
+    showToast("Solicitação enviada ao facilitador.");
   }
 
   function handleQuickModelChange(nextModel) {
@@ -3173,29 +3562,25 @@ function App() {
   }
 
   async function removeEventFromActiveList(eventId, { archive = false } = {}) {
-    let nextEventsSnapshot = [];
-    let removedEvent = null;
+    const currentEvents = store.events || [];
+    const removedEvent = currentEvents.find((event) => event.id === eventId) || null;
+    if (!removedEvent) {
+      showToast("Não foi possível localizar o evento para excluir");
+      return;
+    }
+    const nextEventsSnapshot = currentEvents.filter((event) => event.id !== eventId);
+    const archivedRecord = archive
+      ? {
+          archivedAt: new Date().toISOString(),
+          event: removedEvent,
+        }
+      : null;
 
-    setStore((current) => {
-      const currentEvents = current.events || [];
-      removedEvent = currentEvents.find((event) => event.id === eventId) || null;
-      if (!removedEvent) return current;
-      nextEventsSnapshot = currentEvents.filter((event) => event.id !== eventId);
-      const archivedRecord = archive
-        ? {
-            archivedAt: new Date().toISOString(),
-            event: removedEvent,
-          }
-        : null;
-
-      return {
-        ...current,
-        events: nextEventsSnapshot,
-        archivedEvents: archivedRecord ? [archivedRecord, ...(current.archivedEvents || [])] : current.archivedEvents || [],
-      };
-    });
-
-    if (!removedEvent) return;
+    setStore((current) => ({
+      ...current,
+      events: nextEventsSnapshot,
+      archivedEvents: archivedRecord ? [archivedRecord, ...(current.archivedEvents || [])] : current.archivedEvents || [],
+    }));
 
     if (facSelectedId === eventId) setFacSelectedId(null);
     if (timeEventId === eventId) {
@@ -3942,6 +4327,18 @@ function App() {
     );
   }
 
+  function handleSaveMissionTokenPolicy(missionId, nextPolicyInput) {
+    if (!selectedEvent || !missionId) return;
+    handleUpdateMissionTokenPolicy(selectedEvent.id, missionId, nextPolicyInput);
+    showToast("Política de tokens atualizada");
+  }
+
+  function handleToggleMissionTemporaryUnlimited(missionId, nextValue) {
+    if (!selectedEvent || !missionId) return;
+    handleUpdateMissionTokenPolicy(selectedEvent.id, missionId, { temporaryUnlimited: nextValue });
+    showToast(nextValue ? "Missão temporariamente ilimitada" : "Missão voltou ao limite configurado");
+  }
+
   function handleSaveBroadcastMessage() {
     if (!selectedEvent) return;
     const message = broadcastMessage.trim();
@@ -4103,7 +4500,7 @@ function App() {
           ? event
           : {
               ...event,
-              ...(isTrainingEvent
+              ...(isTrainingEvent && !(event.helpRequests || []).some((request) => request.id === requestId)
                 ? {
                     trainingHelpRequests: (event.trainingHelpRequests || []).map((request) =>
                       request.id !== requestId
@@ -4141,7 +4538,7 @@ function App() {
           ? event
           : {
               ...event,
-              ...(getEventMode(event) === TRAINING_MODE_EVENT
+              ...(getEventMode(event) === TRAINING_MODE_EVENT && !(event.helpRequests || []).some((request) => request.id === requestId)
                 ? {
                     trainingHelpRequests: (event.trainingHelpRequests || []).map((request) =>
                       request.id !== requestId
@@ -4284,6 +4681,10 @@ function App() {
     if (!isTrainingEvent && currentMissionStatus !== "aberta") return;
     if (teamTimerLockActive) {
       setRunError("O cronômetro desta atividade foi encerrado pelo facilitador.");
+      return;
+    }
+    if (currentTokenBudget?.blocked) {
+      setTokenLimitModalOpen(true);
       return;
     }
     const input = missionInput.trim();
@@ -4515,6 +4916,30 @@ function App() {
         saveTrainingExecution(teamEvent.id, timeTeamIdx, execRecord);
       } else {
         saveExecution(teamEvent.id, timeTeamIdx, currentMission.id, execRecord);
+      }
+      const nextTokenUsageTotal = (currentTokenBudget?.usage.totalTokens || 0) + (execRecord.tokens || 0);
+      if (currentTokenBudget && !currentTokenBudget.unlimited && currentTokenBudget.effectiveLimit !== null && nextTokenUsageTotal >= currentTokenBudget.effectiveLimit) {
+        updateEvents((current) =>
+          current.map((event) => {
+            if (event.id !== teamEvent.id) return event;
+            const alreadyLogged = (event.tokenOperationalLogs || []).some(
+              (item) =>
+                item.type === "limit_reached" &&
+                item.missionId === currentTokenBudget.missionId &&
+                item.teamIdx === timeTeamIdx &&
+                item.referenceExecId === execRecord.id,
+            );
+            if (alreadyLogged) return event;
+            return appendTokenOperationalLog(event, {
+              missionId: currentTokenBudget.missionId,
+              teamIdx: timeTeamIdx,
+              type: "limit_reached",
+              referenceExecId: execRecord.id,
+              message: "Limite de tokens excedido na missão.",
+              detail: `${nextTokenUsageTotal.toLocaleString("pt-BR")} / ${currentTokenBudget.effectiveLimit.toLocaleString("pt-BR")} tokens utilizados.`,
+            });
+          }),
+        );
       }
       setRunState(null);
       setMissionFlow({ stage: "cot_aberto", exec: execRecord });
@@ -4750,20 +5175,50 @@ function App() {
                   <div className="help-list">
                     {openHelpRequests.map((request) => {
                       const requestTeam = evento.teams[request.teamIdx];
+                      const isTokenRequest = request.kind === "tokens";
                       return (
-                        <div className="help-item" key={request.id}>
+                        <div className={`help-item${isTokenRequest ? " is-token-request" : ""}`} key={request.id}>
                           <div className="help-item-header">
                             <div>
                               <div className="help-item-title">{requestTeam?.name || `Time ${request.teamIdx + 1}`}</div>
-                              <div className="help-item-meta">Modo treino · {formatDateTime(request.createdAt)}</div>
+                              <div className="help-item-meta">
+                                {isTokenRequest ? "Solicitação de tokens" : "Modo treino"} · {formatDateTime(request.createdAt)}
+                              </div>
                             </div>
                             <span className="team-inline-pill is-alert">aberto</span>
                           </div>
-                          <div className="help-item-body">{request.message}</div>
+                          <div className="help-item-body">
+                            {isTokenRequest ? (
+                              <>
+                                <strong>Consumo atual:</strong> {(request.currentUsage || 0).toLocaleString("pt-BR")} tok ·{" "}
+                                <strong>Limite:</strong> {formatTokenLimitLabel(request.currentLimit)}
+                              </>
+                            ) : (
+                              request.message
+                            )}
+                          </div>
                           <div className="help-item-actions">
-                            <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
-                              Resolver ajuda
-                            </button>
+                            {isTokenRequest ? (
+                              <button
+                                className="btn btn-sm btn-primary"
+                                onClick={() =>
+                                  handleGrantTokens({
+                                    eventId: evento.id,
+                                    missionId: request.missionId,
+                                    scope: "time",
+                                    teamIdx: request.teamIdx,
+                                    amount: 5000,
+                                    source: "queue",
+                                  })
+                                }
+                              >
+                                Liberar +5.000
+                              </button>
+                            ) : (
+                              <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
+                                Resolver ajuda
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -5203,22 +5658,50 @@ function App() {
                   {openHelpRequests.map((request) => {
                     const requestMission = evento.missions.find((mission) => mission.id === request.missionId);
                     const requestTeam = evento.teams[request.teamIdx];
+                    const isTokenRequest = request.kind === "tokens";
                     return (
-                      <div className="help-item" key={request.id}>
+                      <div className={`help-item${isTokenRequest ? " is-token-request" : ""}`} key={request.id}>
                         <div className="help-item-header">
                           <div>
                             <div className="help-item-title">{requestTeam?.name || `Time ${request.teamIdx + 1}`}</div>
                             <div className="help-item-meta">
-                              {requestMission?.name || request.missionId} · {formatDateTime(request.createdAt)}
+                              {requestMission?.name || (request.missionId === TOKEN_MISSION_TRAINING_ID ? "Modo treino" : request.missionId)} · {formatDateTime(request.createdAt)}
                             </div>
                           </div>
                           <span className="team-inline-pill is-alert">aberto</span>
                         </div>
-                        <div className="help-item-body">{request.message}</div>
+                        <div className="help-item-body">
+                          {isTokenRequest ? (
+                            <>
+                              <strong>Solicitação de tokens.</strong> {(request.currentUsage || 0).toLocaleString("pt-BR")} /{" "}
+                              {formatTokenLimitLabel(request.currentLimit)}
+                            </>
+                          ) : (
+                            request.message
+                          )}
+                        </div>
                         <div className="help-item-actions">
-                          <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
-                            Resolver ajuda
-                          </button>
+                          {isTokenRequest ? (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() =>
+                                handleGrantTokens({
+                                  eventId: evento.id,
+                                  missionId: request.missionId,
+                                  scope: "time",
+                                  teamIdx: request.teamIdx,
+                                  amount: 5000,
+                                  source: "queue",
+                                })
+                              }
+                            >
+                              Liberar +5.000
+                            </button>
+                          ) : (
+                            <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
+                              Resolver ajuda
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -6095,6 +6578,15 @@ function App() {
                       {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
                       {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
                     </button>
+                    <button
+                      className={`btn btn-sm topbar-token-request-btn${teamHelpDisabled ? " is-disabled" : ""}`}
+                      onClick={handleSendTokenRequest}
+                      disabled={teamHelpDisabled || !currentMission || !currentTokenBudget?.blocked || Boolean(currentOpenTokenRequest)}
+                      title={!currentTokenBudget?.blocked ? "Disponível quando o limite da missão for atingido" : undefined}
+                    >
+                      <Coins size={14} strokeWidth={1.7} aria-hidden="true" />
+                      {currentOpenTokenRequest ? "Tokens solicitados" : "Solicitar tokens"}
+                    </button>
                   </>
                 ) : null}
               </>
@@ -6522,6 +7014,8 @@ function App() {
                 flowStage={missionFlow.stage}
                 model={getMissionAiMode(currentMission) === CODING_AI_MODE ? CODING_AI_MODEL : store.model}
                 preservedUsage={preservedUsage}
+                tokenBudget={currentTokenBudget}
+                operationalLogs={currentMissionOperationalLogs}
               />
             </div>
           </aside>
@@ -6566,8 +7060,40 @@ function App() {
             handlePublishScreenShare(selectedEvent.id, nextState);
           }}
           screenShare={selectedEventScreenShare}
+          tokenGrantTargetMissionId={tokenGrantTargetMissionId}
+          onChangeTokenGrantTargetMissionId={setTokenGrantTargetMissionId}
+          tokenPolicyCustomInput={tokenPolicyCustomInput}
+          onChangeTokenPolicyCustomInput={setTokenPolicyCustomInput}
+          onSaveMissionTokenPolicy={handleSaveMissionTokenPolicy}
         />
       ) : null}
+
+      <Modal open={tokenLimitModalOpen} onClose={() => setTokenLimitModalOpen(false)} small className="token-limit-modal">
+        <div className="modal-title">Limite de tokens atingido</div>
+        <div className="modal-sub">
+          Você usou todo o limite disponível para esta missão.
+        </div>
+        <div className="modal-sub">
+          Para continuar, solicite mais tokens ao facilitador.
+        </div>
+        <div className="modal-actions">
+          <button className="btn" type="button" onClick={() => setTokenLimitModalOpen(false)}>
+            Fechar
+          </button>
+          <button
+            className="btn btn-primary topbar-token-request-btn"
+            type="button"
+            onClick={() => {
+              setTokenLimitModalOpen(false);
+              handleSendTokenRequest();
+            }}
+            disabled={Boolean(currentOpenTokenRequest)}
+          >
+            <Coins size={14} strokeWidth={1.7} aria-hidden="true" />
+            {currentOpenTokenRequest ? "Solicitação enviada" : "Solicitar tokens"}
+          </button>
+        </div>
+      </Modal>
 
       <Modal open={newEventOpen} onClose={() => setNewEventOpen(false)}>
             <div className="modal-title">Criar novo evento</div>
@@ -7971,7 +8497,7 @@ function OutputCard({ exec, compact = false }) {
   );
 }
 
-function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage }) {
+function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage, tokenBudget, operationalLogs }) {
   const totals = execs.reduce(
     (acc, exec) => ({
       responseTotal: acc.responseTotal + (exec.tokens || 0),
@@ -8035,6 +8561,23 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage })
           <div className="token-rail-model">{model}</div>
         </div>
         <div className="token-rail-block">
+          <div className="token-rail-label">Limite da missão</div>
+          <div className="token-rail-summary">
+            <div className="token-summary-item token-summary-primary">
+              <span>Uso do participante</span>
+              <strong>{tokenBudget?.usage.totalTokens?.toLocaleString?.("pt-BR") || "0"} tok</strong>
+            </div>
+            <div className="token-summary-item">
+              <span>Limite efetivo</span>
+              <strong>{formatTokenLimitLabel(tokenBudget?.effectiveLimit ?? null)}</strong>
+            </div>
+            <div className="token-summary-item">
+              <span>Tokens liberados</span>
+              <strong>{(tokenBudget?.extraTokens || 0).toLocaleString("pt-BR")} tok</strong>
+            </div>
+          </div>
+        </div>
+        <div className="token-rail-block">
           <div className="token-rail-label">Totais acumulados</div>
           <div className="token-rail-summary">
             <div className="token-summary-item token-summary-primary">
@@ -8067,6 +8610,24 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage })
               <strong>{currentRun.analysisTotal.toLocaleString()} tok · ${currentRun.analysisCost.toFixed(4)}</strong>
             </div>
           </div>
+        </div>
+        <div className="token-rail-block">
+          <div className="token-rail-label">Histórico operacional</div>
+          {operationalLogs?.length ? (
+            <div className="token-log-list">
+              {[...operationalLogs].reverse().map((log) => (
+                <div className="token-log-item" key={log.id}>
+                  <div className="token-log-head">
+                    <strong>{log.message}</strong>
+                    <span>{formatDateTime(log.createdAt)}</span>
+                  </div>
+                  {log.detail ? <div className="token-log-meta"><span>{log.detail}</span></div> : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="muted-body">Nenhum registro operacional ainda.</div>
+          )}
         </div>
         <div className="token-rail-block">
           <div className="token-rail-label">Log de execucoes</div>
@@ -8550,6 +9111,107 @@ function RoomMapPanel({ event }) {
   );
 }
 
+function TokenManagementPanel({
+  event,
+  selectedMissionId,
+  onSelectMission,
+  customLimitInput,
+  onChangeCustomLimitInput,
+  onSavePolicy,
+}) {
+  if (!event) return <div className="teams-empty">Selecione um evento para gerir os tokens.</div>;
+
+  const missionOptions = [
+    { id: TOKEN_MISSION_TRAINING_ID, name: "Treino" },
+    ...(event.missions || []).map((mission) => ({ id: mission.id, name: normalizeMission(mission).name })),
+  ];
+  const activeMissionId = selectedMissionId || missionOptions[0]?.id || "";
+  const activePolicy = getMissionTokenPolicy(event, activeMissionId, { isTraining: activeMissionId === TOKEN_MISSION_TRAINING_ID });
+  const activeBaseLimit = getMissionTokenBaseLimit(activePolicy);
+
+  return (
+    <section className="fac-tools-section">
+      <div className="fac-tools-head">
+        <div className="fac-tools-title">Gestão de tokens</div>
+        <div className="fac-tools-meta">Configuração por fluxo</div>
+      </div>
+
+      <div className="token-management-panel token-management-panel-compact">
+        <div className="mini-label">Fluxos</div>
+        <div className="token-mission-pill-row">
+          {missionOptions.map((mission) => (
+            <button
+              key={mission.id}
+              type="button"
+              className={`choice-pill${mission.id === activeMissionId ? " active" : ""}`}
+              onClick={() => onSelectMission(mission.id)}
+            >
+              {mission.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="mini-label">Defina limites</div>
+        <div className="token-mode-list">
+          <button
+            className={`token-mode-row${activePolicy.mode === TOKEN_POLICY_MODE_UNLIMITED ? " is-active" : ""}`}
+            type="button"
+            onClick={() => onSavePolicy(activeMissionId, { mode: TOKEN_POLICY_MODE_UNLIMITED, customLimit: 0 })}
+          >
+            <span className="token-mode-row-main">
+              <strong>Ilimitado</strong>
+              <small>Sem limite de tokens</small>
+            </span>
+          </button>
+          <button
+            className={`token-mode-row${activePolicy.mode === TOKEN_POLICY_MODE_DEFAULT ? " is-active" : ""}`}
+            type="button"
+            onClick={() => onSavePolicy(activeMissionId, { mode: TOKEN_POLICY_MODE_DEFAULT, customLimit: DEFAULT_MISSION_TOKEN_LIMIT })}
+          >
+            <span className="token-mode-row-main">
+              <strong>Padrão</strong>
+              <span className="token-mode-row-value">
+                <b>{DEFAULT_MISSION_TOKEN_LIMIT.toLocaleString("pt-BR")}</b>
+                <small>tokens</small>
+              </span>
+            </span>
+          </button>
+          <div className={`token-mode-row token-mode-row-custom${activePolicy.mode === TOKEN_POLICY_MODE_CUSTOM ? " is-active" : ""}`}>
+            <div className="token-mode-row-main">
+              <strong>Personalizado</strong>
+            </div>
+            <div className="fac-timer-input-row token-policy-custom-row">
+              <div className="token-policy-custom-input-wrap">
+                <input
+                type="text"
+                inputMode="numeric"
+                min="1"
+                value={customLimitInput}
+                onChange={(event) => onChangeCustomLimitInput(formatTokenLimitInput(event.target.value))}
+                placeholder="15000"
+              />
+                <span className="token-policy-custom-suffix">tokens</span>
+              </div>
+              <button
+                className="btn btn-sm topbar-roommap-btn"
+                type="button"
+                onClick={() =>
+                  onSavePolicy(activeMissionId, {
+                    mode: TOKEN_POLICY_MODE_CUSTOM,
+                    customLimit: Math.max(1, parseTokenLimitInput(customLimitInput) || DEFAULT_MISSION_TOKEN_LIMIT),
+                  })
+                }
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function FacilitatorToolsDrawer({
   event,
   activeView,
@@ -8572,6 +9234,11 @@ function FacilitatorToolsDrawer({
   onDismissTimerNotice,
   onPublishScreenShare,
   screenShare,
+  tokenGrantTargetMissionId,
+  onChangeTokenGrantTargetMissionId,
+  tokenPolicyCustomInput,
+  onChangeTokenPolicyCustomInput,
+  onSaveMissionTokenPolicy,
 }) {
   const toolCards = [
     {
@@ -8603,6 +9270,12 @@ function FacilitatorToolsDrawer({
       title: "Mapa da sala",
       meta: event ? `${getEventStudentOptions(event).length} posições` : "Selecione um evento",
       icon: Map,
+    },
+    {
+      id: FACILITATOR_TOOL_VIEWS.TOKENS,
+      title: "Gestão de tokens",
+      meta: event ? "Configurar limite por missão" : "Selecione um evento",
+      icon: Coins,
     },
   ];
   const viewingMenu = activeView === FACILITATOR_TOOL_VIEWS.MENU;
@@ -8740,6 +9413,17 @@ function FacilitatorToolsDrawer({
                   </div>
                   {event ? <RoomMapPanel event={event} /> : <div className="teams-empty">Selecione um evento para ver quem está logado.</div>}
                 </section>
+              ) : null}
+
+              {activeView === FACILITATOR_TOOL_VIEWS.TOKENS ? (
+                <TokenManagementPanel
+                  event={event}
+                  selectedMissionId={tokenGrantTargetMissionId}
+                  onSelectMission={onChangeTokenGrantTargetMissionId}
+                  customLimitInput={tokenPolicyCustomInput}
+                  onChangeCustomLimitInput={onChangeTokenPolicyCustomInput}
+                  onSavePolicy={onSaveMissionTokenPolicy}
+                />
               ) : null}
             </>
           )}

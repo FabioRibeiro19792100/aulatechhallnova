@@ -3532,6 +3532,63 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
 .input-model-select-compact{width:auto;min-width:0}
 .input-compose-meta .input-compact-control .input-model-select-compact{width:118px}
 .input-compose-meta .input-compact-control:last-child .input-model-select-compact{width:132px}
+.model-select{position:relative;flex:0 0 auto}
+.model-select-trigger{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+  height:34px;
+  padding:0 8px 0 12px;
+  border-radius:999px;
+  border:1px solid var(--border-md);
+  background:#fff;
+  color:var(--text);
+  cursor:pointer;
+  max-width:200px;
+  font-size:11px;
+  transition:border-color .12s,box-shadow .12s;
+}
+.model-select-trigger:hover:not(:disabled){border-color:#94a3b8}
+.model-select.is-open .model-select-trigger{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-light)}
+.model-select-trigger:disabled{opacity:.5;cursor:not-allowed}
+.model-select-trigger-name{font-size:11px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-select-caret{display:inline-flex;align-items:center;color:var(--text3);flex-shrink:0}
+.model-select.is-open .model-select-caret{transform:rotate(180deg)}
+.model-select-menu{
+  z-index:300;
+  min-width:220px;
+  max-height:280px;
+  overflow-y:auto;
+  margin:0;
+  padding:6px;
+  list-style:none;
+  background:var(--surface);
+  border:1px solid var(--border-md);
+  border-radius:14px;
+  box-shadow:var(--shadow-md);
+}
+.model-select-menu li{margin:0;padding:0}
+.model-select-option{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:2px;
+  width:100%;
+  padding:8px 10px;
+  border:none;
+  border-radius:10px;
+  background:transparent;
+  color:var(--text);
+  cursor:pointer;
+  text-align:left;
+  transition:background .1s;
+}
+.model-select-option:hover{background:var(--surface2)}
+.model-select-option.is-selected{background:var(--blue-light)}
+.model-select-option-name{font-size:14px;font-weight:700;color:var(--text);line-height:1.2}
+.model-select-option.is-selected .model-select-option-name{color:var(--blue-dark)}
+.model-select-option-date{font-size:11px;font-weight:500;color:var(--text3);line-height:1.1}
 .input-send-btn{
   margin-left:auto;
   align-self:center;

@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, Coins, FileText, FileStack, FolderOpen, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Newspaper, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, FileText, FileStack, FolderOpen, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Newspaper, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -14,8 +14,6 @@ const MISSIONS_MODE_EVENT = "missions";
 const TRAINING_THREAD_ID = "__training__";
 const CHAT_AI_MODE = "chat";
 const CODING_AI_MODE = "coding";
-const CODING_AI_MODEL = "gpt-5.1-codex-mini";
-const CODING_AI_FALLBACK_MODEL = "gpt-4.1-mini";
 const CODING_AI_REASONING_EFFORT = "medium";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const FACILITATOR_PASSWORD = "camila";
@@ -560,16 +558,88 @@ const TECHNICAL_PANEL_BLOCKS = {
 };
 
 const STORE = "techhall:v3";
-const MODEL_OPTIONS = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "gpt-5-mini", "gpt-5"];
-const MODEL_PRICING = {
-  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
-  "gpt-4.1": { input: 2, output: 8 },
-  "gpt-4o": { input: 5, output: 15 },
-  "gpt-4o-mini": { input: 0.15, output: 0.6 },
-  "gpt-5-mini": { input: 0.25, output: 2 },
-  "gpt-5": { input: 1.25, output: 10 },
-  "gpt-5.1-codex-mini": { input: 0.25, output: 2 },
+const FALLBACK_MODEL_CATALOG = {
+  chat: [
+    { id: "gpt-4o-mini", label: "GPT-4o mini", releasedAt: "2024-07", pricing: { input: 0.15, output: 0.6 } },
+    { id: "gpt-4.1-mini", label: "GPT-4.1 mini", releasedAt: "2025-04", pricing: { input: 0.4, output: 1.6 } },
+    { id: "gpt-4o", label: "GPT-4o", releasedAt: "2024-05", pricing: { input: 5, output: 15 } },
+    { id: "gpt-4.1", label: "GPT-4.1", releasedAt: "2025-04", pricing: { input: 2, output: 8 } },
+    { id: "gpt-5-mini", label: "GPT-5 mini", releasedAt: "2025-08", pricing: { input: 0.25, output: 2 } },
+    { id: "gpt-5", label: "GPT-5", releasedAt: "2025-08", pricing: { input: 1.25, output: 10 } },
+  ],
+  coding: [
+    { id: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini", releasedAt: "2025-11", pricing: { input: 0.25, output: 2 } },
+    { id: "gpt-5.1-codex", label: "GPT-5.1 Codex", releasedAt: "2025-11", pricing: { input: 1.25, output: 10 } },
+    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", releasedAt: "2026-02", pricing: { input: 1.75, output: 14 } },
+  ],
 };
+const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
+const DEFAULT_CODING_MODEL = "gpt-5.1-codex-mini";
+const MONTH_LABELS_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+function getModelCatalog(serverConfig) {
+  const models = serverConfig?.models;
+  if (models && Array.isArray(models.chat) && models.chat.length && Array.isArray(models.coding) && models.coding.length) {
+    return models;
+  }
+  return FALLBACK_MODEL_CATALOG;
+}
+
+function getModelsForMode(catalog, aiMode) {
+  return aiMode === CODING_AI_MODE ? catalog.coding : catalog.chat;
+}
+
+function getCatalogEntries(catalog) {
+  return [...(catalog?.chat || []), ...(catalog?.coding || [])];
+}
+
+function findModelEntry(catalog, id) {
+  return getCatalogEntries(catalog).find((model) => model.id === id) || null;
+}
+
+function getModelPricingMap(catalog) {
+  const map = {};
+  getCatalogEntries(catalog).forEach((model) => {
+    if (model?.id && model.pricing) map[model.id] = model.pricing;
+  });
+  return map;
+}
+
+function getModelLabel(catalog, id) {
+  return findModelEntry(catalog, id)?.label || id;
+}
+
+function getDefaultModelForMode(serverConfig, aiMode) {
+  if (aiMode === CODING_AI_MODE) {
+    return serverConfig?.defaultCodingModel || DEFAULT_CODING_MODEL;
+  }
+  return serverConfig?.defaultChatModel || DEFAULT_CHAT_MODEL;
+}
+
+function formatModelLaunch(releasedAt = "") {
+  const match = /^(\d{4})-(\d{2})$/.exec(releasedAt);
+  if (!match) return "";
+  const month = MONTH_LABELS_PT[Number(match[2]) - 1];
+  return month ? `${month}/${match[1]}` : match[1];
+}
+
+const USD_TO_BRL = 5.4;
+
+function formatBRL(value) {
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatModelPriceHint(entry) {
+  if (!entry?.pricing) return "";
+  const inputBRL = formatBRL(entry.pricing.input * USD_TO_BRL);
+  const outputBRL = formatBRL(entry.pricing.output * USD_TO_BRL);
+  return `${inputBRL}/1M entrada · ${outputBRL}/1M saída`;
+}
 const SIMULATION_STEPS = [
   { key: "analisando", label: "analisando pedido" },
   { key: "estrategia", label: "selecionando estrategia" },
@@ -639,8 +709,8 @@ async function saveRemoteState(events) {
   return response.json();
 }
 
-function estimateCost(model, inputTokens, outputTokens) {
-  const price = MODEL_PRICING[model] || MODEL_PRICING["gpt-4.1-mini"];
+function estimateCost(pricingMap, model, inputTokens, outputTokens) {
+  const price = pricingMap?.[model] || pricingMap?.[DEFAULT_CHAT_MODEL] || { input: 0, output: 0 };
   return ((inputTokens / 1_000_000) * price.input) + ((outputTokens / 1_000_000) * price.output);
 }
 
@@ -2455,10 +2525,10 @@ function resolvePlanningRuntime(model, planningMode = "off") {
   }
 
   return {
-    requestModel: "gpt-5-mini",
-    reasoningEffort: "medium",
-    planningModeReal: true,
-    planningResolution: "fallback-reasoning-model",
+    requestModel: model,
+    reasoningEffort: undefined,
+    planningModeReal: false,
+    planningResolution: "unsupported-model",
   };
 }
 
@@ -2933,7 +3003,7 @@ function renderPreviewWindowPlaceholder(previewWindow, title, message) {
   );
 }
 
-async function gerarExplicacaoGuiadaIA({ model, mission, input, attachments = [], acao, output, historyContext }) {
+async function gerarExplicacaoGuiadaIA({ model, modelPricing, mission, input, attachments = [], acao, output, historyContext }) {
   const historySignal = buildHistorySignal(historyContext);
   const compactHistory = historyContext.slice(-2).map((item) => truncateForAnalysis(item, 260));
   const historyBlock = compactHistory.length
@@ -3043,7 +3113,7 @@ async function gerarExplicacaoGuiadaIA({ model, mission, input, attachments = []
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       totalTokens: result.inputTokens + result.outputTokens,
-      cost: estimateCost(analysisModel, result.inputTokens, result.outputTokens),
+      cost: estimateCost(modelPricing, analysisModel, result.inputTokens, result.outputTokens),
       model: analysisModel,
     },
   }, { historyContext });
@@ -3305,6 +3375,7 @@ async function executarComIA({
   attachments = [],
   acao,
   model,
+  modelPricing,
   planningMode,
   historyContext,
   previousResponseId = "",
@@ -3312,8 +3383,7 @@ async function executarComIA({
   onReasoning,
 }) {
   const aiMode = getMissionAiMode(mission);
-  const runtimeBaseModel = aiMode === CODING_AI_MODE ? CODING_AI_MODEL : model;
-  const planningRuntime = resolvePlanningRuntime(runtimeBaseModel, planningMode);
+  const planningRuntime = resolvePlanningRuntime(model, planningMode);
   const promptBase = buildPromptApplied({
     mission,
     acao,
@@ -3323,49 +3393,22 @@ async function executarComIA({
   });
   const codingDeliveryHint = aiMode === CODING_AI_MODE ? buildCodingDeliveryHint(input) : "";
   const promptApplied = [promptBase, codingDeliveryHint].filter(Boolean).join("\n\n");
-  let effectiveRuntime = { ...planningRuntime };
+  const effectiveRuntime = { ...planningRuntime };
   if (aiMode === CODING_AI_MODE && !effectiveRuntime.reasoningEffort) {
     effectiveRuntime.reasoningEffort = CODING_AI_REASONING_EFFORT;
   }
-  let result;
 
-  try {
-    result = await fetchResponsesCompletionStream({
-      model: effectiveRuntime.requestModel,
-      instructions: promptApplied,
-      input: buildResponsesApiInput(input, attachments),
-      previousResponseId: aiMode === CODING_AI_MODE ? previousResponseId : "",
-      reasoningEffort: effectiveRuntime.reasoningEffort,
-      onDelta,
-      onReasoning,
-    });
-  } catch (error) {
-    const canFallbackCodingModel =
-      aiMode === CODING_AI_MODE &&
-      effectiveRuntime.requestModel === CODING_AI_MODEL;
+  const result = await fetchResponsesCompletionStream({
+    model: effectiveRuntime.requestModel,
+    instructions: promptApplied,
+    input: buildResponsesApiInput(input, attachments),
+    previousResponseId: aiMode === CODING_AI_MODE ? previousResponseId : "",
+    reasoningEffort: effectiveRuntime.reasoningEffort,
+    onDelta,
+    onReasoning,
+  });
 
-    if (!canFallbackCodingModel) {
-      throw error;
-    }
-
-    effectiveRuntime = {
-      requestModel: CODING_AI_FALLBACK_MODEL,
-      reasoningEffort: undefined,
-      planningModeReal: false,
-      planningResolution: "coding-model-fallback",
-    };
-
-    result = await fetchResponsesCompletionStream({
-      model: effectiveRuntime.requestModel,
-      instructions: promptApplied,
-      input: buildResponsesApiInput(input, attachments),
-      previousResponseId,
-      onDelta,
-      onReasoning,
-    });
-  }
-
-  const custo = estimateCost(effectiveRuntime.requestModel, result.inputTokens, result.outputTokens);
+  const custo = estimateCost(modelPricing, effectiveRuntime.requestModel, result.inputTokens, result.outputTokens);
   return {
     output: result.output,
     promptApplied,
@@ -3383,9 +3426,9 @@ async function executarComIA({
   };
 }
 
-function executarMock({ mission, input, acao, model, planningMode, historyContext }) {
+function executarMock({ mission, input, acao, model, modelPricing, planningMode, historyContext }) {
   const aiMode = getMissionAiMode(mission);
-  const effectiveModel = aiMode === CODING_AI_MODE ? CODING_AI_MODEL : model;
+  const effectiveModel = model;
   const output = (MOCKS[mission.id] || (() => "Sem mock configurado."))(input, getActionLabel(acao));
   const inputTokens = Math.max(120, Math.round(input.length / 3.5));
   const outputTokens = Math.max(180, Math.round(output.length / 3.8));
@@ -3395,7 +3438,7 @@ function executarMock({ mission, input, acao, model, planningMode, historyContex
     inputTokens,
     outputTokens,
     tokens: inputTokens + outputTokens,
-    custo: estimateCost(effectiveModel, inputTokens, outputTokens),
+    custo: estimateCost(modelPricing, effectiveModel, inputTokens, outputTokens),
     aiMode,
     selectedModel: model,
     effectiveModel,
@@ -3443,6 +3486,121 @@ function BrandLoaderOverlay({ open }) {
   );
 }
 
+function ModelSelect({ options = [], value, onChange, disabled = false, ariaLabel, dropUp = false }) {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const selected = options.find((entry) => entry.id === value) || options[0] || null;
+
+  const updateCoords = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const width = Math.max(rect.width, 220);
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const placeUp = dropUp ? spaceAbove > 180 : spaceBelow < 300 && spaceAbove > spaceBelow;
+    setCoords({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      width,
+      placeUp,
+      top: rect.bottom + 6,
+      bottom: window.innerHeight - rect.top + 6,
+    });
+  }, [dropUp]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    updateCoords();
+    function handleReposition() {
+      updateCoords();
+    }
+    function handlePointer(event) {
+      if (triggerRef.current?.contains(event.target)) return;
+      if (menuRef.current?.contains(event.target)) return;
+      setOpen(false);
+    }
+    function handleKey(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("scroll", handleReposition, true);
+    window.addEventListener("resize", handleReposition);
+    document.addEventListener("mousedown", handlePointer);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("scroll", handleReposition, true);
+      window.removeEventListener("resize", handleReposition);
+      document.removeEventListener("mousedown", handlePointer);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open, updateCoords]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  function handleSelect(nextId) {
+    if (nextId !== value) onChange(nextId);
+    setOpen(false);
+  }
+
+  const menu =
+    open && coords
+      ? createPortal(
+          <ul
+            ref={menuRef}
+            className="model-select-menu"
+            role="listbox"
+            aria-label={ariaLabel}
+            style={{
+              position: "fixed",
+              left: coords.left,
+              width: coords.width,
+              ...(coords.placeUp ? { bottom: coords.bottom } : { top: coords.top }),
+            }}
+          >
+            {options.map((entry) => (
+              <li key={entry.id} role="option" aria-selected={entry.id === value}>
+                <button
+                  type="button"
+                  className={`model-select-option${entry.id === value ? " is-selected" : ""}`}
+                  title={formatModelPriceHint(entry)}
+                  onClick={() => handleSelect(entry.id)}
+                >
+                  <span className="model-select-option-name">{entry.label}</span>
+                  <span className="model-select-option-date">{formatModelLaunch(entry.releasedAt) || "—"}</span>
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <div className={`model-select${open ? " is-open" : ""}${disabled ? " is-disabled" : ""}`}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="model-select-trigger"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        title={formatModelPriceHint(selected)}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="model-select-trigger-name">{selected?.label || "Modelo"}</span>
+        <span className="model-select-caret" aria-hidden="true">
+          <ChevronDown size={14} strokeWidth={1.8} />
+        </span>
+      </button>
+      {menu}
+    </div>
+  );
+}
+
 function App() {
   const isLocalDev = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const rawInitialLocalStore = loadStore();
@@ -3454,7 +3612,8 @@ function App() {
   const [store, setStore] = useState(() => ({
     events: initialLocalStore.events || [],
     archivedEvents: initialLocalStore.archivedEvents || [],
-    model: initialLocalStore.model || "gpt-4.1-mini",
+    chatModel: initialLocalStore.chatModel || initialLocalStore.model || DEFAULT_CHAT_MODEL,
+    codingModel: initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
     planningMode: initialLocalStore.planningMode || "off",
   }));
   const [screen, setScreen] = useState("home");
@@ -3508,7 +3667,7 @@ function App() {
     importMode: "solo",
     randomTeamCount: 2,
   });
-  const [configForm, setConfigForm] = useState({ apiKey: "", model: "gpt-4.1-mini", planningMode: "off" });
+  const [configForm, setConfigForm] = useState({ apiKey: "", chatModel: DEFAULT_CHAT_MODEL, codingModel: DEFAULT_CODING_MODEL, planningMode: "off" });
   const [eventMetaForm, setEventMetaForm] = useState({ name: "", desc: "" });
   const [newTeamName, setNewTeamName] = useState("");
   const [teamImportForm, setTeamImportForm] = useState({
@@ -4104,6 +4263,15 @@ function App() {
   const teamStudentOptions = useMemo(() => getEventStudentOptions(teamEvent), [teamEvent]);
 
   const apiConfigured = Boolean(serverConfig.openaiConfigured);
+  const modelCatalog = useMemo(() => getModelCatalog(serverConfig), [serverConfig]);
+  const modelPricingMap = useMemo(() => getModelPricingMap(modelCatalog), [modelCatalog]);
+  const currentMissionAiMode = currentMission ? getMissionAiMode(currentMission) : CHAT_AI_MODE;
+  const composerModelOptions = getModelsForMode(modelCatalog, currentMissionAiMode);
+  const storedModelForMode =
+    currentMissionAiMode === CODING_AI_MODE ? store.codingModel : store.chatModel;
+  const selectedModelForMode = composerModelOptions.some((entry) => entry.id === storedModelForMode)
+    ? storedModelForMode
+    : getDefaultModelForMode(serverConfig, currentMissionAiMode);
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";
@@ -4324,8 +4492,9 @@ function App() {
   }
 
   function handleQuickModelChange(nextModel) {
-    setStore((current) => ({ ...current, model: nextModel }));
-    setConfigForm((current) => ({ ...current, model: nextModel }));
+    const storeKey = currentMissionAiMode === CODING_AI_MODE ? "codingModel" : "chatModel";
+    setStore((current) => ({ ...current, [storeKey]: nextModel }));
+    setConfigForm((current) => ({ ...current, [storeKey]: nextModel }));
   }
 
   function handleQuickPlanningModeChange(nextPlanningMode) {
@@ -4855,7 +5024,8 @@ function App() {
       }
       setStore((current) => ({
         ...current,
-        model: configForm.model,
+        chatModel: configForm.chatModel,
+        codingModel: configForm.codingModel,
       }));
       setConfigForm((current) => ({ ...current, apiKey: "" }));
       setConfigOpen(false);
@@ -5910,6 +6080,7 @@ function App() {
     const acao = FREE_ACTION_KEY;
     const historyContext = buildHistoryContext(currentExecs);
     const aiMode = getMissionAiMode(currentMission);
+    const selectedModel = selectedModelForMode;
     const shouldStreamCoding = apiConfigured && aiMode === CODING_AI_MODE;
     const shouldAutoOpenPreview = shouldStreamCoding && isHtmlPrototypeRequest(input);
     const previousCodingResponseId =
@@ -5999,7 +6170,8 @@ function App() {
             input,
             attachments,
             acao,
-            model: store.model,
+            model: selectedModel,
+            modelPricing: modelPricingMap,
             planningMode: store.planningMode,
             historyContext,
             previousResponseId: previousCodingResponseId,
@@ -6018,7 +6190,8 @@ function App() {
             mission: currentMission,
             input,
             acao,
-            model: store.model,
+            model: selectedModel,
+            modelPricing: modelPricingMap,
             planningMode: store.planningMode,
             historyContext,
           });
@@ -6114,7 +6287,7 @@ function App() {
           outputTokens: 0,
           totalTokens: 0,
           cost: 0,
-          model: result.effectiveModel || store.model,
+          model: result.effectiveModel || selectedModel,
         },
         processingSteps: buildRunSteps(apiConfigured).map((step) => ({ ...step, status: "done" })),
         simulationMode: apiConfigured ? "openai-live" : "mock-stream",
@@ -6130,8 +6303,8 @@ function App() {
         outputTokens: result.outputTokens,
         tokens: result.tokens,
         custo: result.custo,
-        selectedModel: result.selectedModel || store.model,
-        effectiveModel: result.effectiveModel || store.model,
+        selectedModel: result.selectedModel || selectedModel,
+        effectiveModel: result.effectiveModel || selectedModel,
         codingResponseId: result.responseId || "",
         reasoningText: result.reasoningText || "",
         planningMode: store.planningMode,
@@ -6174,7 +6347,8 @@ function App() {
 
       if (apiConfigured) {
         void gerarExplicacaoGuiadaIA({
-          model: result.effectiveModel || store.model,
+          model: result.effectiveModel || selectedModel,
+          modelPricing: modelPricingMap,
           mission: currentMission,
           input,
           attachments,
@@ -6200,7 +6374,7 @@ function App() {
                 outputTokens: 0,
                 totalTokens: 0,
                 cost: 0,
-                model: result.effectiveModel || store.model,
+                model: result.effectiveModel || selectedModel,
               },
             );
           })
@@ -6219,7 +6393,7 @@ function App() {
                 outputTokens: 0,
                 totalTokens: 0,
                 cost: 0,
-                model: result.effectiveModel || store.model,
+                model: result.effectiveModel || selectedModel,
               },
             );
           });
@@ -6232,7 +6406,8 @@ function App() {
           "A rodada falhou antes de devolver um HTML executável. Você pode tentar novamente com um pedido mais específico.",
         );
       }
-      setRunError("Falha ao executar com IA. Verifique a chave, o modelo ou a conexao.");
+      const failedModelLabel = getModelLabel(modelCatalog, selectedModel);
+      setRunError(`Falha ao executar com ${failedModelLabel}. Verifique a chave, o acesso ao modelo ou a conexão.`);
       setRunState(null);
       setMissionFlow({ stage: "idle", exec: null });
       setMissionInput(input);
@@ -8308,21 +8483,15 @@ function App() {
                                     <option value="on">Plan on</option>
                                   </select>
                                 </div>
-                                <div className="input-compact-control">
-                                  <select
-                                    id="mission-model-select"
-                                    aria-label="Modelo"
-                                    className="input-model-select input-model-select-compact"
-                                    value={store.model}
-                                    onChange={(event) => handleQuickModelChange(event.target.value)}
+                                <div className="input-compact-control input-compact-control-model">
+                                  <ModelSelect
+                                    ariaLabel="Modelo"
+                                    options={composerModelOptions}
+                                    value={selectedModelForMode}
+                                    onChange={handleQuickModelChange}
                                     disabled={running}
-                                  >
-                                    {MODEL_OPTIONS.map((model) => (
-                                      <option key={model} value={model}>
-                                        {model}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    dropUp
+                                  />
                                 </div>
                               </div>
                                 <button
@@ -8463,7 +8632,7 @@ function App() {
                 execs={currentExecs}
                 runState={runState}
                 flowStage={missionFlow.stage}
-                model={getMissionAiMode(currentMission) === CODING_AI_MODE ? CODING_AI_MODEL : store.model}
+                model={getModelLabel(modelCatalog, selectedModelForMode)}
                 preservedUsage={preservedUsage}
                 tokenBudget={currentTokenBudget}
                 operationalLogs={currentMissionOperationalLogs}
@@ -8596,7 +8765,12 @@ function App() {
           onOpenConfig={() => {
             setFacilitatorToolsOpen(false);
             setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
-            setConfigForm({ apiKey: "", model: store.model, planningMode: store.planningMode });
+            setConfigForm({
+              apiKey: "",
+              chatModel: store.chatModel || getDefaultModelForMode(serverConfig, CHAT_AI_MODE),
+              codingModel: store.codingModel || getDefaultModelForMode(serverConfig, CODING_AI_MODE),
+              planningMode: store.planningMode,
+            });
             setConfigOpen(true);
           }}
           onOpenBroadcast={() => {
@@ -8990,14 +9164,22 @@ function App() {
           />
         </div>
         <div className="form-group">
-          <label className="form-label">Modelo padrao</label>
-          <select value={configForm.model} onChange={(event) => setConfigForm((current) => ({ ...current, model: event.target.value }))}>
-            {MODEL_OPTIONS.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
+          <label className="form-label">Modelo padrão (chat)</label>
+          <ModelSelect
+            ariaLabel="Modelo padrão de chat"
+            options={modelCatalog.chat}
+            value={configForm.chatModel}
+            onChange={(nextId) => setConfigForm((current) => ({ ...current, chatModel: nextId }))}
+          />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Modelo padrão (programação)</label>
+          <ModelSelect
+            ariaLabel="Modelo padrão de programação"
+            options={modelCatalog.coding}
+            value={configForm.codingModel}
+            onChange={(nextId) => setConfigForm((current) => ({ ...current, codingModel: nextId }))}
+          />
         </div>
         <div className="modal-actions">
           {serverConfig.deploymentTarget !== "vercel" ? (

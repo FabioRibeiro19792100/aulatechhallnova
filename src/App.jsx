@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, Coins, FileText, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, CircleAlert, Clock3, Code2, Coins, FileText, FileStack, FolderOpen, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Newspaper, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -43,29 +43,157 @@ const STUDENT_RESOURCE_SECTIONS = [
   {
     id: "materials",
     title: "Materiais de aula",
-    items: [
+    groups: [
       {
-        id: "class-1-2",
-        title: "Material da aula 1 e 2",
-        description: "PDF externo com o conteúdo das duas primeiras aulas",
-        href: "https://drive.google.com/file/d/1fWvpYy8qbm7QsnzeDpBuFhS8dTViupig/view?usp=sharing",
+        id: "materials-1-2",
+        title: "Encontros 1 e 2",
+        items: [
+          {
+            id: "class-1-2",
+            title: "Material da aula 1 e 2",
+            href: "https://drive.google.com/file/d/1fWvpYy8qbm7QsnzeDpBuFhS8dTViupig/view?usp=sharing",
+          },
+        ],
+      },
+      {
+        id: "materials-3-4",
+        items: [
+          {
+            id: "class-3-4",
+            title: "Material da aula 3 e 4",
+            href: "https://material-de-aula.vercel.app",
+          },
+        ],
       },
     ],
   },
   {
     id: "curation",
     title: "Curadoria",
-    items: [
+    groups: [
       {
-        id: "curation-soon",
-        title: "Curadoria",
-        description: "Em breve",
-        href: "",
+        id: "curation-1-2",
+        title: "Encontros 1 e 2",
+        description: "Leituras e referências para aprofundar os temas dos dois primeiros encontros.",
+        items: [
+          {
+            id: "cur-apple-gemini",
+            title: "Apple fecha parceria com Google para levar o Gemini aos iPhones por meio da Siri",
+            description: "g1",
+            href: "https://g1.globo.com/tecnologia/noticia/2026/01/12/apple-fecha-parceria-com-google-para-integrar-o-gemini-a-siri.ghtml",
+          },
+          {
+            id: "cur-wef-bargain",
+            title: "AI has broken the internet’s economic bargain – here’s how we fix it",
+            description: "World Economic Forum",
+            href: "https://www.weforum.org/stories/2026/01/ai-has-broken-the-internet-s-economic-bargain-here-s-how-we-fix-it/",
+          },
+          {
+            id: "cur-estonia",
+            title: "Estonia bets on artificial intelligence to offset demographic decline",
+            description: "Estonian World",
+            href: "https://estonianworld.com/technology/estonia-bets-on-artificial-intelligence-to-offset-demographic-decline/",
+          },
+          {
+            id: "cur-pedagogia",
+            title: "Pedagogia do aprendizado",
+            description: "Link exato ainda não encontrado",
+            href: "",
+          },
+          {
+            id: "cur-recall-copyright",
+            title: "Researchers Just Found Something That Could Shake the AI Industry to its Core",
+            description: "Futurism",
+            href: "https://futurism.com/artificial-intelligence/ai-industry-recall-copyright-books",
+          },
+          {
+            id: "cur-data-centers-br",
+            title: "Dispara construção de data centers no Brasil mesmo sem incentivo fiscal",
+            description: "UOL Tilt",
+            href: "https://www.uol.com.br/tilt/noticias/redacao/2026/04/15/data-centers-devem-crescer-cinco-vez-no-brasil-mesmo-sem-incentivo-fiscal.ghtm",
+          },
+          {
+            id: "cur-follow-money",
+            title: "Follow the money",
+            description: "Bloomberg",
+            href: "https://www.bloomberg.com/news/features/2025-10-07/openai-s-nvidia-amd-deals-boost-1-trillion-ai-boom-with-circular-deals",
+          },
+          {
+            id: "cur-circular-deals",
+            title: "Efeitos piramidais e circulares",
+            description: "Bloomberg",
+            href: "https://www.bloomberg.com/news/features/2025-10-07/openai-s-nvidia-amd-deals-boost-1-trillion-ai-boom-with-circular-deals",
+          },
+          {
+            id: "cur-androides",
+            title: "Androides sonham com leitores de carne e osso?",
+            description: "Folha",
+            href: "https://www1.folha.uol.com.br/colunas/alexandra-moraes-ombudsman/2026/02/androides-sonham-com-leitores-de-carne-e-osso.shtml",
+          },
+          {
+            id: "cur-moltbook",
+            title: "Moltbook was peak AI theater",
+            description: "Technology Review — busca sugerida",
+            href: "https://www.technologyreview.com",
+          },
+          {
+            id: "cur-claude-apocalypse",
+            title: "The Only Thing Standing Between Humanity and AI Apocalypse Is… Claude?",
+            description: "Wired",
+            href: "https://www.wired.com/story/the-only-thing-standing-between-humanity-and-ai-apocalypse-is-claude/",
+          },
+          {
+            id: "cur-block-jobs",
+            title: "Jack Dorsey’s Block cuts thousands of jobs as it embraces AI",
+            description: "BBC",
+            href: "https://www.bbc.com/news/articles/cq570d12y9do",
+          },
+          {
+            id: "cur-pokemon-go",
+            title: "Pokémon Go players built a 30-billion-photo map...",
+            description: "MIT Technology Review",
+            href: "https://www.technologyreview.com/2026/03/10/1134099/how-pokemon-go-is-helping-robots-deliver-pizza-on-time/",
+          },
+          {
+            id: "cur-anthropic-risk",
+            title: "Anthropic Hits Back After US Military Labels It a ‘Supply Chain Risk’",
+            description: "Wired",
+            href: "https://www.wired.com/story/anthropic-supply-chain-risk-shockwaves-silicon-valley/",
+          },
+          {
+            id: "cur-amazon-outages",
+            title: "Amazon convenes 'deep dive' internal meeting to address outages",
+            description: "CNBC",
+            href: "https://www.cnbc.com/2026/03/10/amazon-plans-deep-dive-internal-meeting-address-ai-related-outages.html",
+          },
+          {
+            id: "cur-roi-ai",
+            title: "O ROI do uso de IA",
+            description: "Wall Street Journal",
+            href: "https://www.wsj.com/tech/ai/ai-tokens-productivity-d35c6bd8",
+          },
+        ],
       },
     ],
   },
 ];
 const MAX_ATTACHMENT_COUNT = 3;
+
+function getStudentResourcePreviewUrl(href = "") {
+  if (!href) return "";
+  try {
+    const url = new URL(href);
+    if (url.hostname.includes("drive.google.com")) {
+      const match = href.match(/\/file\/d\/([^/]+)/);
+      if (match?.[1]) {
+        return `https://drive.google.com/file/d/${match[1]}/preview`;
+      }
+    }
+    return href;
+  } catch {
+    return href;
+  }
+}
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 12000;
 const ATTACHMENT_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp";
@@ -3408,6 +3536,7 @@ function App() {
   const [missionTeamRowsOpen, setMissionTeamRowsOpen] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [materialsDrawerOpen, setMaterialsDrawerOpen] = useState(false);
+  const [studentResourcePreview, setStudentResourcePreview] = useState(null);
   const [dismissedScreenShareSession, setDismissedScreenShareSession] = useState("");
   const [tokenLimitModalOpen, setTokenLimitModalOpen] = useState(false);
   const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
@@ -3495,6 +3624,23 @@ function App() {
     const timer = window.setTimeout(() => setToastText(""), 2200);
     return () => window.clearTimeout(timer);
   }, [toastText]);
+
+  function handleOpenStudentResource(item, sectionTitle) {
+    if (!item?.href) return;
+    setStudentResourcePreview({
+      id: item.id,
+      title: item.title,
+      sectionTitle,
+      href: item.href,
+      previewHref: getStudentResourcePreviewUrl(item.href),
+      description: item.description || "",
+    });
+  }
+
+  function handleOpenStudentResourceInNewTab() {
+    if (!studentResourcePreview?.href) return;
+    window.open(studentResourcePreview.href, "_blank", "noopener,noreferrer");
+  }
 
   const supabaseRealtimeClient = useMemo(() => {
     if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
@@ -8346,33 +8492,45 @@ function App() {
             <div className="side-sheet-body materials-sheet-body">
               {STUDENT_RESOURCE_SECTIONS.map((section) => (
                 <section className="materials-section" key={section.id}>
-                  <div className="materials-section-title">{section.title}</div>
-                  <div className="materials-link-list">
-                    {section.items.map((item) =>
-                      item.href ? (
-                        <a
-                          key={item.id}
-                          className="materials-link-card"
-                          href={item.href}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <div className="materials-link-copy">
-                            <strong>{item.title}</strong>
-                            <span>{item.description}</span>
-                          </div>
-                          <span className="materials-link-action">Abrir</span>
-                        </a>
-                      ) : (
-                        <div key={item.id} className="materials-link-card is-disabled">
-                          <div className="materials-link-copy">
-                            <strong>{item.title}</strong>
-                            <span>{item.description}</span>
-                          </div>
-                          <span className="materials-link-action">Link pendente</span>
+                  <div className="materials-section-title">
+                    <span className="materials-section-title-icon" aria-hidden="true">
+                      {section.id === "materials" ? <FolderOpen size={18} strokeWidth={1.45} /> : <Newspaper size={18} strokeWidth={1.45} />}
+                    </span>
+                    <span>{section.title}</span>
+                  </div>
+                  <div className="materials-group-list">
+                    {section.groups.map((group) => (
+                      <div className="materials-group-card" key={group.id}>
+                        <div className="materials-group-head">
+                          {section.id !== "materials" && group.title ? <div className="materials-group-title">{group.title}</div> : null}
+                          {group.description ? <div className="materials-group-description">{group.description}</div> : null}
                         </div>
-                      ),
-                    )}
+                        <div className="materials-link-list">
+                          {group.items.map((item) =>
+                            item.href ? (
+                              <button
+                                type="button"
+                                key={item.id}
+                                className={`materials-link-card materials-link-card-${section.id}`}
+                                onClick={() => handleOpenStudentResource(item, section.title)}
+                              >
+                                <div className="materials-link-copy">
+                                  <strong>{item.title}</strong>
+                                  {item.description ? <span>{item.description}</span> : null}
+                                </div>
+                              </button>
+                            ) : (
+                              <div key={item.id} className={`materials-link-card materials-link-card-${section.id} is-disabled`}>
+                                <div className="materials-link-copy">
+                                  <strong>{item.title}</strong>
+                                  {item.description ? <span>{item.description}</span> : null}
+                                </div>
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </section>
               ))}
@@ -8380,6 +8538,42 @@ function App() {
           </aside>
         </div>
       ) : null}
+
+      <Modal
+        open={Boolean(studentResourcePreview)}
+        onClose={() => setStudentResourcePreview(null)}
+        className="student-resource-preview-modal"
+      >
+        {studentResourcePreview ? (
+          <div className="student-resource-preview-shell">
+            <div className="student-resource-preview-header">
+              <div className="student-resource-preview-kicker">{studentResourcePreview.sectionTitle}</div>
+              <div className="student-resource-preview-title">{studentResourcePreview.title}</div>
+              {studentResourcePreview.description ? (
+                <div className="student-resource-preview-description">{studentResourcePreview.description}</div>
+              ) : null}
+            </div>
+            <div className="student-resource-preview-frame-wrap">
+              <iframe
+                className="student-resource-preview-frame"
+                src={studentResourcePreview.previewHref}
+                title={studentResourcePreview.title}
+              />
+            </div>
+            <div className="student-resource-preview-note">
+              Se o conteúdo não abrir bem aqui, você pode continuar em outra aba.
+            </div>
+            <div className="student-resource-preview-actions">
+              <button type="button" className="btn secondary" onClick={() => setStudentResourcePreview(null)}>
+                Fechar
+              </button>
+              <button type="button" className="btn primary" onClick={handleOpenStudentResourceInNewTab}>
+                Abrir em outra aba
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
 
       {screen === "facilitador" && facilitatorToolsOpen ? (
         <FacilitatorToolsDrawer

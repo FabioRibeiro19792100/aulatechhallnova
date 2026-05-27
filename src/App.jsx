@@ -3408,6 +3408,7 @@ function App() {
   const [missionTeamRowsOpen, setMissionTeamRowsOpen] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [materialsDrawerOpen, setMaterialsDrawerOpen] = useState(false);
+  const [dismissedScreenShareSession, setDismissedScreenShareSession] = useState("");
   const [tokenLimitModalOpen, setTokenLimitModalOpen] = useState(false);
   const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
   const [facilitatorToolView, setFacilitatorToolView] = useState(FACILITATOR_TOOL_VIEWS.MENU);
@@ -3670,6 +3671,17 @@ function App() {
   const teamTimerLockActive = isSessionTimerLockActive(teamEvent, clockNow);
   const selectedEventScreenShare = selectedEvent ? getScreenShareState(selectedEvent) : null;
   const teamEventScreenShare = teamEvent ? getScreenShareState(teamEvent) : null;
+  const teamScreenShareSessionId =
+    teamEventScreenShare?.active && teamEvent
+      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
+      : "";
+  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
+
+  useEffect(() => {
+    if (!teamScreenShareSessionId) {
+      setDismissedScreenShareSession("");
+    }
+  }, [teamScreenShareSessionId]);
 
   useEffect(() => {
     if (!events.length) {
@@ -7043,121 +7055,104 @@ function App() {
           </div>
         </div>
 
-        <div className="anamnesis-section-list">
-          {ANAMNESIS_SECTIONS.map((section) => {
-            const questions = ANAMNESIS_QUESTIONS.filter((question) => question.section === section.id);
+        <div className="anamnesis-question-list-linear">
+          {ANAMNESIS_QUESTIONS.map((question) => {
+            const results = getAnamnesisQuestionResults(evento, question);
+            const isTextOnly = question.type === "text";
+            const optionLabels = results.optionLabels || question.options || [];
+            const maxCount = isTextOnly ? 0 : Math.max(1, ...(results.counts || [0]));
+            const keywords = extractAnamnesisKeywords(results.texts || []);
             return (
-              <section className="anamnesis-section-card" key={section.id}>
-                <div className="anamnesis-section-head">
+              <article className="anamnesis-question-card" key={question.id}>
+                <div className="anamnesis-question-head">
+                  <div className="anamnesis-question-number">{question.number}</div>
                   <div>
-                    <div className="anamnesis-section-kicker">{section.id}</div>
-                    <div className="anamnesis-section-title">{section.title}</div>
+                    <div className="anamnesis-question-title">{question.prompt}</div>
+                    <div className="anamnesis-question-meta">
+                      {isTextOnly
+                        ? `${results.respondents} resposta(s) abertas`
+                        : question.optionalText
+                          ? `${results.respondents} resposta(s) objetivas · ${results.texts?.length || 0} complemento(s)`
+                          : `${results.respondents} resposta(s) computadas`}
+                    </div>
                   </div>
-                  <div className="anamnesis-section-description">{section.description}</div>
                 </div>
 
-                <div className="anamnesis-question-grid">
-                  {questions.map((question) => {
-                    const results = getAnamnesisQuestionResults(evento, question);
-                    const isTextOnly = question.type === "text";
-                    const optionLabels = results.optionLabels || question.options || [];
-                    const maxCount = isTextOnly ? 0 : Math.max(1, ...(results.counts || [0]));
-                    const keywords = extractAnamnesisKeywords(results.texts || []);
-                    return (
-                      <article className="anamnesis-question-card" key={question.id}>
-                        <div className="anamnesis-question-head">
-                          <div className="anamnesis-question-number">{question.number}</div>
-                          <div>
-                            <div className="anamnesis-question-title">{question.prompt}</div>
-                            <div className="anamnesis-question-meta">
-                              {isTextOnly
-                                ? `${results.respondents} resposta(s) abertas`
-                                : question.optionalText
-                                  ? `${results.respondents} resposta(s) objetivas · ${results.texts?.length || 0} complemento(s)`
-                                  : `${results.respondents} resposta(s) computadas`}
+                {isTextOnly ? (
+                  <div className="anamnesis-text-summary">
+                    <div className="anamnesis-open-bar">
+                      <div
+                        className="anamnesis-open-bar-fill"
+                        style={{ width: `${results.responseRate ? Math.max(8, results.responseRate) : 0}%` }}
+                      />
+                    </div>
+                    <div className="anamnesis-open-meta">
+                      <span>Pergunta aberta</span>
+                      <strong>{results.responseRate}% da turma respondeu</strong>
+                    </div>
+                    {keywords.length ? (
+                      <div className="anamnesis-keyword-row">
+                        {keywords.map((keyword) => (
+                          <span className="anamnesis-keyword-chip" key={`${question.id}-${keyword.term}`}>
+                            {keyword.term}
+                            <small>{keyword.count}</small>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="anamnesis-empty-note">Ainda não há termos recorrentes suficientes para sintetizar esta pergunta.</div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="anamnesis-bar-list">
+                      {optionLabels.map((option, optionIdx) => {
+                        const count = results.counts?.[optionIdx] || 0;
+                        const width = maxCount ? Math.max(4, (count / maxCount) * 100) : 0;
+                        const percent = responses.length ? Math.round((count / responses.length) * 100) : 0;
+                        return (
+                          <div className="anamnesis-bar-row" key={`${question.id}-${optionIdx}`}>
+                            <div className="anamnesis-bar-copy">
+                              <span>{option}</span>
+                              <strong>{count}</strong>
                             </div>
+                            <div className="anamnesis-bar-track" aria-hidden="true">
+                              <div className="anamnesis-bar-fill" style={{ width: `${width}%` }} />
+                            </div>
+                            <div className="anamnesis-bar-meta">{percent}%</div>
                           </div>
+                        );
+                      })}
+                    </div>
+                    {question.optionalText ? (
+                      <div className="anamnesis-text-summary is-secondary">
+                        <div className="anamnesis-open-bar">
+                          <div
+                            className="anamnesis-open-bar-fill"
+                            style={{ width: `${results.noteResponseRate ? Math.max(8, results.noteResponseRate) : 0}%` }}
+                          />
                         </div>
-
-                        {isTextOnly ? (
-                          <div className="anamnesis-text-summary">
-                            <div className="anamnesis-open-bar">
-                              <div
-                                className="anamnesis-open-bar-fill"
-                                style={{ width: `${results.responseRate ? Math.max(8, results.responseRate) : 0}%` }}
-                              />
-                            </div>
-                            <div className="anamnesis-open-meta">
-                              <span>Pergunta aberta</span>
-                              <strong>{results.responseRate}% da turma respondeu</strong>
-                            </div>
-                            {keywords.length ? (
-                              <div className="anamnesis-keyword-row">
-                                {keywords.map((keyword) => (
-                                  <span className="anamnesis-keyword-chip" key={`${question.id}-${keyword.term}`}>
-                                    {keyword.term}
-                                    <small>{keyword.count}</small>
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="anamnesis-empty-note">Ainda não há termos recorrentes suficientes para sintetizar esta pergunta.</div>
-                            )}
+                        <div className="anamnesis-open-meta">
+                          <span>Complemento opcional</span>
+                          <strong>{results.noteResponseRate}% da turma detalhou</strong>
+                        </div>
+                        {keywords.length ? (
+                          <div className="anamnesis-keyword-row">
+                            {keywords.map((keyword) => (
+                              <span className="anamnesis-keyword-chip" key={`${question.id}-${keyword.term}`}>
+                                {keyword.term}
+                                <small>{keyword.count}</small>
+                              </span>
+                            ))}
                           </div>
                         ) : (
-                          <>
-                            <div className="anamnesis-bar-list">
-                            {optionLabels.map((option, optionIdx) => {
-                              const count = results.counts?.[optionIdx] || 0;
-                              const width = maxCount ? Math.max(4, (count / maxCount) * 100) : 0;
-                              const percent = responses.length ? Math.round((count / responses.length) * 100) : 0;
-                              return (
-                                <div className="anamnesis-bar-row" key={`${question.id}-${optionIdx}`}>
-                                  <div className="anamnesis-bar-copy">
-                                    <span>{option}</span>
-                                    <strong>{count}</strong>
-                                  </div>
-                                  <div className="anamnesis-bar-track" aria-hidden="true">
-                                    <div className="anamnesis-bar-fill" style={{ width: `${width}%` }} />
-                                  </div>
-                                  <div className="anamnesis-bar-meta">{percent}%</div>
-                                </div>
-                              );
-                            })}
-                            </div>
-                            {question.optionalText ? (
-                              <div className="anamnesis-text-summary is-secondary">
-                                <div className="anamnesis-open-bar">
-                                  <div
-                                    className="anamnesis-open-bar-fill"
-                                    style={{ width: `${results.noteResponseRate ? Math.max(8, results.noteResponseRate) : 0}%` }}
-                                  />
-                                </div>
-                                <div className="anamnesis-open-meta">
-                                  <span>Complemento opcional</span>
-                                  <strong>{results.noteResponseRate}% da turma detalhou</strong>
-                                </div>
-                                {keywords.length ? (
-                                  <div className="anamnesis-keyword-row">
-                                    {keywords.map((keyword) => (
-                                      <span className="anamnesis-keyword-chip" key={`${question.id}-${keyword.term}`}>
-                                        {keyword.term}
-                                        <small>{keyword.count}</small>
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="anamnesis-empty-note">Sem termos recorrentes suficientes nos complementos desta pergunta.</div>
-                                )}
-                              </div>
-                            ) : null}
-                          </>
+                          <div className="anamnesis-empty-note">Sem termos recorrentes suficientes nos complementos desta pergunta.</div>
                         )}
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </article>
             );
           })}
         </div>
@@ -7226,6 +7221,15 @@ function App() {
                   {selectedEventScreenShare?.active ? <span className="topbar-live-pill">tela ao vivo</span> : null}
                 </div>
                 <div className="topbar-actions-main">
+                  <FacilitatorScreenShareButton
+                    event={selectedEvent}
+                    screenShare={selectedEventScreenShare}
+                    onPublishState={(nextState) => {
+                      if (!selectedEvent) return;
+                      handlePublishScreenShare(selectedEvent.id, nextState);
+                    }}
+                    iconOnly
+                  />
                   <button
                     className="btn btn-sm topbar-tools-btn"
                     onClick={() => {
@@ -7847,13 +7851,13 @@ function App() {
                     {teamUnreadAnnouncementCount ? <span className="help-trigger-badge">{teamUnreadAnnouncementCount}</span> : null}
                   </button>
                 ) : null}
-                {!teamEventScreenShare?.active ? (
+                {!teamScreenShareVisible ? (
                   <button className="btn btn-sm topbar-participant-action" onClick={() => setTokenDrawerOpen(true)}>
                     <FileText size={14} strokeWidth={1.7} aria-hidden="true" />
                     Extrato de tokens
                   </button>
                 ) : null}
-                {(currentMission || isTrainingEvent) && !teamEventScreenShare?.active ? (
+                {(currentMission || isTrainingEvent) && !teamScreenShareVisible ? (
                   <>
                     <button
                       className={`btn btn-sm topbar-participant-action${teamHelpDisabled ? " is-disabled" : ""}`}
@@ -7875,7 +7879,7 @@ function App() {
                     </button>
                   </>
                 ) : null}
-                {!teamEventScreenShare?.active ? (
+                {!teamScreenShareVisible ? (
                   <button className="btn btn-sm topbar-participant-action topbar-student-area-btn" onClick={() => setMaterialsDrawerOpen(true)}>
                     <Users size={14} strokeWidth={1.7} aria-hidden="true" />
                     Área do aluno
@@ -7886,7 +7890,7 @@ function App() {
           />
           {devQuickSwitch ? <div className="dev-toolbar-shell">{devQuickSwitch}</div> : null}
           {!apiConfigured && <div className="demo-banner">Modo demonstração - sem chave OpenAI. Respostas são simuladas.</div>}
-          {teamEventScreenShare?.active ? (
+          {teamScreenShareVisible ? (
             <div className="live-share-banner">
               Compartilhamento de tela ao vivo. O facilitador esta projetando a propria tela.
             </div>
@@ -7897,8 +7901,8 @@ function App() {
               <span className="team-timer-notice-text">{teamEventTimerNotice.message}</span>
             </div>
           ) : null}
-          <div className={`workspace${teamEventScreenShare?.active ? " workspace-live-focus" : ""}`}>
-            {!teamEventScreenShare?.active ? (
+          <div className={`workspace${teamScreenShareVisible ? " workspace-live-focus" : ""}`}>
+            {!teamScreenShareVisible ? (
               <aside className="ws-sidebar">
                 <div className="ws-sidebar-label workspace-col-label is-block">
                   <span className="ws-column-label-icon" aria-hidden="true">
@@ -8028,12 +8032,13 @@ function App() {
               </aside>
             ) : null}
 
-            <main className={`ws-content${teamEventScreenShare?.active ? " ws-content-live" : ""}`}>
-              {teamEventScreenShare?.active ? (
+            <main className={`ws-content${teamScreenShareVisible ? " ws-content-live" : ""}`}>
+              {teamScreenShareVisible ? (
                 <TeamScreenShareViewer
                   event={teamEvent}
                   screenShare={teamEventScreenShare}
                   team={team}
+                  onDismiss={() => setDismissedScreenShareSession(teamScreenShareSessionId)}
                 />
               ) : !currentMission ? (
                 <EmptyState icon="◎" title="Nenhuma missão selecionada" sub="Selecione uma missão liberada na barra lateral." />
@@ -8239,7 +8244,7 @@ function App() {
               )}
             </main>
 
-            {!teamEventScreenShare?.active ? (
+            {!teamScreenShareVisible ? (
               <aside className="workspace-explain-shell">
                 <div className="workspace-col-label is-block">
                   <span className="ws-column-label-icon" aria-hidden="true">
@@ -8278,7 +8283,7 @@ function App() {
               </div>
             </div>
           ) : null}
-          {teamEventTimerRunning && !teamEventScreenShare?.active ? (
+          {teamEventTimerRunning && !teamScreenShareVisible ? (
             <div className={`team-timer-widget${teamTimerExpired ? " is-expired" : ""}`}>
               <span className="team-timer-widget-icon" aria-hidden="true">
                 <Clock3 size={18} strokeWidth={1.8} />
@@ -10319,7 +10324,7 @@ function useFacilitatorScreenSharePresenter(event, screenShare, onPublishState) 
   return { status, error, effectiveStatus, startShare, stopShare };
 }
 
-function FacilitatorScreenShareButton({ event, screenShare, onPublishState }) {
+function FacilitatorScreenShareButton({ event, screenShare, onPublishState, iconOnly = false }) {
   const shareState = screenShare || getScreenShareState({});
   const { status, error, effectiveStatus, startShare, stopShare } = useFacilitatorScreenSharePresenter(
     event,
@@ -10330,7 +10335,7 @@ function FacilitatorScreenShareButton({ event, screenShare, onPublishState }) {
 
   return (
     <button
-      className={`btn btn-sm topbar-screen-share-btn${shareState.active ? " is-live" : ""}`}
+      className={`btn btn-sm topbar-screen-share-btn${shareState.active ? " is-live" : ""}${iconOnly ? " is-icon" : ""}`}
       disabled={disabled}
       title={
         !event
@@ -10347,11 +10352,22 @@ function FacilitatorScreenShareButton({ event, screenShare, onPublishState }) {
       }
       onClick={() => (shareState.active ? stopShare(true) : startShare())}
     >
-      {status === "connecting"
-        ? "Conectando..."
-        : shareState.active
-          ? "Encerrar projecao"
-          : "Projetar tela"}
+      <Monitor size={15} strokeWidth={1.8} aria-hidden="true" />
+      {iconOnly ? (
+        <span className="sr-only">
+          {status === "connecting"
+            ? "Conectando projeção"
+            : shareState.active
+              ? "Encerrar projeção"
+              : "Projetar tela"}
+        </span>
+      ) : status === "connecting" ? (
+        "Conectando..."
+      ) : shareState.active ? (
+        "Encerrar projecao"
+      ) : (
+        "Projetar tela"
+      )}
     </button>
   );
 }
@@ -10403,7 +10419,7 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
   );
 }
 
-function TeamScreenShareViewer({ event, screenShare, team }) {
+function TeamScreenShareViewer({ event, screenShare, team, onDismiss }) {
   const [status, setStatus] = useState("connecting");
   const [error, setError] = useState("");
   const videoRef = useRef(null);
@@ -10490,6 +10506,15 @@ function TeamScreenShareViewer({ event, screenShare, team }) {
 
   return (
     <div className="live-viewer-card">
+      <button
+        type="button"
+        className="live-viewer-close"
+        onClick={onDismiss}
+        aria-label="Fechar projeção"
+        title="Não quero ver a projeção agora"
+      >
+        <X size={18} strokeWidth={1.9} aria-hidden="true" />
+      </button>
       <div className="reading-panel-header live-viewer-header">
         <div>
           <div className="reading-panel-kicker">Apresentacao ao vivo</div>
@@ -10729,12 +10754,6 @@ function FacilitatorToolsDrawer({
       icon: MessageSquareText,
     },
     {
-      id: FACILITATOR_TOOL_VIEWS.SCREEN,
-      title: "Projetar tela",
-      meta: screenShare?.active ? "Ao vivo" : "Inativo",
-      icon: Monitor,
-    },
-    {
       id: FACILITATOR_TOOL_VIEWS.TIMER,
       title: "Cronômetro",
       meta: timerRunning ? formatCountdown(timerRemainingMs) : "Nenhum cronômetro ativo",
@@ -10819,16 +10838,6 @@ function FacilitatorToolsDrawer({
                     <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
                     {announcementCount ? "Nova mensagem" : "Criar mensagem"}
                   </button>
-                </section>
-              ) : null}
-
-              {activeView === FACILITATOR_TOOL_VIEWS.SCREEN ? (
-                <section className="fac-tools-section">
-                  <div className="fac-tools-head">
-                    <div className="fac-tools-title">Projetar tela</div>
-                    <div className="fac-tools-meta">{screenShare?.active ? "Ao vivo" : "Inativo"}</div>
-                  </div>
-                  <FacilitatorScreenShareButton event={event} screenShare={screenShare} onPublishState={onPublishScreenShare} />
                 </section>
               ) : null}
 

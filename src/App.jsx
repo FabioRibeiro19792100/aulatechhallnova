@@ -307,38 +307,23 @@ const ANAMNESIS_QUESTIONS = [
     ],
   },
   {
-    id: "q7",
-    section: "C",
-    number: "07",
-    prompt: "Considerando essas prioridades, onde você acha que IA poderia fazer mais diferença para o seu negócio?",
-    type: "multi",
-    options: [
-      "Eficiência operacional e redução de custo",
-      "Experiência e personalização para o cliente",
-      "Velocidade de decisão e inteligência de mercado",
-      "Desenvolvimento de novos produtos ou modelos de negócio",
-      "Gestão e desenvolvimento de pessoas",
-      "Ainda não consigo visualizar claramente",
-    ],
-  },
-  {
     id: "q8",
     section: "D",
-    number: "08",
+    number: "07",
     prompt: "Como você percebe o estado geral da sua organização em relação à IA hoje?",
     type: "single",
     options: [
-      "Há energia e vontade, mas falta clareza de direção",
-      "Há interesse, mas também medo e resistência",
-      "É indiferente. O tema ainda não chegou com força",
-      "Há ceticismo ativo. Precisamos convencer internamente",
-      "Já há movimento e estamos construindo momentum",
+      "Já existe movimento concreto e isso começa a ganhar escala",
+      "Existe movimento consistente, mas ainda com ajustes importantes",
+      "Há interesse, mas a direção ainda não está clara",
+      "O tema ainda está começando a ganhar espaço",
+      "Há resistência ou ceticismo relevantes hoje",
     ],
   },
   {
     id: "q9",
     section: "D",
-    number: "09",
+    number: "08",
     prompt: "Quem, dentro da sua organização, mais importa engajar para que IA avance de verdade?",
     type: "multi",
     optionalText: true,
@@ -356,7 +341,7 @@ const ANAMNESIS_QUESTIONS = [
   {
     id: "q10",
     section: "E",
-    number: "10",
+    number: "09",
     prompt: "O que você espera que mude na sua forma de atuar após os 10 encontros?",
     type: "multi",
     options: [
@@ -370,7 +355,7 @@ const ANAMNESIS_QUESTIONS = [
   {
     id: "q11",
     section: "E",
-    number: "11",
+    number: "10",
     prompt: "Se você pudesse sair deste programa com uma resposta clara para uma única pergunta, qual seria ela?",
     type: "single",
     optionalText: true,
@@ -382,23 +367,6 @@ const ANAMNESIS_QUESTIONS = [
       "Como liderar a adoção com mais segurança",
       "Como equilibrar risco e oportunidade",
       "Como transformar IA em plano concreto",
-    ],
-  },
-  {
-    id: "q12",
-    section: "E",
-    number: "12",
-    prompt: "Há algo sobre o seu contexto atual que você quer que a coordenação saiba antes do início?",
-    type: "single",
-    optionalText: true,
-    textPrompt: "Se quiser, escreva o contexto com mais detalhes.",
-    placeholder: "Restrições, projetos em curso, questões sensíveis, ou nada por enquanto.",
-    options: [
-      "Existe projeto de IA já em andamento",
-      "Há contexto sensível ou político importante",
-      "Há restrição regulatória ou jurídica",
-      "Há restrição orçamentária ou operacional",
-      "Nada a sinalizar por enquanto",
     ],
   },
 ];
@@ -423,6 +391,11 @@ const EXPLICACOES = {
 
 const ANALYSIS_NOT_APPLICABLE = "não aplicável nesta rodada";
 const TECHNICAL_PANEL_BLOCKS = {
+  executiveSummary: {
+    index: "◎",
+    title: "HIGHLIGHT DA RODADA",
+    anchor: "Leitura rápida do que mais importa nesta rodada: o que a IA entendeu, onde acertou e o ajuste mais útil para a próxima tentativa.",
+  },
   promptReading: {
     index: "①",
     title: "LEITURA DO PROMPT",
@@ -1835,13 +1808,17 @@ function readFileAsBase64(file) {
 
 async function extractDocumentAttachmentText(file) {
   const contentBase64 = await readFileAsBase64(file);
+  return extractDocumentAttachmentTextFromBase64(file.name, contentBase64);
+}
+
+async function extractDocumentAttachmentTextFromBase64(fileName, contentBase64) {
   const response = await fetch("/api/attachments/extract", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      fileName: file.name,
+      fileName,
       contentBase64,
     }),
   });
@@ -1853,6 +1830,14 @@ async function extractDocumentAttachmentText(file) {
 
   const data = await response.json();
   return truncateAttachmentText(normalizeAttachmentText(data.text || ""));
+}
+
+function canSendAttachmentDirectlyToOpenAI(fileName = "") {
+  return getFileExtension(fileName) === "pdf";
+}
+
+function sanitizeAttachmentsForStorage(attachments = []) {
+  return attachments.map(({ openAiFileBase64, openAiMimeType, openAiDirectFile, ...attachment }) => attachment);
 }
 
 async function createAttachmentRecord(file) {
@@ -1890,11 +1875,21 @@ async function createAttachmentRecord(file) {
   }
 
   if (kind === "document") {
+    const contentBase64 = await readFileAsBase64(file);
+    const canSendDirectly = canSendAttachmentDirectlyToOpenAI(file.name);
+    const directFileFields = canSendDirectly
+      ? {
+          openAiDirectFile: true,
+          openAiMimeType: file.type || "application/pdf",
+          openAiFileBase64: contentBase64,
+        }
+      : {};
     try {
-      const text = await extractDocumentAttachmentText(file);
+      const text = await extractDocumentAttachmentTextFromBase64(file.name, contentBase64);
       if (text) {
         return {
           ...base,
+          ...directFileFields,
           previewMode: "text",
           extractedText: text,
           summary: "Texto extraído do documento e enviado junto da rodada.",
@@ -1905,12 +1900,16 @@ async function createAttachmentRecord(file) {
       console.warn(`Falha ao extrair ${file.name}:`, error);
       return {
         ...base,
+        ...directFileFields,
         previewMode: "metadata",
         extractedText: "",
-        extractionFailed: true,
-        summary: "Documento anexado sem leitura automática de conteúdo.",
-        warningMessage:
-          `${file.name}: o documento foi anexado, mas a leitura automática falhou. Só os metadados seguirão para a IA nesta rodada.`,
+        extractionFailed: !canSendDirectly,
+        summary: canSendDirectly
+          ? "PDF anexado e enviado diretamente para a IA."
+          : "Documento anexado sem leitura automática de conteúdo.",
+        warningMessage: canSendDirectly
+          ? ""
+          : `${file.name}: o documento foi anexado, mas a leitura automática falhou. Só os metadados seguirão para a IA nesta rodada.`,
       };
     }
   }
@@ -1932,7 +1931,7 @@ function buildAttachmentContext(attachments = []) {
     );
 
   const metadataBlocks = attachments
-    .filter((attachment) => attachment.kind === "document" && !attachment.extractedText)
+    .filter((attachment) => attachment.kind === "document" && !attachment.extractedText && !attachment.openAiDirectFile)
     .map(
       (attachment, index) =>
         `Arquivo ${index + 1}: ${attachment.name} (${attachment.extension.toUpperCase()}, ${attachment.sizeLabel})\nObservação: o arquivo foi anexado, mas o conteúdo não pôde ser lido automaticamente. Só os metadados seguem para a IA nesta rodada.`,
@@ -1954,10 +1953,18 @@ function buildUserMessageContent(input, attachments = []) {
     : input;
 
   const images = attachments.filter((attachment) => attachment.kind === "image" && attachment.dataUrl);
-  if (!images.length) return textPart;
+  const directFiles = attachments.filter(
+    (attachment) => attachment.kind === "document" && attachment.openAiDirectFile && attachment.openAiFileBase64,
+  );
+  if (!images.length && !directFiles.length) return textPart;
 
   return [
-    { type: "text", text: textPart || "Considere a imagem anexada." },
+    { type: "text", text: textPart || "Considere os anexos desta rodada." },
+    ...directFiles.map((attachment) => ({
+      type: "input_file",
+      filename: attachment.name,
+      file_data: `data:${attachment.openAiMimeType || "application/pdf"};base64,${attachment.openAiFileBase64}`,
+    })),
     ...images.map((attachment) => ({
       type: "image_url",
       image_url: { url: attachment.dataUrl },
@@ -1977,6 +1984,12 @@ function buildResponsesApiInput(input, attachments = []) {
                 type: "input_image",
                 image_url: item.image_url?.url,
               }
+            : item.type === "input_file"
+              ? {
+                  type: "input_file",
+                  filename: item.filename || "anexo.pdf",
+                  file_data: item.file_data || "",
+                }
             : {
                 type: "input_text",
                 text: item.text || "",
@@ -2071,6 +2084,11 @@ function mergeGlossaryEntries(existingEntries = [], nextEntries = []) {
 
 function buildTechnicalAnalysisFallbackBlocks() {
   return {
+    executiveSummary: {
+      takeaway: ANALYSIS_NOT_APPLICABLE,
+      risk: ANALYSIS_NOT_APPLICABLE,
+      nextMove: ANALYSIS_NOT_APPLICABLE,
+    },
     promptReading: {
       explicit: [ANALYSIS_NOT_APPLICABLE],
       inferred: [ANALYSIS_NOT_APPLICABLE],
@@ -2132,6 +2150,15 @@ function normalizeTechnicalAnalysis(details = {}, { historyContext = [], accumul
 
   const normalized = {
     ...details,
+    executiveSummary: {
+      takeaway: `${details.executiveSummary?.takeaway || details.takeaway || details.objectiveInterpreted || ""}`.trim() || ANALYSIS_NOT_APPLICABLE,
+      risk:
+        `${details.executiveSummary?.risk || details.mainRisk || details.limitations || ""}`.trim() ||
+        ANALYSIS_NOT_APPLICABLE,
+      nextMove:
+        `${details.executiveSummary?.nextMove || details.recommendedNextMove || details.howToAskBetter?.[0] || ""}`.trim() ||
+        ANALYSIS_NOT_APPLICABLE,
+    },
     promptReading: {
       explicit: normalizeAnalysisItemArray(details.promptReading?.explicit?.length ? details.promptReading.explicit : explicitFallback),
       inferred: normalizeAnalysisItemArray(details.promptReading?.inferred?.length ? details.promptReading.inferred : inferredFallback),
@@ -2244,6 +2271,9 @@ function normalizeTechnicalAnalysis(details = {}, { historyContext = [], accumul
     limitations: normalized.responseConstruction.generationLimitations.join(" • "),
     howToAskBetter: normalized.nextStep.howToReformulate,
     bestPractices: normalized.nextStep.whatToTestNext,
+    takeaway: normalized.executiveSummary.takeaway,
+    mainRisk: normalized.executiveSummary.risk,
+    recommendedNextMove: normalized.executiveSummary.nextMove,
   };
 }
 
@@ -2789,13 +2819,20 @@ async function gerarExplicacaoGuiadaIA({ model, mission, input, attachments = []
   const prompt = [
     "Você é um sistema de análise pedagógica em tempo real.",
     "Seu trabalho é explicar para o aluno, de forma técnica e didática, como a IA leu o prompt e construiu a resposta desta rodada.",
+    "Fale diretamente com quem escreveu o prompt. Use 'você' quando indicar ajustes, riscos e próximos passos.",
     "O objeto principal da análise é sempre o ÚLTIMO prompt enviado nesta rodada.",
     "O histórico anterior da missão entra apenas como contexto secundário.",
     "Reconstrua o chain of thought de modo pedagógico. Nunca exponha raciocínio interno literal bruto.",
-    "Use linguagem direta e simples.",
+    "Use linguagem direta, técnica e assertiva. Evite soar como se estivesse descrevendo o comportamento de outra pessoa.",
+    "Evite redundância entre seções. Se um ponto já apareceu no highlight, aprofunde nos blocos seguintes em vez de repetir a mesma frase.",
     `Quando faltar conteúdo em qualquer campo, use exatamente: "${ANALYSIS_NOT_APPLICABLE}".`,
     "Retorne JSON válido, sem markdown, com esta estrutura exata:",
     `{
+  "executiveSummary": {
+    "takeaway": "...",
+    "risk": "...",
+    "nextMove": "..."
+  },
   "promptReading": {
     "explicit": ["..."],
     "inferred": ["..."],
@@ -2828,7 +2865,10 @@ async function gerarExplicacaoGuiadaIA({ model, mission, input, attachments = []
     ]
   }
 }`,
+    "O bloco executiveSummary deve ser curto, direto e acionável.",
     "Cada array deve ter no máximo 3 itens curtos.",
+    "As recomendações precisam ser específicas, assertivas e utilizáveis já na próxima rodada.",
+    "No glossário, inclua apenas termos técnicos realmente novos ou necessários nesta rodada. Se não houver termo novo, retorne array vazio.",
     "Cada definição do glossário deve ter uma linha em linguagem simples.",
     aiMode === CODING_AI_MODE
       ? "Missão em modo coding: enfatize implementação, debugging, arquitetura e refatoração."
@@ -3360,6 +3400,7 @@ function App() {
   const [anamnesisAnswers, setAnamnesisAnswers] = useState({});
   const [anamnesisError, setAnamnesisError] = useState("");
   const [anamnesisContext, setAnamnesisContext] = useState(null);
+  const [anamnesisStep, setAnamnesisStep] = useState(0);
   const [reflectionComment, setReflectionComment] = useState("");
   const [reflectionError, setReflectionError] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
@@ -3706,6 +3747,17 @@ function App() {
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
   const anamnesisTargetEvent = anamnesisContext ? events.find((event) => event.id === anamnesisContext.eventId) || null : null;
   const answeredAnamnesisCount = countAnsweredAnamnesisQuestions(anamnesisAnswers);
+  const currentAnamnesisQuestion = ANAMNESIS_QUESTIONS[anamnesisStep] || null;
+  const currentAnamnesisAnswer = currentAnamnesisQuestion ? anamnesisAnswers[currentAnamnesisQuestion.id] : null;
+  const currentAnamnesisChoiceValue = currentAnamnesisQuestion
+    ? getAnamnesisAnswerChoice(currentAnamnesisQuestion, currentAnamnesisAnswer)
+    : null;
+  const currentAnamnesisNoteValue = currentAnamnesisQuestion
+    ? getAnamnesisAnswerNote(currentAnamnesisQuestion, currentAnamnesisAnswer)
+    : "";
+  const isCurrentAnamnesisAnswered = currentAnamnesisQuestion
+    ? isAnamnesisAnswerFilled(currentAnamnesisQuestion, currentAnamnesisAnswer)
+    : false;
 
   useEffect(() => {
     if (screen !== "workspace" || !teamEvent || timeTeamIdx === null) {
@@ -4708,6 +4760,7 @@ function App() {
       setActiveStudentName(normalizedMemberName);
       setAnamnesisAnswers({});
       setAnamnesisError("");
+      setAnamnesisStep(0);
       setAnamnesisContext({
         eventId: selectedEvent.id,
         teamIdx: index,
@@ -4801,7 +4854,23 @@ function App() {
     setAnamnesisAnswers({});
     setAnamnesisError("");
     setAnamnesisContext(null);
+    setAnamnesisStep(0);
     setActiveStudentName("");
+  }
+
+  function handleAdvanceAnamnesisStep() {
+    if (!currentAnamnesisQuestion) return;
+    if (!isCurrentAnamnesisAnswered) {
+      setAnamnesisError(`Responda a pergunta ${currentAnamnesisQuestion.number} antes de continuar.`);
+      return;
+    }
+    setAnamnesisError("");
+    setAnamnesisStep((current) => Math.min(current + 1, ANAMNESIS_QUESTIONS.length - 1));
+  }
+
+  function handleReturnAnamnesisStep() {
+    setAnamnesisError("");
+    setAnamnesisStep((current) => Math.max(current - 1, 0));
   }
 
   function handleSubmitAnamnesis() {
@@ -4811,6 +4880,7 @@ function App() {
     );
     if (missingQuestion) {
       setAnamnesisError(`Responda a pergunta ${missingQuestion.number} antes de continuar.`);
+      setAnamnesisStep(Math.max(0, ANAMNESIS_QUESTIONS.findIndex((question) => question.id === missingQuestion.id)));
       return;
     }
 
@@ -4843,6 +4913,7 @@ function App() {
     setAnamnesisOpen(false);
     setAnamnesisAnswers({});
     setAnamnesisError("");
+    setAnamnesisStep(0);
     const nextContext = anamnesisContext;
     setAnamnesisContext(null);
     runBrandLoaderTransition(() => {
@@ -4852,7 +4923,7 @@ function App() {
       setActiveStudentName(nextContext.memberName);
       setScreen("workspace");
     });
-    showToast("Anamnese registrada");
+    showToast("Obrigado. Sua anamnese foi enviada.");
   }
 
   function handleSelectMission(index) {
@@ -5871,7 +5942,7 @@ function App() {
         id: `run_${Date.now()}`,
         ts: new Date().toISOString(),
         input,
-        attachments,
+        attachments: sanitizeAttachmentsForStorage(attachments),
         acao,
         actionMode: isFreeInstructionAction(acao) ? "free" : "preset",
         isFreeInstruction: isFreeInstructionAction(acao),
@@ -8395,120 +8466,98 @@ function App() {
               <div className="anamnesis-progress-fill" style={{ width: `${(answeredAnamnesisCount / ANAMNESIS_QUESTIONS.length) * 100}%` }} />
             </div>
             <div className="anamnesis-progress-label">
-              {answeredAnamnesisCount}/{ANAMNESIS_QUESTIONS.length}
+              Pergunta {Math.min(anamnesisStep + 1, ANAMNESIS_QUESTIONS.length)}/{ANAMNESIS_QUESTIONS.length}
             </div>
           </div>
           {anamnesisTargetEvent?.name ? <div className="anamnesis-context-line">{anamnesisTargetEvent.name}</div> : null}
         </div>
 
         <div className="anamnesis-modal-body">
-          {ANAMNESIS_SECTIONS.map((section) => {
-            const sectionQuestions = ANAMNESIS_QUESTIONS.filter((question) => question.section === section.id);
-            return (
-              <section className="anamnesis-form-section" key={section.id}>
-                <div className="anamnesis-form-section-head">
-                  <div className="anamnesis-form-section-kicker">{section.id}</div>
-                  <div>
-                    <div className="anamnesis-form-section-title">{section.title}</div>
-                    <div className="anamnesis-form-section-sub">{section.description}</div>
+          {currentAnamnesisQuestion ? (
+            <section className="anamnesis-form-question-card">
+              <div className="anamnesis-form-question-label">
+                <span className="anamnesis-form-question-number">{currentAnamnesisQuestion.number}.</span>
+                <div className="anamnesis-form-question-copy">
+                  <span className="anamnesis-form-question-prompt">{currentAnamnesisQuestion.prompt}</span>
+                  {currentAnamnesisQuestion.optionalText ? <span className="anamnesis-question-optional-tag">Complemento opcional</span> : null}
+                </div>
+              </div>
+
+              {currentAnamnesisQuestion.type === "text" ? (
+                <textarea
+                  className="anamnesis-textarea"
+                  rows={currentAnamnesisQuestion.id === "q9" ? 2 : 3}
+                  value={currentAnamnesisNoteValue}
+                  placeholder={currentAnamnesisQuestion.placeholder || ""}
+                  onChange={(event) => handleChangeAnamnesisText(currentAnamnesisQuestion.id, event.target.value)}
+                />
+              ) : currentAnamnesisQuestion.type === "scale" ? (
+                <>
+                  <div className="scale-pills anamnesis-scale-pills">
+                    {currentAnamnesisQuestion.options.map((option, optionIdx) => (
+                      <button
+                        key={`${currentAnamnesisQuestion.id}-${optionIdx}`}
+                        type="button"
+                        className={`scale-pill${currentAnamnesisChoiceValue === optionIdx ? " sel" : ""}`}
+                        onClick={() => handleToggleAnamnesisOption(currentAnamnesisQuestion, optionIdx)}
+                      >
+                        {option}
+                      </button>
+                    ))}
                   </div>
-                </div>
-
-                <div className="anamnesis-form-question-list">
-                  {sectionQuestions.map((question) => {
-                    const answer = anamnesisAnswers[question.id];
-                    const choiceValue = getAnamnesisAnswerChoice(question, answer);
-                    const noteValue = getAnamnesisAnswerNote(question, answer);
-                    return (
-                      <div className="anamnesis-form-question" key={question.id}>
-                        <div className="anamnesis-form-question-label">
-                          <span className="anamnesis-form-question-number">{question.number}</span>
-                          <div className="anamnesis-form-question-copy">
-                            <span>{question.prompt}</span>
-                            {question.optionalText ? <span className="anamnesis-question-optional-tag">Complemento opcional</span> : null}
-                          </div>
-                        </div>
-
-                        {question.type === "text" ? (
-                          <textarea
-                            className="anamnesis-textarea"
-                            rows={question.id === "q9" ? 2 : 3}
-                            value={noteValue}
-                            placeholder={question.placeholder || ""}
-                            onChange={(event) => handleChangeAnamnesisText(question.id, event.target.value)}
-                          />
-                        ) : question.type === "scale" ? (
-                          <>
-                            <div className="scale-pills anamnesis-scale-pills">
-                              {question.options.map((option, optionIdx) => (
-                                <button
-                                  key={`${question.id}-${optionIdx}`}
-                                  type="button"
-                                  className={`scale-pill${choiceValue === optionIdx ? " sel" : ""}`}
-                                  onClick={() => handleToggleAnamnesisOption(question, optionIdx)}
-                                >
-                                  {option}
-                                </button>
-                              ))}
-                            </div>
-                            <button
-                              type="button"
-                              className={`anamnesis-unknown-btn${choiceValue === ANAMNESIS_UNKNOWN_VALUE ? " is-selected" : ""}`}
-                              onClick={() => handleToggleAnamnesisOption(question, ANAMNESIS_UNKNOWN_VALUE)}
-                            >
-                              Não sei responder
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <div className="opts anamnesis-opts">
-                              {question.options.map((option, optionIdx) => {
-                                const selected = question.type === "multi"
-                                  ? Array.isArray(choiceValue) && choiceValue.includes(optionIdx)
-                                  : choiceValue === optionIdx;
-                                return (
-                                  <button
-                                    key={`${question.id}-${optionIdx}`}
-                                    type="button"
-                                    className={`opt${question.type === "multi" ? " opt-sq" : ""}${selected ? " sel" : ""}`}
-                                    onClick={() => handleToggleAnamnesisOption(question, optionIdx)}
-                                  >
-                                    <span className="opt-mark" aria-hidden="true">
-                                      <span className="opt-mark-inner" />
-                                    </span>
-                                    <span>{option}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <button
-                              type="button"
-                              className={`anamnesis-unknown-btn${isAnamnesisUnknownChoice(choiceValue) ? " is-selected" : ""}`}
-                              onClick={() => handleToggleAnamnesisOption(question, ANAMNESIS_UNKNOWN_VALUE)}
-                            >
-                              Não sei responder
-                            </button>
-                            {question.optionalText ? (
-                              <div className="anamnesis-optional-shell">
-                                <div className="anamnesis-optional-label">Campo opcional</div>
-                                <textarea
-                                  className="anamnesis-textarea anamnesis-textarea-optional"
-                                  rows={question.id === "q9" ? 2 : 3}
-                                  value={noteValue}
-                                  placeholder={question.placeholder || ""}
-                                  onChange={(event) => handleChangeAnamnesisText(question.id, event.target.value)}
-                                />
-                              </div>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
+                  <button
+                    type="button"
+                    className={`anamnesis-unknown-btn${currentAnamnesisChoiceValue === ANAMNESIS_UNKNOWN_VALUE ? " is-selected" : ""}`}
+                    onClick={() => handleToggleAnamnesisOption(currentAnamnesisQuestion, ANAMNESIS_UNKNOWN_VALUE)}
+                  >
+                    Não sei responder
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="opts anamnesis-opts">
+                    {currentAnamnesisQuestion.options.map((option, optionIdx) => {
+                      const selected = currentAnamnesisQuestion.type === "multi"
+                        ? Array.isArray(currentAnamnesisChoiceValue) && currentAnamnesisChoiceValue.includes(optionIdx)
+                        : currentAnamnesisChoiceValue === optionIdx;
+                      return (
+                        <button
+                          key={`${currentAnamnesisQuestion.id}-${optionIdx}`}
+                          type="button"
+                          className={`opt${currentAnamnesisQuestion.type === "multi" ? " opt-sq" : ""}${selected ? " sel" : ""}`}
+                          onClick={() => handleToggleAnamnesisOption(currentAnamnesisQuestion, optionIdx)}
+                        >
+                          <span className="opt-mark" aria-hidden="true">
+                            <span className="opt-mark-inner" />
+                          </span>
+                          <span>{option}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    className={`anamnesis-unknown-btn${isAnamnesisUnknownChoice(currentAnamnesisChoiceValue) ? " is-selected" : ""}`}
+                    onClick={() => handleToggleAnamnesisOption(currentAnamnesisQuestion, ANAMNESIS_UNKNOWN_VALUE)}
+                  >
+                    Não sei responder
+                  </button>
+                  {currentAnamnesisQuestion.optionalText ? (
+                    <div className="anamnesis-optional-shell">
+                      <div className="anamnesis-optional-label">Campo opcional</div>
+                      <textarea
+                        className="anamnesis-textarea anamnesis-textarea-optional"
+                        rows={currentAnamnesisQuestion.id === "q9" ? 2 : 3}
+                        value={currentAnamnesisNoteValue}
+                        placeholder={currentAnamnesisQuestion.placeholder || ""}
+                        onChange={(event) => handleChangeAnamnesisText(currentAnamnesisQuestion.id, event.target.value)}
+                      />
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </section>
+          ) : null}
         </div>
 
         {anamnesisError ? <div className="error-box top-gap-sm">{anamnesisError}</div> : null}
@@ -8517,9 +8566,22 @@ function App() {
           <button type="button" className="btn" onClick={handleCloseAnamnesisModal}>
             Voltar
           </button>
-          <button type="button" className="btn btn-primary" onClick={handleSubmitAnamnesis}>
-            Enviar anamnese
-          </button>
+          <div className="anamnesis-step-actions">
+            {anamnesisStep > 0 ? (
+              <button type="button" className="btn" onClick={handleReturnAnamnesisStep}>
+                Anterior
+              </button>
+            ) : null}
+            {anamnesisStep < ANAMNESIS_QUESTIONS.length - 1 ? (
+              <button type="button" className="btn btn-primary" onClick={handleAdvanceAnamnesisStep}>
+                Próxima
+              </button>
+            ) : (
+              <button type="button" className="btn btn-primary" onClick={handleSubmitAnamnesis} disabled={!isCurrentAnamnesisAnswered}>
+                Enviar anamnese
+              </button>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -9536,7 +9598,7 @@ function MissionReadingPanel({ exec }) {
     accumulatedGlossary: exec.technicalAnalysis?.glossary?.accumulated || exec.reasoningDetails?.glossary?.accumulated || [],
   });
   const [chainExpanded, setChainExpanded] = useState(false);
-  const glossaryItems = details.glossary?.accumulated?.length ? details.glossary.accumulated : [];
+  const glossaryItems = details.glossary?.round?.length ? details.glossary.round : [];
 
   if (details.pending) {
     return (
@@ -9578,6 +9640,23 @@ function MissionReadingPanel({ exec }) {
         {!details.unavailable && !details.pending && exec.historySignal ? (
           <div className="tech-reading-banner">{exec.historySignal}</div>
         ) : null}
+
+        <TechnicalReadingBlock blockKey="executiveSummary">
+          <div className="tech-reading-highlight">
+            <div className="tech-reading-highlight-item">
+              <div className="tech-reading-subtitle">Leitura principal</div>
+              <div className="tech-reading-highlight-copy">{details.executiveSummary?.takeaway || ANALYSIS_NOT_APPLICABLE}</div>
+            </div>
+            <div className="tech-reading-highlight-item">
+              <div className="tech-reading-subtitle">Ponto de atenção</div>
+              <div className="tech-reading-highlight-copy">{details.executiveSummary?.risk || ANALYSIS_NOT_APPLICABLE}</div>
+            </div>
+            <div className="tech-reading-highlight-item">
+              <div className="tech-reading-subtitle">Próximo ajuste</div>
+              <div className="tech-reading-highlight-copy">{details.executiveSummary?.nextMove || ANALYSIS_NOT_APPLICABLE}</div>
+            </div>
+          </div>
+        </TechnicalReadingBlock>
 
         <TechnicalReadingBlock blockKey="promptReading">
           <div className="tech-reading-subsection">
@@ -9674,7 +9753,7 @@ function MissionReadingPanel({ exec }) {
               ))}
             </div>
           ) : (
-            <div className="tech-reading-copy">{ANALYSIS_NOT_APPLICABLE}</div>
+            <div className="tech-reading-copy">Sem termos novos relevantes nesta rodada.</div>
           )}
         </TechnicalReadingBlock>
       </div>

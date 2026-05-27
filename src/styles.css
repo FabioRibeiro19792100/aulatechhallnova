@@ -77,6 +77,8 @@ button{border:none;background:none}
 .btn-ghost:hover{background:var(--surface2);color:var(--text);border-color:transparent}
 .btn-danger{color:var(--red)}
 .btn-danger:hover{background:var(--red-light)}
+.btn-primary.btn-danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn-primary.btn-danger:hover:not(:disabled){background:#b91c1c;border-color:#b91c1c;color:#fff}
 .btn-green{background:var(--green);color:#fff;border-color:var(--green);box-shadow:none}
 .btn-green:hover:not(:disabled){background:#15803d}
 .btn-add-full{width:100%;margin-top:10px;justify-content:center;border-style:dashed;color:var(--text2)}

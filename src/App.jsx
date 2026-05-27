@@ -206,8 +206,6 @@ const TRAINING_MISSION = {
   instrucao: "Escreva o prompt livremente. Você pode iterar, testar variações e pedir ajuda ao facilitador quando quiser.",
   placeholder: "Escreva aqui o que você quer testar...",
   acoes: [],
-  systemPrompt:
-    "Voce e um assistente para laboratorio livre de IA. Responda de forma util, clara e honesta, sem inventar contexto ausente. Se o pedido estiver vago, ajude a melhorar o prompt antes de responder.",
 };
 
 const AI_MODE_LABELS = {
@@ -215,11 +213,44 @@ const AI_MODE_LABELS = {
   [CODING_AI_MODE]: "Coding",
 };
 
-const AI_MODE_PROMPTS = {
-  [CHAT_AI_MODE]: "",
-  [CODING_AI_MODE]:
-    "Voce esta em modo coding. Priorize codigo funcional, debugging, arquitetura, refatoracao, exemplos praticos e explicacoes tecnicas orientadas a implementacao. Quando fizer sentido, responda com passos concretos, trechos de codigo, trade-offs e cuidados de manutencao.",
+const RESPOND_IN_PT = "Responda sempre em portugues do Brasil, qualquer que seja o idioma do pedido, dos anexos ou do historico.";
+const PLAN_CLOSING_QUESTION = "Ao final do plano, pergunte ao usuario se ele aprova o plano e quer que voce inicie a execucao, se prefere ajustar algum ponto ou se tem feedbacks a dar antes de prosseguir.";
+
+const SYSTEM_PROMPTS = {
+  [CHAT_AI_MODE]: {
+    off: [
+      "Voce e o assistente de chat do Tech Hall AI Lab, especializado em analise geral: sintetizar, comparar, interpretar, organizar e revisar informacoes com clareza estrutural.",
+      "Responda de forma util, clara e honesta. Nao invente fatos ausentes e diferencie o que esta explicito do que e inferencia. Se o pedido estiver vago, ajude a melhorar o prompt antes de responder.",
+      RESPOND_IN_PT,
+    ].join(" "),
+    on: [
+      "Voce e o assistente de chat do Tech Hall AI Lab em modo planejamento. Sua unica tarefa e planejar como a solicitacao seria resolvida, sem executa-la.",
+      "Nao produza o resultado ou o entregavel final: entregue apenas um plano claro com objetivo, premissas, etapas ordenadas, decisoes e trade-offs, dependencias e riscos.",
+      "Pare apos apresentar o plano, mesmo que o pedido peca o resultado pronto.",
+      PLAN_CLOSING_QUESTION,
+      RESPOND_IN_PT,
+    ].join(" "),
+  },
+  [CODING_AI_MODE]: {
+    off: [
+      "Voce e o assistente de programacao do Tech Hall AI Lab. Priorize codigo funcional, debugging, arquitetura, refatoracao, explicacoes tecnicas e exemplos praticos orientados a implementacao, mostrando implementacoes concretas, riscos, trade-offs e cuidados de manutencao.",
+      "Quando a resposta principal for codigo utilizavel, entregue arquivos reais em blocos nomeados com a linguagem (por exemplo, ```js app.js```); para interfaces ou prototipos web, prefira um unico HTML autocontido em um bloco ```html index.html```. Depois dos blocos, adicione apenas notas curtas de uso ou proximos passos.",
+      RESPOND_IN_PT,
+    ].join(" "),
+    on: [
+      "Voce e o assistente de programacao do Tech Hall AI Lab em modo planejamento. Sua unica tarefa e planejar a abordagem tecnica, sem implementa-la.",
+      "Nao escreva o codigo final nem produza o entregavel: entregue apenas um plano claro com objetivo, premissas, arquitetura proposta, etapas ordenadas, decisoes e trade-offs tecnicos, dependencias e riscos.",
+      "Pare apos apresentar o plano, mesmo que o pedido peca o codigo pronto.",
+      PLAN_CLOSING_QUESTION,
+      RESPOND_IN_PT,
+    ].join(" "),
+  },
 };
+
+function getSystemPrompt(aiMode, planningMode = "off") {
+  const byMode = SYSTEM_PROMPTS[aiMode] || SYSTEM_PROMPTS[CHAT_AI_MODE];
+  return planningMode === "on" ? byMode.on : byMode.off;
+}
 
 const FIXED_MISSION_TEMPLATE = "fixed-v2";
 
@@ -280,8 +311,6 @@ const FIXED_MISSIONS_CATALOG = [
     placeholder:
       "Cole seu contexto, pergunta, notas, briefing, resposta de IA ou material bruto. Ex.: \"Preciso transformar estas anotações em um resumo executivo com próximos passos.\"",
     acoes: [],
-    systemPrompt:
-      "Voce e um assistente de analise geral. Ajude a sintetizar, comparar, interpretar, organizar e revisar informacoes com clareza estrutural. Nao invente fatos ausentes. Diferencie o que esta explicito do que e inferencia. Quando fizer sentido, sugira uma forma melhor de formular o pedido.",
   },
   {
     id: "mission_programming_coding",
@@ -297,15 +326,8 @@ const FIXED_MISSIONS_CATALOG = [
     placeholder:
       "Cole o código, o erro, a arquitetura ou o requisito. Ex.: \"Este componente React renderiza duas vezes e quebra o estado. Quero entender a causa e corrigir com uma solução limpa.\"",
     acoes: [],
-    systemPrompt:
-      "Voce e um assistente de programacao. Priorize codigo, debugging, arquitetura, refatoracao, explicacoes tecnicas e exemplos praticos. Mostre implementacoes concretas, riscos e trade-offs quando isso ajudar a resolver o problema.",
   },
 ];
-
-const PLANNING_MODE_PROMPTS = {
-  off: "",
-  on: "",
-};
 
 const PERGUNTAS_REFLEXAO = [
   { id: "q1", texto: "O que a IA fez correspondeu ao que você esperava?", min: "muito abaixo", max: "muito acima" },
@@ -2501,7 +2523,7 @@ function getActionLabel(acao) {
   return isFreeInstructionAction(acao) ? FREE_ACTION_LABEL : acao || "-";
 }
 
-function supportsNativePlanning(model = "") {
+function modelSupportsReasoning(model = "") {
   return /^gpt-5/i.test(model) || /^o[134]/i.test(model);
 }
 
@@ -2515,24 +2537,24 @@ function resolvePlanningRuntime(model, planningMode = "off") {
     };
   }
 
-  if (supportsNativePlanning(model)) {
+  if (modelSupportsReasoning(model)) {
     return {
       requestModel: model,
       reasoningEffort: "medium",
       planningModeReal: true,
-      planningResolution: "native-model",
+      planningResolution: "reasoning-medium",
     };
   }
 
   return {
     requestModel: model,
     reasoningEffort: undefined,
-    planningModeReal: false,
-    planningResolution: "unsupported-model",
+    planningModeReal: true,
+    planningResolution: "prompt-only",
   };
 }
 
-function buildPromptApplied({ mission, acao, historyContext, planningMode = "off", includePlanningPrompt = false }) {
+function buildPromptApplied({ mission, acao, historyContext, planningMode = "off" }) {
   const historyBlock = historyContext.length
     ? `\n\nContexto anterior desta missao:\n${historyContext
         .map(
@@ -2545,29 +2567,11 @@ function buildPromptApplied({ mission, acao, historyContext, planningMode = "off
     ? "Diretriz da rodada: o time escreveu a propria instrucao livremente, sem usar uma acao rapida predefinida."
     : `Acao selecionada: ${getActionLabel(acao)}.`;
   const aiMode = getMissionAiMode(mission);
-  const aiModeBlock = AI_MODE_PROMPTS[aiMode] || "";
-  const planningBlock = includePlanningPrompt ? PLANNING_MODE_PROMPTS[planningMode] || PLANNING_MODE_PROMPTS.off : "";
-  return [mission.systemPrompt, aiModeBlock, actionBlock, planningBlock, `AI Mode: ${AI_MODE_LABELS[aiMode]}.`]
+  const systemPrompt = getSystemPrompt(aiMode, planningMode);
+  return [systemPrompt, actionBlock]
     .filter(Boolean)
     .join("\n\n")
     .concat(historyBlock);
-}
-
-function buildCodingDeliveryHint(input = "") {
-  if (isHtmlPrototypeRequest(input)) {
-    return [
-      "Quando o pedido for de interface, front-end ou protótipo web, entregue uma instância executável.",
-      "Preferência de saída: um único documento HTML completo, autocontido, com CSS e JavaScript inline quando necessário.",
-      "Coloque esse HTML dentro de um único bloco ```html index.html```.",
-      "Depois do bloco, se precisar, adicione notas curtas de implementação e próximos passos.",
-    ].join("\n");
-  }
-  return [
-    "Quando a resposta principal for código utilizável, entregue arquivos reais em blocos nomeados.",
-    "Use fences com linguagem e nome do arquivo, por exemplo: ```js app.js``` ou ```css styles.css```.",
-    "Se houver mais de um arquivo, separe um bloco por arquivo.",
-    "Depois dos blocos, adicione apenas notas curtas de integração, uso ou próximos passos.",
-  ].join("\n");
 }
 
 function buildConceptSummary(mission) {
@@ -3389,10 +3393,8 @@ async function executarComIA({
     acao,
     historyContext: aiMode === CODING_AI_MODE ? [] : historyContext,
     planningMode,
-    includePlanningPrompt: !planningRuntime.planningModeReal,
   });
-  const codingDeliveryHint = aiMode === CODING_AI_MODE ? buildCodingDeliveryHint(input) : "";
-  const promptApplied = [promptBase, codingDeliveryHint].filter(Boolean).join("\n\n");
+  const promptApplied = promptBase;
   const effectiveRuntime = { ...planningRuntime };
   if (aiMode === CODING_AI_MODE && !effectiveRuntime.reasoningEffort) {
     effectiveRuntime.reasoningEffort = CODING_AI_REASONING_EFFORT;
@@ -6081,6 +6083,7 @@ function App() {
     const historyContext = buildHistoryContext(currentExecs);
     const aiMode = getMissionAiMode(currentMission);
     const selectedModel = selectedModelForMode;
+    const wasPlanningOn = store.planningMode === "on";
     const shouldStreamCoding = apiConfigured && aiMode === CODING_AI_MODE;
     const shouldAutoOpenPreview = shouldStreamCoding && isHtmlPrototypeRequest(input);
     const previousCodingResponseId =
@@ -6344,6 +6347,11 @@ function App() {
       setRunState(null);
       setMissionFlow({ stage: "cot_aberto", exec: execRecord });
       showToast(apiConfigured ? "Execucao concluida" : "Execucao simulada");
+
+      if (wasPlanningOn) {
+        setStore((current) => ({ ...current, planningMode: "off" }));
+        setConfigForm((current) => ({ ...current, planningMode: "off" }));
+      }
 
       if (apiConfigured) {
         void gerarExplicacaoGuiadaIA({
@@ -8471,17 +8479,17 @@ function App() {
                                   <span>Anexar</span>
                                 </button>
                                 <div className="input-compact-control">
-                                  <select
-                                    id="mission-planning-select"
-                                    aria-label="Planejamento"
-                                    className="input-model-select input-model-select-compact"
-                                    value={store.planningMode}
-                                    onChange={(event) => handleQuickPlanningModeChange(event.target.value)}
+                                  <button
+                                    id="mission-planning-toggle"
+                                    type="button"
+                                    className={`plan-toggle-btn${store.planningMode === "on" ? " is-on" : ""}`}
+                                    aria-label="Planejar"
+                                    aria-pressed={store.planningMode === "on"}
+                                    onClick={() => handleQuickPlanningModeChange(store.planningMode === "on" ? "off" : "on")}
                                     disabled={running}
                                   >
-                                    <option value="off">Plan off</option>
-                                    <option value="on">Plan on</option>
-                                  </select>
+                                    Planejar
+                                  </button>
                                 </div>
                                 <div className="input-compact-control input-compact-control-model">
                                   <ModelSelect

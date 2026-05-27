@@ -3519,6 +3519,24 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
   min-width:0;
   flex:0 1 auto;
 }
+.plan-toggle-btn{
+  height:34px;
+  padding:0 12px;
+  border-radius:999px;
+  border:1px solid var(--border-md);
+  background:#fff;
+  color:var(--text2);
+  font-size:11px;
+  font-weight:600;
+  white-space:nowrap;
+  flex:0 0 auto;
+  cursor:pointer;
+  transition:background .12s,border-color .12s,color .12s;
+}
+.plan-toggle-btn:hover:not(:disabled){border-color:#94a3b8;color:var(--text)}
+.plan-toggle-btn.is-on{background:#bbf7d0;border-color:#16a34a;color:#14532d}
+.plan-toggle-btn.is-on:hover:not(:disabled){background:#a7f3c0;border-color:#15803d;color:#14532d}
+.plan-toggle-btn:disabled{opacity:.5;cursor:not-allowed}
 .input-model-select{
   width:100%;
   min-width:0;

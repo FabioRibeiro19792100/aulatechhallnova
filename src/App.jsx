@@ -93,12 +93,6 @@ const STUDENT_RESOURCE_SECTIONS = [
             href: "https://estonianworld.com/technology/estonia-bets-on-artificial-intelligence-to-offset-demographic-decline/",
           },
           {
-            id: "cur-pedagogia",
-            title: "Pedagogia do aprendizado",
-            description: "Link exato ainda não encontrado",
-            href: "",
-          },
-          {
             id: "cur-recall-copyright",
             title: "Researchers Just Found Something That Could Shake the AI Industry to its Core",
             description: "Futurism",

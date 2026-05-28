@@ -18,6 +18,7 @@ const CODING_AI_REASONING_EFFORT = "medium";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const FACILITATOR_PASSWORD = "camila";
 const DEFAULT_MISSION_TOKEN_LIMIT = 15000;
+const DEFAULT_TOKEN_GRANT_AMOUNT = 15000;
 const TOKEN_MISSION_TRAINING_ID = "training_lab";
 const TOKEN_POLICY_MODE_UNLIMITED = "unlimited";
 const TOKEN_POLICY_MODE_DEFAULT = "default_15000";
@@ -1054,8 +1055,7 @@ function getConclusaoSource(evento, teamIdx, missionId) {
 }
 
 function canFacilitatorReopenMissionForTeam(evento, teamIdx, missionId) {
-  const source = getConclusaoSource(evento, teamIdx, missionId);
-  return source === "facilitator" || source === "facilitator_no_evaluation";
+  return isConcluida(evento, teamIdx, missionId);
 }
 
 function getMissionClosureStatus(evento, teamIdx, missionId) {
@@ -3713,6 +3713,7 @@ function App() {
     openaiSource: "none",
     livekitConfigured: false,
     supabaseConfigured: false,
+    sharedStateConfigured: false,
     supabaseUrl: "",
     supabaseAnonKey: "",
     remoteStateKey: "techhall-v1",
@@ -3721,6 +3722,7 @@ function App() {
   const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
   const lastRemoteEventsRef = useRef(JSON.stringify(initialLocalStore.events || []));
+  const currentEventsRef = useRef(initialLocalStore.events || []);
   const brandLoaderTimerRef = useRef(null);
 
   function clearBrandLoaderTimer() {
@@ -3744,6 +3746,10 @@ function App() {
   }, [store]);
 
   useEffect(() => {
+    currentEventsRef.current = store.events || [];
+  }, [store.events]);
+
+  useEffect(() => {
     runBrandLoaderTransition();
     return () => clearBrandLoaderTimer();
   }, []);
@@ -3757,7 +3763,7 @@ function App() {
         if (cancelled) return;
         setServerConfig(config);
 
-        if (config.supabaseConfigured) {
+        if (config.sharedStateConfigured) {
           const remoteState = await fetchRemoteState();
           if (cancelled) return;
           const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
@@ -3824,7 +3830,7 @@ function App() {
     const serializedEvents = JSON.stringify(store.events || []);
     if (serializedEvents === lastRemoteEventsRef.current) return undefined;
 
-    if (!serverConfig.supabaseConfigured) return undefined;
+    if (!serverConfig.sharedStateConfigured) return undefined;
 
     const timer = window.setTimeout(() => {
       (async () => {
@@ -3850,7 +3856,7 @@ function App() {
     }, REMOTE_SYNC_SAVE_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [serverConfig.supabaseConfigured, store.events, storeHydrated]);
+  }, [serverConfig.sharedStateConfigured, store.events, storeHydrated]);
 
   useEffect(() => {
     if (!storeHydrated || !supabaseRealtimeClient || !serverConfig.remoteStateKey) return undefined;
@@ -3892,7 +3898,7 @@ function App() {
         const config = await fetchServerConfig();
         setServerConfig(config);
 
-        if (config.supabaseConfigured) {
+        if (config.sharedStateConfigured) {
           const remoteState = await fetchRemoteState();
           const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
           setStore((current) => {
@@ -4077,6 +4083,28 @@ function App() {
   const isCurrentAnamnesisAnswered = currentAnamnesisQuestion
     ? isAnamnesisAnswerFilled(currentAnamnesisQuestion, currentAnamnesisAnswer)
     : false;
+
+  useEffect(() => {
+    if (tokenLimitModalOpen && currentTokenBudget && !currentTokenBudget.blocked) {
+      setTokenLimitModalOpen(false);
+    }
+  }, [currentTokenBudget, tokenLimitModalOpen]);
+
+  useEffect(() => {
+    if (screen !== "workspace" || !teamEvent || timeTeamIdx === null || !currentMission || isTrainingEvent) return;
+    if (currentMissionStatus !== "aberta") return;
+    if (!["concluida", "questionario_final"].includes(missionFlow.stage)) return;
+    setReflectionAnswers({});
+    setReflectionComment("");
+    setReflectionError("");
+    setMissionFlow((current) => {
+      if (!["concluida", "questionario_final"].includes(current.stage)) return current;
+      return {
+        ...current,
+        stage: current.exec ? "cot_aberto" : "idle",
+      };
+    });
+  }, [currentMission, currentMissionStatus, isTrainingEvent, missionFlow.stage, screen, teamEvent, timeTeamIdx]);
 
   useEffect(() => {
     if (screen !== "workspace" || !teamEvent || timeTeamIdx === null) {
@@ -4339,6 +4367,45 @@ function App() {
     setToastText(message);
   }
 
+  async function flushCriticalEvents(nextEvents) {
+    if (!serverConfig.sharedStateConfigured) return;
+    try {
+      const remoteState = await fetchRemoteState();
+      const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
+      const mergedEvents = normalizeEventsForProduct(mergeEventCollections(normalizedRemoteEvents, nextEvents || []));
+      const mergedSerialized = JSON.stringify(mergedEvents);
+      lastRemoteEventsRef.current = mergedSerialized;
+      currentEventsRef.current = mergedEvents;
+      await saveRemoteState(mergedEvents);
+      setStore((current) =>
+        JSON.stringify(current.events || []) === mergedSerialized
+          ? current
+          : {
+              ...current,
+              events: mergedEvents,
+            },
+      );
+    } catch (error) {
+      lastRemoteEventsRef.current = "__out_of_sync__";
+      console.error(error);
+    }
+  }
+
+  function updateCriticalEvents(updater) {
+    const previousEvents = currentEventsRef.current || [];
+    const nextEvents = updater(previousEvents);
+    if (nextEvents === previousEvents) return;
+    const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
+    const serializedEvents = JSON.stringify(stampedEvents);
+    currentEventsRef.current = stampedEvents;
+    lastRemoteEventsRef.current = serializedEvents;
+    setStore((current) => ({
+      ...current,
+      events: stampedEvents,
+    }));
+    void flushCriticalEvents(stampedEvents);
+  }
+
   function appendTokenOperationalLog(event, entry) {
     return {
       ...event,
@@ -4407,7 +4474,7 @@ function App() {
       return;
     }
 
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
@@ -4470,7 +4537,7 @@ function App() {
     }
 
     const createdAt = new Date().toISOString();
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) =>
         event.id !== teamEvent.id
           ? event
@@ -5446,7 +5513,7 @@ function App() {
     if (!teamEvent || timeTeamIdx === null || !currentMission || isTrainingEvent) return;
     if (getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id) !== "team") return;
     const key = `${timeTeamIdx}__${currentMission.id}`;
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== teamEvent.id) return event;
         const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
@@ -5517,12 +5584,12 @@ function App() {
     if (!event) return;
     const teamIndexes = event.teams
       .map((_, teamIdx) => teamIdx)
-      .filter((teamIdx) => canFacilitatorReopenMissionForTeam(event, teamIdx, missionId));
+      .filter((teamIdx) => isConcluida(event, teamIdx, missionId));
     if (!teamIndexes.length) {
       showToast("Nenhum time elegível para reabertura nesta missão");
       return;
     }
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((item) => {
         if (item.id !== eventId) return item;
         const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
@@ -5532,9 +5599,7 @@ function App() {
           const key = `${teamIdx}__${missionId}`;
           delete questionariosPendentes[key];
           delete conclusoes[key];
-          if (getConclusaoSource(item, teamIdx, missionId) === "facilitator") {
-            delete reflexoes[key];
-          }
+          delete reflexoes[key];
         });
         return {
           ...item,
@@ -5544,7 +5609,7 @@ function App() {
         };
       }),
     );
-    showToast("Missão reaberta para os times fechados pelo facilitador");
+    showToast("Missão reaberta do zero para os times concluídos");
   }
 
   function handleOpenHelp() {
@@ -5846,7 +5911,7 @@ function App() {
     if (!message) return;
     if (currentOpenHelpRequest) return;
 
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) =>
         event.id !== teamEvent.id
           ? event
@@ -5862,6 +5927,7 @@ function App() {
                         message,
                         status: "open",
                         createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
                       },
                     ],
                   }
@@ -5875,6 +5941,7 @@ function App() {
                         message,
                         status: "open",
                         createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
                       },
                     ],
                   }),
@@ -5888,7 +5955,7 @@ function App() {
   }
 
   function handleCancelHelpRequest(eventId, requestId) {
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) =>
         event.id !== eventId
           ? event
@@ -5903,6 +5970,7 @@ function App() {
                             ...request,
                             status: "cancelled",
                             cancelledAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
                           },
                     ),
                   }
@@ -5914,6 +5982,7 @@ function App() {
                             ...request,
                             status: "cancelled",
                             cancelledAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
                           },
                     ),
                   }),
@@ -5926,7 +5995,7 @@ function App() {
   }
 
   function handleResolveHelpRequest(eventId, requestId) {
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) =>
         event.id !== eventId
           ? event
@@ -5941,6 +6010,7 @@ function App() {
                             ...request,
                             status: "resolved",
                             resolvedAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
                           },
                     ),
                   }
@@ -5952,6 +6022,7 @@ function App() {
                             ...request,
                             status: "resolved",
                             resolvedAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
                           },
                     ),
                   }),
@@ -6622,12 +6693,12 @@ function App() {
                                     missionId: request.missionId,
                                     scope: "time",
                                     teamIdx: request.teamIdx,
-                                    amount: 5000,
+                                    amount: DEFAULT_TOKEN_GRANT_AMOUNT,
                                     source: "queue",
                                   })
                                 }
                               >
-                                Liberar +5.000
+                                Liberar +{DEFAULT_TOKEN_GRANT_AMOUNT.toLocaleString("pt-BR")}
                               </button>
                             ) : (
                               <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
@@ -7105,15 +7176,15 @@ function App() {
                                   missionId: request.missionId,
                                   scope: "time",
                                   teamIdx: request.teamIdx,
-                                  amount: 5000,
-                                  source: "queue",
-                                })
-                              }
-                            >
-                              Liberar +5.000
-                            </button>
-                          ) : (
-                            <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
+                                    amount: DEFAULT_TOKEN_GRANT_AMOUNT,
+                                    source: "queue",
+                                  })
+                                }
+                              >
+                                Liberar +{DEFAULT_TOKEN_GRANT_AMOUNT.toLocaleString("pt-BR")}
+                              </button>
+                            ) : (
+                              <button className="btn btn-sm" onClick={() => handleResolveHelpRequest(evento.id, request.id)}>
                               Resolver ajuda
                             </button>
                           )}

@@ -664,7 +664,7 @@ function formatModelPriceHint(entry) {
 }
 const SIMULATION_STEPS = [
   { key: "analisando", label: "analisando pedido" },
-  { key: "estrategia", label: "selecionando estrategia" },
+  { key: "estrategia", label: "selecionando estratégia" },
   { key: "gerando", label: "gerando resposta" },
   { key: "finalizando", label: "finalizando" },
 ];
@@ -682,7 +682,7 @@ function buildRunSteps(apiConfigured) {
 }
 const MISSION_CONCEPTS = {
   mission_general_chat: [
-    { name: "Sintese", explanation: "Condensa contexto extenso em uma resposta mais clara e utilizável." },
+    { name: "Síntese", explanation: "Condensa contexto extenso em uma resposta mais clara e utilizável." },
     { name: "Estruturação", explanation: "Organiza o pedido em blocos lógicos para melhorar entendimento e decisão." },
     { name: "Ambiguidade controlada", explanation: "Explicita lacunas e evita preencher informação ausente como se fosse fato." },
   ],
@@ -848,7 +848,7 @@ function makeEvent({ name, desc, rawTeams }) {
 function makeDevLabEvent() {
   const event = makeEvent({
     name: "Lab de teste",
-    desc: "Ambiente rapido para validar fluxo local",
+    desc: "Ambiente rápido para validar fluxo local",
     rawTeams: "Time 1",
   });
   return {
@@ -1646,7 +1646,7 @@ async function fetchServerConfig() {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error("Falha ao carregar configuracao do servidor.");
+    throw new Error("Falha ao carregar configuração do servidor.");
   }
   return response.json();
 }
@@ -4567,7 +4567,7 @@ function App() {
       confirmTone: options.confirmTone || "danger",
       requiresPassword: Boolean(options.requiresPassword),
       confirmValue: options.confirmValue || "",
-      confirmLabel: options.confirmLabel || "Senha de confirmacao",
+      confirmLabel: options.confirmLabel || "Senha de confirmação",
       confirmPlaceholder: options.confirmPlaceholder || "",
       confirmHint: options.confirmHint || "",
       confirmActionLabel: options.confirmActionLabel || "Confirmar",
@@ -4607,11 +4607,11 @@ function App() {
     openConfirm(title, body, onConfirm, {
       requiresPassword: true,
       confirmValue: usesFacilitatorPassword ? FACILITATOR_PASSWORD : eventId,
-      confirmLabel: "Senha de seguranca",
-      confirmPlaceholder: usesFacilitatorPassword ? "Digite a senha do facilitador" : `Digite o codigo do evento (${eventId})`,
+      confirmLabel: "Senha de segurança",
+      confirmPlaceholder: usesFacilitatorPassword ? "Digite a senha do facilitador" : `Digite o código do evento (${eventId})`,
       confirmHint: usesFacilitatorPassword
         ? facilitatorHint
-        : "Digite exatamente o codigo do evento para liberar esta exclusao.",
+        : "Digite exatamente o código do evento para liberar esta exclusão.",
       secondaryAction: onArchive
         ? {
             label: secondaryActionLabel,
@@ -4847,7 +4847,7 @@ function App() {
 
   function handleSetStatus(eventId, status) {
     updateEvents((current) => current.map((event) => (event.id === eventId ? { ...event, status } : event)));
-    showToast(status === "open" ? "Evento aberto" : status === "closed" ? "Evento encerrado" : "Evento voltou para preparacao");
+    showToast(status === "open" ? "Evento aberto" : status === "closed" ? "Evento encerrado" : "Evento voltou para preparação");
   }
 
   function handleSetEventMode(eventId, eventMode) {
@@ -4916,7 +4916,7 @@ function App() {
       return;
     }
     if (teamImportForm.importMode === "random" && (!teamImportForm.randomTeamCount || teamImportForm.randomTeamCount > importedStudents.length)) {
-      showToast("Defina uma quantidade de times valida");
+      showToast("Defina uma quantidade de times válida");
       return;
     }
 
@@ -4989,7 +4989,7 @@ function App() {
             },
       ),
     );
-    showToast(unlocked ? "Missao liberada" : "Missao bloqueada");
+    showToast(unlocked ? "Missão liberada" : "Missão bloqueada");
   }
 
   function handleMissionAiModeChange(eventId, index, aiMode) {
@@ -5034,7 +5034,7 @@ function App() {
       showToast(trimmedKey ? "Chave salva no servidor local" : "Modelo atualizado");
     } catch (error) {
       console.error(error);
-      showToast(error.message || "Falha ao salvar configuracao da IA");
+      showToast(error.message || "Falha ao salvar configuração da IA");
     }
   }
 
@@ -5053,20 +5053,20 @@ function App() {
 
   function handleEntrarEvento() {
     if (!entryCode.trim()) {
-      setEntryError("Informe o codigo do evento.");
+      setEntryError("Informe o código do evento.");
       return;
     }
     const event = events.find((item) => item.id === entryCode.trim());
     if (!event) {
-      setEntryError("Evento nao encontrado. Verifique o codigo com o facilitador.");
+      setEntryError("Evento não encontrado. Verifique o código com o facilitador.");
       return;
     }
     if (event.status === "draft") {
-      setEntryError("Este evento ainda nao foi aberto. Aguarde o facilitador.");
+      setEntryError("Este evento ainda não foi aberto. Aguarde o facilitador.");
       return;
     }
     if (event.status === "closed") {
-      setEntryError("Este evento ja foi encerrado.");
+      setEntryError("Este evento já foi encerrado.");
       return;
     }
     setEntryError("");
@@ -6040,7 +6040,7 @@ function App() {
     setRunError("");
     setRunState(null);
     setMissionFlow({ stage: "idle", exec: null });
-    showToast("Missao reaberta do zero");
+    showToast("Missão reaberta do zero");
   }
 
   function handleResetTrainingConversation() {
@@ -6346,7 +6346,7 @@ function App() {
       }
       setRunState(null);
       setMissionFlow({ stage: "cot_aberto", exec: execRecord });
-      showToast(apiConfigured ? "Execucao concluida" : "Execucao simulada");
+      showToast(apiConfigured ? "Execução concluída" : "Execução simulada");
 
       if (wasPlanningOn) {
         setStore((current) => ({ ...current, planningMode: "off" }));
@@ -6447,7 +6447,7 @@ function App() {
     setReflectionComment("");
     setReflectionError("");
     setMissionFlow((current) => ({ ...current, stage: "concluida" }));
-    showToast("Reflexao enviada");
+    showToast("Reflexão enviada");
   }
 
   function renderDashboard(evento) {
@@ -6527,7 +6527,7 @@ function App() {
                               openDeleteConfirm({
                                 eventId: evento.id,
                                 title: "Remover time",
-                                body: `O time "${teamItem.name}" sera removido deste evento. Para continuar, digite o codigo do evento como senha de seguranca.`,
+                                body: `O time "${teamItem.name}" será removido deste evento. Para continuar, digite o código do evento como senha de segurança.`,
                                 onConfirm: () => handleRemoveTeam(evento.id, teamIdx),
                               })
                             }
@@ -6704,7 +6704,7 @@ function App() {
                 <span className="section-title-icon" aria-hidden="true">
                   {dashboardView === "team" ? <Users size={16} strokeWidth={1.6} /> : <BookOpen size={16} strokeWidth={1.6} />}
                 </span>
-                <span>{dashboardView === "team" ? "Times no evento" : "Missoes no evento"}</span>
+                <span>{dashboardView === "team" ? "Times no evento" : "Missões no evento"}</span>
               </span>
               <div className="section-actions">
                 <div className="inline-choice-row dashboard-view-toggle">
@@ -6786,7 +6786,7 @@ function App() {
                       openDeleteConfirm({
                         eventId: evento.id,
                         title: "Remover time",
-                        body: `O time "${teamItem.name}" sera removido deste evento. Para continuar, digite o codigo do evento como senha de seguranca.`,
+                        body: `O time "${teamItem.name}" será removido deste evento. Para continuar, digite o código do evento como senha de segurança.`,
                         onConfirm: () => handleRemoveTeam(evento.id, teamIdx),
                       })
                     }
@@ -6851,8 +6851,8 @@ function App() {
                               {missionItem.helpOpen ? (
                                 <span
                                   className="team-help-indicator is-alert"
-                                  aria-label={`${missionItem.helpOpen} pedidos de ajuda abertos nesta missao`}
-                                  title={`${missionItem.helpOpen} pedidos de ajuda abertos nesta missao`}
+                                  aria-label={`${missionItem.helpOpen} pedidos de ajuda abertos nesta missão`}
+                                  title={`${missionItem.helpOpen} pedidos de ajuda abertos nesta missão`}
                                 >
                                   <span className="team-help-indicator-icon">!</span>
                                   <span className="team-help-indicator-count">{missionItem.helpOpen}</span>
@@ -6936,7 +6936,7 @@ function App() {
                           </div>
                         </div>
                         {missionHelpOpen ? (
-                          <span className="team-help-indicator is-alert" title={`${missionHelpOpen} pedidos de ajuda abertos nesta missao`}>
+                          <span className="team-help-indicator is-alert" title={`${missionHelpOpen} pedidos de ajuda abertos nesta missão`}>
                             <span className="team-help-indicator-icon">!</span>
                             <span className="team-help-indicator-count">{missionHelpOpen}</span>
                           </span>
@@ -7018,7 +7018,7 @@ function App() {
                                           : "pendente"}
                                   </span>
                                   {teamRow.helpOpen ? (
-                                    <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedidos de ajuda abertos nesta missao`}>
+                                    <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedidos de ajuda abertos nesta missão`}>
                                       <span className="team-help-indicator-icon">!</span>
                                       <span className="team-help-indicator-count">{teamRow.helpOpen}</span>
                                     </span>
@@ -7511,14 +7511,14 @@ function App() {
                     <Waypoints strokeWidth={1.6} />
                   </div>
                   <div className="hero-card-title">Facilitador</div>
-                  <div className="hero-card-text">Criar eventos, organizar times e liberar missoes.</div>
+                  <div className="hero-card-text">Criar eventos, organizar times e liberar missões.</div>
                 </button>
                 <button className="card hero-card" onClick={goEntradaTime}>
                   <div className="hero-card-icon" aria-hidden="true">
                     <Users strokeWidth={1.6} />
                   </div>
                   <div className="hero-card-title">Participante</div>
-                  <div className="hero-card-text">Entrar num evento, escolher o time e executar missoes.</div>
+                  <div className="hero-card-text">Entrar num evento, escolher o time e executar missões.</div>
                 </button>
               </div>
             </div>
@@ -7811,7 +7811,7 @@ function App() {
                                           <button
                                             className={`mission-toggle mission-toggle-inline${mission.unlocked ? " is-on" : ""}`}
                                             onClick={() => handleToggleMission(selectedEvent.id, index, !mission.unlocked)}
-                                            aria-label={mission.unlocked ? `Desligar missao ${mission.name}` : `Ligar missao ${mission.name}`}
+                                            aria-label={mission.unlocked ? `Desligar missão ${mission.name}` : `Ligar missão ${mission.name}`}
                                           >
                                             <span className="mission-toggle-track">
                                               <span className="mission-toggle-thumb" />
@@ -8026,7 +8026,7 @@ function App() {
                                           <button
                                             className={`mission-overflow-trigger${missionMenuOpen === `${mission.id}-${index}` ? " is-open" : ""}`}
                                             onClick={() => setMissionMenuOpen((current) => (current === `${mission.id}-${index}` ? null : `${mission.id}-${index}`))}
-                                            aria-label={`Abrir menu da missao ${mission.name}`}
+                                            aria-label={`Abrir menu da missão ${mission.name}`}
                                           >
                                             ⋯
                                           </button>
@@ -8080,7 +8080,7 @@ function App() {
             right={
               <>
                 {devQuickSwitch}
-                <button className="btn btn-ghost btn-sm" onClick={goHome}>Inicio</button>
+                <button className="btn btn-ghost btn-sm" onClick={goHome}>Início</button>
               </>
             }
           />
@@ -8221,7 +8221,7 @@ function App() {
           {!apiConfigured && <div className="demo-banner">Modo demonstração - sem chave OpenAI. Respostas são simuladas.</div>}
           {teamScreenShareVisible ? (
             <div className="live-share-banner">
-              Compartilhamento de tela ao vivo. O facilitador esta projetando a propria tela.
+              Compartilhamento de tela ao vivo. O facilitador está projetando a própria tela.
             </div>
           ) : null}
           {teamEventTimerNotice ? (
@@ -8978,7 +8978,7 @@ function App() {
           />
         </div>
         <div className="form-group">
-          <label className="form-label">Descricao</label>
+          <label className="form-label">Descrição</label>
           <input
             type="text"
             value={newEventForm.desc}
@@ -9150,10 +9150,10 @@ function App() {
         <div className="notice">
           {serverConfig.deploymentTarget === "vercel"
             ? serverConfig.openaiConfigured
-              ? "Ha uma chave OpenAI ativa neste deploy. No Vercel, ela vem das variaveis do projeto."
-              : "No Vercel, configure OPENAI_API_KEY nas variaveis do projeto para ativar a IA."
+              ? "Há uma chave OpenAI ativa neste deploy. No Vercel, ela vem das variáveis do projeto."
+              : "No Vercel, configure OPENAI_API_KEY nas variáveis do projeto para ativar a IA."
             : serverConfig.openaiConfigured
-              ? `Ha uma chave persistente ativa no servidor local (${serverConfig.openaiSource === "env" ? "vinda do .env" : "salva neste projeto"}).`
+              ? `Há uma chave persistente ativa no servidor local (${serverConfig.openaiSource === "env" ? "vinda do .env" : "salva neste projeto"}).`
               : "Se você salvar uma chave aqui, ela fica persistente no servidor local deste projeto e não depende da porta do navegador."}
         </div>
         <div className="form-group">
@@ -9164,7 +9164,7 @@ function App() {
             onChange={(event) => setConfigForm((current) => ({ ...current, apiKey: event.target.value }))}
             placeholder={
               serverConfig.deploymentTarget === "vercel"
-                ? "Em producao, prefira configurar OPENAI_API_KEY no Vercel"
+                ? "Em produção, prefira configurar OPENAI_API_KEY no Vercel"
                 : serverConfig.openaiConfigured
                   ? "Cole uma nova chave para substituir a atual"
                   : "sk-..."
@@ -9260,7 +9260,7 @@ function App() {
               onChange={(event) => setConfirmInput(event.target.value)}
               placeholder={confirmState.confirmPlaceholder}
             />
-            <div className="form-hint">{confirmState.confirmHint || "Digite exatamente o codigo do evento para liberar esta exclusao."}</div>
+            <div className="form-hint">{confirmState.confirmHint || "Digite exatamente o código do evento para liberar esta exclusão."}</div>
           </div>
         ) : null}
         <div className="modal-actions">
@@ -9296,17 +9296,17 @@ function App() {
         <div className="modal-title">Pedir ajuda ao facilitador</div>
         <div className="modal-sub">
           {teamHelpDisabled
-            ? "A ajuda esta desativada para este time. Reative no topo da tela quando quiser voltar a falar com o facilitador."
+            ? "A ajuda está desativada para este time. Reative no topo da tela quando quiser voltar a falar com o facilitador."
             : currentOpenHelpRequest
-            ? "Seu pedido ja foi enviado. Voce pode revisar a mensagem ou cancelar se nao precisar mais de ajuda."
-            : "O facilitador vai receber este pedido junto com o contexto da missao e do seu time."}
+            ? "Seu pedido já foi enviado. Você pode revisar a mensagem ou cancelar se não precisar mais de ajuda."
+            : "O facilitador vai receber este pedido junto com o contexto da missão e do seu time."}
         </div>
         <div className="form-group">
           <label className="form-label">Mensagem curta</label>
           <textarea
             value={helpMessage}
             onChange={(event) => setHelpMessage(event.target.value)}
-            placeholder="Ex: Estamos travados para escolher a melhor acao e validar a resposta."
+            placeholder="Ex: Estamos travados para escolher a melhor ação e validar a resposta."
             disabled={teamHelpDisabled || Boolean(currentOpenHelpRequest)}
           />
         </div>
@@ -9473,7 +9473,7 @@ function DevQuickSwitch({
           Fac
         </button>
         <button className={`dev-chip${currentScreen === "entry" ? " active" : ""}`} onClick={onOpenEntrada}>
-          Codigo
+          Código
         </button>
         <button className={`dev-chip${currentScreen === "team" ? " active" : ""}`} onClick={onOpenTeamSelection}>
           Times
@@ -9511,7 +9511,7 @@ function ProcessingPipeline({ processingSteps }) {
 
 function TransparencyPanel({ exec, open, onToggle, forceOpen = false }) {
   const details = exec.reasoningDetails || null;
-  const promptText = exec.promptApplied || details?.promptApplied || exec.acao || "Sem acao";
+  const promptText = exec.promptApplied || details?.promptApplied || exec.acao || "Sem ação";
 
   if (!details && !exec.explicacao) return null;
 
@@ -9519,7 +9519,7 @@ function TransparencyPanel({ exec, open, onToggle, forceOpen = false }) {
     <div className="explain-section">
       {!forceOpen ? (
         <button className="explain-toggle" onClick={onToggle}>
-          Como a IA pensou esta missao {open ? "▴" : "▾"}
+          Como a IA pensou esta missão {open ? "▴" : "▾"}
         </button>
       ) : null}
       {open ? (
@@ -9536,7 +9536,7 @@ function TransparencyPanel({ exec, open, onToggle, forceOpen = false }) {
           </div>
           {details?.technicalTerms?.length ? (
             <div>
-              <div className="explain-block-label">Termos tecnicos usados</div>
+              <div className="explain-block-label">Termos técnicos usados</div>
               <div className="concept-pill-row">
                 {details.technicalTerms.map((item, index) => (
                   <span className="concept-pill" key={`${item.term}-${index}`}>
@@ -9552,11 +9552,11 @@ function TransparencyPanel({ exec, open, onToggle, forceOpen = false }) {
           </div>
           <div>
             <div className="explain-block-label">O que guiou a selecao</div>
-            <div className="explain-block-text">{details?.selectionLogic || details?.actionInfluence || exec.acao || "Sem acao."}</div>
+            <div className="explain-block-text">{details?.selectionLogic || details?.actionInfluence || exec.acao || "Sem ação."}</div>
           </div>
           {details?.alternativeAnswerPaths?.length ? (
             <div>
-              <div className="explain-block-label">Outras respostas plausiveis</div>
+              <div className="explain-block-label">Outras respostas plausíveis</div>
               <div className="takeaway-list">
                 {details.alternativeAnswerPaths.map((item, index) => (
                   <div className="takeaway-item" key={`${item}-${index}`}>
@@ -9581,8 +9581,8 @@ function TransparencyPanel({ exec, open, onToggle, forceOpen = false }) {
             </div>
           ) : null}
           <div>
-            <div className="explain-block-label">Limites e suposicoes</div>
-            <div className="explain-block-text">{details?.limitations || "Sem observacoes adicionais."}</div>
+            <div className="explain-block-label">Limites e suposições</div>
+            <div className="explain-block-text">{details?.limitations || "Sem observações adicionais."}</div>
           </div>
           <div>
             <div className="explain-block-label">Prompt aplicado</div>
@@ -9650,14 +9650,14 @@ function LiveRunCard({ runState }) {
   return (
     <div className="output-card live-run-card">
       <div className="output-header">
-        <div className="output-label">{runState.simulationMode === "openai-live" ? "OpenAI em execucao" : "IA simulada em execucao"}</div>
+        <div className="output-label">{runState.simulationMode === "openai-live" ? "OpenAI em execução" : "IA simulada em execução"}</div>
         <span className="muted-mini">
-          {runState.simulationMode === "openai-live" ? "chamada real em andamento" : "simulacao local com streaming"}
+          {runState.simulationMode === "openai-live" ? "chamada real em andamento" : "simulação local com streaming"}
         </span>
       </div>
       <div className="output-body">
         <ProcessingPipeline processingSteps={runState.processingSteps} />
-        {runState.usedHistory ? <div className="context-banner">Esta nova resposta esta considerando o historico anterior desta missao.</div> : null}
+        {runState.usedHistory ? <div className="context-banner">Esta nova resposta está considerando o histórico anterior desta missão.</div> : null}
         <div className="output-text output-text-live">
           {runState.displayedOutput || (runState.simulationMode === "openai-live" ? "Aguardando retorno da OpenAI..." : "Preparando resposta da IA...")}
           <span className="streaming-cursor" />
@@ -10246,7 +10246,7 @@ function GuidedReading({ exec }) {
         ) : null}
         <div className="slide-lead">{details.mechanismSummary || details.summary || exec.reasoningSummary || exec.explicacao}</div>
         <div className="two-col-guided">
-          <GuidedSection label="Logica de selecao">
+          <GuidedSection label="Lógica de seleção">
             <div className="explain-block-text">{details.selectionLogic || details.strategy || exec.explicacao}</div>
           </GuidedSection>
           <GuidedSection label="Input considerado">
@@ -10270,23 +10270,23 @@ function GuidedReading({ exec }) {
       <LearningSlide
         index={nextSlide()}
         kicker="Slide 2"
-        title="Por que saiu isso e nao outra coisa"
-        subtitle="Aqui o foco e mostrar por que a IA privilegiou esse caminho de resposta."
+        title="Por que saiu isso e não outra coisa"
+        subtitle="Aqui o foco é mostrar por que a IA privilegiou esse caminho de resposta."
         accent="amber"
       >
-        <GuidedSection label="Por que essa saida aconteceu">
+        <GuidedSection label="Por que essa saída aconteceu">
           <div className="explain-block-text">{details.whyThisAnswer || details.strategy || exec.explicacao}</div>
         </GuidedSection>
         <div className="two-col-guided">
-          <GuidedSection label="Influencia da acao ou instrucao">
-            <div className="explain-block-text">{details.actionInfluence || exec.acao || "Sem acao."}</div>
+          <GuidedSection label="Influência da ação ou instrução">
+            <div className="explain-block-text">{details.actionInfluence || exec.acao || "Sem ação."}</div>
           </GuidedSection>
           <GuidedSection label="Limite ou trade-off">
-            <div className="explain-block-text">{details.limitations || "Sem observacoes adicionais."}</div>
+            <div className="explain-block-text">{details.limitations || "Sem observações adicionais."}</div>
           </GuidedSection>
         </div>
         {details.alternativeAnswerPaths?.length ? (
-          <GuidedSection label="Outras respostas plausiveis">
+          <GuidedSection label="Outras respostas plausíveis">
             <div className="takeaway-list">
               {details.alternativeAnswerPaths.map((item, index) => (
                 <div className="takeaway-item" key={`${item}-${index}`}>
@@ -10302,12 +10302,12 @@ function GuidedReading({ exec }) {
       <LearningSlide
         index={nextSlide()}
         kicker="Slide 3"
-        title="Como perguntar melhor e extrair variacoes"
-        subtitle="Este slide transforma a devolutiva em boa pratica operacional."
+        title="Como perguntar melhor e extrair variações"
+        subtitle="Este slide transforma a devolutiva em boa prática operacional."
         accent="green"
       >
         {details.howToAskBetter?.length ? (
-          <GuidedSection label="Como pedir outras versoes">
+          <GuidedSection label="Como pedir outras versões">
             <div className="takeaway-list">
               {details.howToAskBetter.map((item, index) => (
                 <div className="takeaway-item" key={`${item}-${index}`}>
@@ -10319,7 +10319,7 @@ function GuidedReading({ exec }) {
           </GuidedSection>
         ) : null}
         {details.bestPractices?.length ? (
-          <GuidedSection label="Boas praticas">
+          <GuidedSection label="Boas práticas">
             <div className="takeaway-list">
               {details.bestPractices.map((item, index) => (
                 <div className="takeaway-item" key={`${item}-${index}`}>
@@ -10331,7 +10331,7 @@ function GuidedReading({ exec }) {
           </GuidedSection>
         ) : null}
         <GuidedSection label="Prompt aplicado">
-          <div className="prompt-preview">{exec.promptApplied || details.promptApplied || exec.acao || "Sem acao"}</div>
+          <div className="prompt-preview">{exec.promptApplied || details.promptApplied || exec.acao || "Sem ação"}</div>
         </GuidedSection>
       </LearningSlide>
     </div>
@@ -10344,7 +10344,7 @@ function OutputCard({ exec, compact = false }) {
   return (
     <div className={`output-card${compact ? " output-card-compact" : ""}`}>
       <div className="output-header">
-        <div className="output-label">{compact ? "Resposta desta rodada" : "Ultima resposta"}</div>
+        <div className="output-label">{compact ? "Resposta desta rodada" : "Última resposta"}</div>
         <span className="muted-mini">
           {exec.acao || "-"} · {exec.tokens?.toLocaleString() || 0} tokens
         </span>
@@ -10418,7 +10418,7 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage, t
       <div className="tokens-panel token-rail-panel">
         <div className="tokens-panel-header">
           <div className="tokens-panel-title">Uso de tokens</div>
-          <div className="muted-mini">{execs.length} execucoes</div>
+          <div className="muted-mini">{execs.length} execuções</div>
         </div>
         <div className="token-rail-status">
           <div className="token-rail-stage">{flowStage.replaceAll("_", " ")}</div>
@@ -10494,14 +10494,14 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage, t
           )}
         </div>
         <div className="token-rail-block">
-          <div className="token-rail-label">Log de execucoes</div>
+          <div className="token-rail-label">Log de execuções</div>
           {execs.length ? (
             <div className="token-log-list">
               {[...execs].reverse().map((exec, index) => (
                 <div className="token-log-item" key={exec.id || `${exec.ts}-${index}`}>
                   <div className="token-log-head">
                     <strong>Rodada {exec.iterationNumber || execs.length - index}</strong>
-                    <span>{exec.isFreeInstruction ? "Instrucao livre" : getActionLabel(exec.acao)}</span>
+                    <span>{exec.isFreeInstruction ? "Instrução livre" : getActionLabel(exec.acao)}</span>
                   </div>
                   <div className="token-log-meta">
                     <span>resposta {(exec.tokens || 0).toLocaleString()} tok</span>
@@ -10519,7 +10519,7 @@ function MissionTokenRail({ execs, runState, flowStage, model, preservedUsage, t
               ))}
             </div>
           ) : (
-            <div className="muted-body">Nenhuma execucao ainda.</div>
+            <div className="muted-body">Nenhuma execução ainda.</div>
           )}
         </div>
       </div>
@@ -10533,7 +10533,7 @@ function HistorySection({ execs, open, onToggle }) {
   return (
     <div className="history-section">
       <button className="history-toggle" onClick={onToggle}>
-        <span>Ver historico da missao ({execs.length} execucoes)</span>
+        <span>Ver histórico da missão ({execs.length} execuções)</span>
         <span>{open ? "▴" : "▾"}</span>
       </button>
       {open ? [...execs].reverse().map((exec, index) => {
@@ -10562,12 +10562,12 @@ function HistorySection({ execs, open, onToggle }) {
                 ) : null}
                 {exec.reasoningSummary || exec.explicacao ? (
                   <>
-                    <div className="mini-label">Raciocinio tecnico</div>
+                    <div className="mini-label">Raciocínio técnico</div>
                     <div className="history-text muted-body">{exec.reasoningSummary || exec.explicacao}</div>
                   </>
                 ) : null}
                 <div className="mini-label">Modo da rodada</div>
-                <div className="history-text muted-body">{exec.isFreeInstruction ? "Instrucao livre" : getActionLabel(exec.acao)}</div>
+                <div className="history-text muted-body">{exec.isFreeInstruction ? "Instrução livre" : getActionLabel(exec.acao)}</div>
                 {exec.promptApplied ? (
                   <>
                     <div className="mini-label">Prompt aplicado</div>
@@ -10579,7 +10579,7 @@ function HistorySection({ execs, open, onToggle }) {
           </div>
         );
       }) : (
-        <div className="history-collapsed-hint">Registro de execucoes, contexto usado e raciocinio tecnico da missao.</div>
+        <div className="history-collapsed-hint">Registro de execuções, contexto usado e raciocínio técnico da missão.</div>
       )}
     </div>
   );
@@ -10604,7 +10604,7 @@ function ReflectionSummary({ reflexao }) {
       ))}
       {reflexao.comment ? (
         <div className="reflection-comment">
-          <div className="mini-label">Observacao geral</div>
+          <div className="mini-label">Observação geral</div>
           <div className="muted-body">{reflexao.comment}</div>
         </div>
       ) : null}
@@ -10700,7 +10700,7 @@ function useFacilitatorScreenSharePresenter(event, screenShare, onPublishState) 
       console.error(err);
       await stopShare(false);
       setStatus("error");
-      setError("Nao foi possivel iniciar o compartilhamento. Verifique o servidor LiveKit e as credenciais.");
+      setError("Não foi possível iniciar o compartilhamento. Verifique o servidor LiveKit e as credenciais.");
     }
   }
 
@@ -10729,9 +10729,9 @@ function FacilitatorScreenShareButton({ event, screenShare, onPublishState, icon
             : effectiveStatus === "live"
               ? shareState.startedAt
                 ? `Ao vivo desde ${formatDateTime(shareState.startedAt)}`
-                : "Transmissao ao vivo"
+                : "Transmissão ao vivo"
               : effectiveStatus === "connecting"
-                ? "Conectando apresentacao"
+                ? "Conectando apresentação"
                 : "Projetar sua tela para os times"
       }
       onClick={() => (shareState.active ? stopShare(true) : startShare())}
@@ -10748,7 +10748,7 @@ function FacilitatorScreenShareButton({ event, screenShare, onPublishState, icon
       ) : status === "connecting" ? (
         "Conectando..."
       ) : shareState.active ? (
-        "Encerrar projecao"
+        "Encerrar projeção"
       ) : (
         "Projetar tela"
       )}
@@ -10767,14 +10767,14 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
     <div className={`screen-share-panel${screenShare.active ? " is-live" : ""}`}>
       <div className="section-header">
         <span className="section-title">
-          Apresentacao ao vivo
+          Apresentação ao vivo
           {screenShare.active ? <span className="help-badge">ao vivo</span> : null}
         </span>
       </div>
       <div className="screen-share-row">
         <div>
           <div className="screen-share-title">
-            {screenShare.active ? "Voce esta apresentando sua tela" : "Projetar tela"}
+            {screenShare.active ? "Você está apresentando sua tela" : "Projetar tela"}
           </div>
           <div className="screen-share-meta">
             <span>Status: {effectiveStatus === "live" ? "ao vivo" : effectiveStatus === "connecting" ? "conectando" : "inativo"}</span>
@@ -10793,7 +10793,7 @@ function FacilitatorScreenSharePanel({ event, screenShare, onPublishState }) {
             </button>
           ) : (
             <button className="btn presenter-stop-btn" onClick={() => stopShare(true)}>
-              Encerrar apresentacao
+              Encerrar apresentação
             </button>
           )}
         </div>
@@ -10871,7 +10871,7 @@ function TeamScreenShareViewer({ event, screenShare, team, onDismiss }) {
         console.error(err);
         if (!mounted) return;
         setStatus("error");
-        setError("Nao foi possivel assistir a transmissao ao vivo.");
+        setError("Não foi possível assistir à transmissão ao vivo.");
       }
     }
 
@@ -10901,10 +10901,10 @@ function TeamScreenShareViewer({ event, screenShare, team, onDismiss }) {
       </button>
       <div className="reading-panel-header live-viewer-header">
         <div>
-          <div className="reading-panel-kicker">Apresentacao ao vivo</div>
-          <div className="reading-panel-title">Voce esta assistindo a tela do facilitador</div>
+          <div className="reading-panel-kicker">Apresentação ao vivo</div>
+          <div className="reading-panel-title">Você está assistindo a tela do facilitador</div>
           <div className="reading-panel-sub">
-            Sua equipe esta vendo a tela do facilitador em tempo real. A interacao da missao fica pausada enquanto a apresentacao estiver ativa.
+            Sua equipe está vendo a tela do facilitador em tempo real. A interação da missão fica pausada enquanto a apresentação estiver ativa.
           </div>
         </div>
         <div className="live-viewer-badges">
@@ -10918,12 +10918,12 @@ function TeamScreenShareViewer({ event, screenShare, team, onDismiss }) {
           <div className="live-viewer-overlay">
             <div className="live-viewer-overlay-title">
               {status === "connecting"
-                ? "Conectando na transmissao..."
+                ? "Conectando na transmissão..."
                 : status === "waiting"
                   ? "Aguardando a tela do facilitador aparecer..."
                   : status === "ended"
-                    ? "A transmissao foi encerrada."
-                    : "Falha ao abrir a transmissao."}
+                    ? "A transmissão foi encerrada."
+                    : "Falha ao abrir a transmissão."}
             </div>
             {error ? <div className="live-viewer-overlay-text">{error}</div> : null}
           </div>
@@ -10934,7 +10934,7 @@ function TeamScreenShareViewer({ event, screenShare, team, onDismiss }) {
         <span>·</span>
         <span>Time: {team?.name || "Time"}</span>
         <span>·</span>
-        <span>Apresentacao iniciada em {formatDateTime(screenShare.startedAt)}</span>
+        <span>Apresentação iniciada em {formatDateTime(screenShare.startedAt)}</span>
       </div>
     </div>
   );

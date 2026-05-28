@@ -2263,6 +2263,24 @@ async function createAttachmentRecord(file) {
   };
 }
 
+async function buildAttachmentRecordsFromFiles(files = []) {
+  const validFiles = files.filter((file) => {
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      return false;
+    }
+    return classifyAttachment(file) !== "unsupported";
+  });
+  const settled = await Promise.allSettled(validFiles.map((file) => createAttachmentRecord(file)));
+  const records = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+  const failures = settled.flatMap((result, index) =>
+    result.status === "rejected"
+      ? [{ fileName: validFiles[index]?.name || "arquivo", message: result.reason?.message || "Falha ao anexar arquivo." }]
+      : [],
+  );
+  const warnings = records.map((record) => record.warningMessage).filter(Boolean);
+  return { records, failures, warnings, validFiles };
+}
+
 function buildAttachmentContext(attachments = []) {
   const textBlocks = attachments
     .filter((attachment) => attachment.extractedText)
@@ -3859,11 +3877,15 @@ function App() {
     [CHAT_AI_MODE]: initialSurvivalStore.models?.[CHAT_AI_MODE] || initialLocalStore.chatModel || DEFAULT_CHAT_MODEL,
     [CODING_AI_MODE]: initialSurvivalStore.models?.[CODING_AI_MODE] || initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
   }));
+  const [survivalPlanningMode, setSurvivalPlanningMode] = useState(initialSurvivalStore.planningMode || "off");
+  const [survivalAttachments, setSurvivalAttachments] = useState([]);
+  const [survivalPendingAttachments, setSurvivalPendingAttachments] = useState([]);
   const [survivalRunning, setSurvivalRunning] = useState(false);
   const [survivalRunState, setSurvivalRunState] = useState(null);
   const [survivalPendingPrompt, setSurvivalPendingPrompt] = useState("");
   const [survivalError, setSurvivalError] = useState("");
   const survivalLiveAnswerRef = useRef(null);
+  const survivalFileInputRef = useRef(null);
   const [serverConfig, setServerConfig] = useState({
     openaiConfigured: false,
     openaiSource: "none",
@@ -3945,8 +3967,9 @@ function App() {
       conversations: survivalConversations,
       drafts: survivalDrafts,
       models: survivalModels,
+      planningMode: survivalPlanningMode,
     });
-  }, [survivalAccessGranted, survivalConversations, survivalDrafts, survivalModels, survivalSelectedMode]);
+  }, [survivalAccessGranted, survivalConversations, survivalDrafts, survivalModels, survivalPlanningMode, survivalSelectedMode]);
 
   useEffect(() => {
     currentEventsRef.current = store.events || [];
@@ -4951,6 +4974,8 @@ function App() {
     setSurvivalRunning(false);
     setSurvivalRunState(null);
     setSurvivalPendingPrompt("");
+    setSurvivalPendingAttachments([]);
+    setSurvivalAttachments([]);
     setSurvivalError("");
     goHome();
   }
@@ -4976,6 +5001,10 @@ function App() {
     }));
   }
 
+  function handleToggleSurvivalPlanningMode() {
+    setSurvivalPlanningMode((current) => (current === "on" ? "off" : "on"));
+  }
+
   function handleClearSurvivalConversation() {
     if (!survivalSelectedMode || survivalRunning) return;
     setSurvivalConversations((current) => ({
@@ -4987,9 +5016,49 @@ function App() {
       [survivalSelectedMode]: "",
     }));
     setSurvivalPendingPrompt("");
+    setSurvivalPendingAttachments([]);
+    setSurvivalAttachments([]);
     setSurvivalRunState(null);
     setSurvivalError("");
     showToast("Conversa local limpa");
+  }
+
+  async function handleAttachSurvivalFiles(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+
+    if (survivalAttachments.length >= MAX_ATTACHMENT_COUNT) {
+      showToast(`Limite de ${MAX_ATTACHMENT_COUNT} arquivos por rodada.`);
+      return;
+    }
+
+    const availableSlots = MAX_ATTACHMENT_COUNT - survivalAttachments.length;
+    const nextFiles = files.slice(0, availableSlots);
+
+    nextFiles.forEach((file) => {
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        showToast(`${file.name} excede o limite de 10 MB.`);
+      } else if (classifyAttachment(file) === "unsupported") {
+        showToast(`${file.name} não é um tipo permitido.`);
+      }
+    });
+
+    try {
+      const { records, failures, warnings } = await buildAttachmentRecordsFromFiles(nextFiles);
+      failures.forEach((failure) => showToast(failure.message || `${failure.fileName}: falha ao anexar.`));
+      warnings.forEach((warning) => showToast(warning));
+      if (!records.length) return;
+      setSurvivalAttachments((current) => [...current, ...records].slice(0, MAX_ATTACHMENT_COUNT));
+      showToast(`${records.length} arquivo(s) anexado(s)`);
+    } catch (error) {
+      console.error(error);
+      showToast("Falha ao anexar arquivo.");
+    }
+  }
+
+  function handleRemoveSurvivalAttachment(attachmentId) {
+    setSurvivalAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }
 
   function goFacilitador() {
@@ -5083,20 +5152,23 @@ function App() {
   async function handleExecutarSurvival() {
     if (!survivalSelectedMode) return;
     const input = survivalDraft.trim();
-    if (!input) {
-      setSurvivalError("Escreva um prompt antes de enviar.");
+    const attachments = survivalAttachments;
+    if (!input && !attachments.length) {
+      setSurvivalError("Escreva um prompt ou anexe pelo menos um arquivo.");
       return;
     }
 
     const mission = getSurvivalMission(survivalSelectedMode);
     const selectedModel = survivalSelectedModel;
     const historyContext = buildHistoryContext(survivalExecs);
-    const wasPlanningOn = false;
+    const wasPlanningOn = survivalPlanningMode === "on";
     const shouldAutoOpenPreview = apiConfigured && survivalSelectedMode === CODING_AI_MODE && isHtmlPrototypeRequest(input);
     const previousCodingResponseId =
       survivalSelectedMode === CODING_AI_MODE ? survivalExecs[survivalExecs.length - 1]?.codingResponseId || "" : "";
 
     setSurvivalPendingPrompt(input);
+    setSurvivalPendingAttachments(attachments);
+    setSurvivalAttachments([]);
     handleChangeSurvivalDraft("");
     setSurvivalRunning(true);
     setSurvivalError("");
@@ -5158,11 +5230,11 @@ function App() {
         ? await executarComIA({
             mission,
             input,
-            attachments: [],
+            attachments,
             acao: FREE_ACTION_KEY,
             model: selectedModel,
             modelPricing: modelPricingMap,
-            planningMode: "off",
+            planningMode: survivalPlanningMode,
             historyContext,
             previousResponseId: previousCodingResponseId,
             onDelta: (nextText) => {
@@ -5176,9 +5248,10 @@ function App() {
             mission,
             input,
             acao: FREE_ACTION_KEY,
+            attachments,
             model: selectedModel,
             modelPricing: modelPricingMap,
-            planningMode: "off",
+            planningMode: survivalPlanningMode,
             historyContext,
           });
 
@@ -5249,7 +5322,7 @@ function App() {
         id: `survival_${Date.now()}`,
         ts: new Date().toISOString(),
         input,
-        attachments: [],
+        attachments: sanitizeAttachmentsForStorage(attachments),
         acao: FREE_ACTION_KEY,
         actionMode: "free",
         isFreeInstruction: true,
@@ -5274,7 +5347,11 @@ function App() {
         [survivalSelectedMode]: [...(current[survivalSelectedMode] || []), execRecord],
       }));
       setSurvivalPendingPrompt("");
+      setSurvivalPendingAttachments([]);
       setSurvivalRunState(null);
+      if (wasPlanningOn) {
+        setSurvivalPlanningMode("off");
+      }
       showToast(wasPlanningOn ? "Plano survival concluído" : "Rodada survival concluída");
     } catch (error) {
       if (previewWindow) {
@@ -5286,7 +5363,9 @@ function App() {
       }
       console.error(error);
       setSurvivalError(error?.message || "Falha ao executar no modo survival.");
+      setSurvivalAttachments(attachments);
       setSurvivalPendingPrompt("");
+      setSurvivalPendingAttachments([]);
       setSurvivalRunState(null);
     } finally {
       setSurvivalRunning(false);
@@ -8285,12 +8364,41 @@ function App() {
                         <PromptConversation
                           execs={survivalExecs}
                           pendingPrompt={survivalPendingPrompt}
-                          pendingAttachments={[]}
+                          pendingAttachments={survivalPendingAttachments}
                           runState={survivalRunning ? survivalRunState : null}
                           liveAnswerRef={survivalLiveAnswerRef}
                           onCopyResponse={handleCopyResponse}
                         />
                         <div className="prompt-entry-shell">
+                          {survivalAttachments.length ? (
+                            <div className="composer-attachments">
+                              {survivalAttachments.map((attachment) => (
+                                <div className={`composer-attachment-chip is-${attachment.kind}`} key={attachment.id}>
+                                  <div className="composer-attachment-copy">
+                                    <span>{attachment.name}</span>
+                                    <small>
+                                      {attachment.kind === "document"
+                                        ? attachment.extractedText
+                                          ? `${attachment.sizeLabel} · texto extraído`
+                                          : attachment.extractionFailed
+                                            ? `${attachment.sizeLabel} · leitura indisponível`
+                                            : attachment.sizeLabel
+                                        : attachment.sizeLabel}
+                                    </small>
+                                  </div>
+                                  <button
+                                    className="composer-attachment-remove"
+                                    type="button"
+                                    aria-label={`Remover ${attachment.name}`}
+                                    onClick={() => handleRemoveSurvivalAttachment(attachment.id)}
+                                    disabled={survivalRunning}
+                                  >
+                                    <X size={14} strokeWidth={1.8} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                           <textarea
                             value={survivalDraft}
                             onChange={(event) => {
@@ -8300,8 +8408,38 @@ function App() {
                             disabled={survivalRunning}
                             placeholder={getSurvivalMission(survivalSelectedMode).placeholder}
                           />
+                          <input
+                            ref={survivalFileInputRef}
+                            type="file"
+                            accept={ATTACHMENT_ACCEPT}
+                            multiple
+                            className="visually-hidden-file-input"
+                            onChange={handleAttachSurvivalFiles}
+                          />
                           <div className="input-actions input-compose-bar">
                             <div className="input-compose-meta">
+                              <button
+                                className="input-attach-btn"
+                                type="button"
+                                onClick={() => survivalFileInputRef.current?.click()}
+                                disabled={survivalRunning || survivalAttachments.length >= MAX_ATTACHMENT_COUNT}
+                                title={`Anexar arquivo (${MAX_ATTACHMENT_COUNT} por rodada, até 10 MB cada)`}
+                              >
+                                <Paperclip size={14} strokeWidth={1.8} />
+                                <span>Anexar</span>
+                              </button>
+                              <div className="input-compact-control">
+                                <button
+                                  type="button"
+                                  className={`plan-toggle-btn${survivalPlanningMode === "on" ? " is-on" : ""}`}
+                                  aria-label="Planejar"
+                                  aria-pressed={survivalPlanningMode === "on"}
+                                  onClick={handleToggleSurvivalPlanningMode}
+                                  disabled={survivalRunning}
+                                >
+                                  Planejar
+                                </button>
+                              </div>
                               <div className="input-compact-control input-compact-control-model">
                                 <ModelSelect
                                   ariaLabel="Modelo survival"

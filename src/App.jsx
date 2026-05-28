@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, FileText, FileStack, FolderOpen, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Newspaper, Paperclip, SlidersHorizontal, Sparkles, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Newspaper, Paperclip, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -23,6 +23,13 @@ const TOKEN_MISSION_TRAINING_ID = "training_lab";
 const TOKEN_POLICY_MODE_UNLIMITED = "unlimited";
 const TOKEN_POLICY_MODE_DEFAULT = "default_15000";
 const TOKEN_POLICY_MODE_CUSTOM = "custom";
+const TECHNICAL_FEEDBACK_REASONS = [
+  "Muito vaga",
+  "Muito técnica",
+  "Muito redundante",
+  "Me afastou do meu objetivo",
+  "Recomendação pouco assertiva",
+];
 const PRESENCE_STALE_MS = 45000;
 const BRAND_LOADER_DURATION_MS = 700;
 const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
@@ -697,7 +704,32 @@ function loadStore() {
 }
 
 function saveStore(data) {
-  localStorage.setItem(STORE, JSON.stringify(data));
+  const current = loadStore();
+  localStorage.setItem(STORE, JSON.stringify({
+    ...current,
+    ...data,
+  }));
+}
+
+async function copyTextToClipboard(text) {
+  const normalizedText = `${text || ""}`;
+  if (!normalizedText) return false;
+
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(normalizedText);
+    return true;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = normalizedText;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "absolute";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const successful = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  return successful;
 }
 
 async function fetchRemoteState() {
@@ -1108,7 +1140,7 @@ function getMissionTokenPolicy(evento, missionId, { isTraining = false } = {}) {
   const policy = evento?.missionTokenPolicies?.[tokenMissionId] || {};
   return {
     missionId: tokenMissionId,
-    mode: policy.mode || TOKEN_POLICY_MODE_DEFAULT,
+    mode: policy.mode || TOKEN_POLICY_MODE_UNLIMITED,
     customLimit: Number(policy.customLimit || 0) || 0,
     temporaryUnlimited: Boolean(policy.temporaryUnlimited),
     updatedAt: policy.updatedAt || null,
@@ -1428,6 +1460,25 @@ function getMissionReflections(evento, missionId) {
     .map(([key, entry]) => ({ ...entry, key }))
     .filter((entry) => entry?.missionId === missionId || `${entry?.key || ""}`.endsWith(`__${missionId}`))
     .sort((a, b) => new Date(b.submittedAt || b.ts || 0) - new Date(a.submittedAt || a.ts || 0));
+}
+
+function getMissionTechnicalFeedbackEntries(evento, missionId) {
+  if (!evento?.teams?.length || !missionId) return [];
+  return evento.teams
+    .flatMap((teamItem, teamIdx) =>
+      getExecucoes(evento, teamIdx, missionId)
+        .filter((exec) => exec?.technicalFeedback?.rating)
+        .map((exec) => ({
+          ...exec.technicalFeedback,
+          teamIdx,
+          teamName: teamItem?.name || `Time ${teamIdx + 1}`,
+          execId: exec.id,
+          execTs: exec.ts,
+          iterationNumber: exec.iterationNumber || null,
+          prompt: exec.input || "",
+        })),
+    )
+    .sort((a, b) => new Date(b.submittedAt || b.execTs || 0) - new Date(a.submittedAt || a.execTs || 0));
 }
 
 function extractPromptFeatures(text) {
@@ -3606,6 +3657,7 @@ function ModelSelect({ options = [], value, onChange, disabled = false, ariaLabe
 function App() {
   const isLocalDev = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const rawInitialLocalStore = loadStore();
+  const initialParticipantSession = rawInitialLocalStore.participantSession || {};
   const initialLocalStore = {
     ...rawInitialLocalStore,
     events: normalizeEventsForProduct(rawInitialLocalStore.events || []),
@@ -3618,16 +3670,20 @@ function App() {
     codingModel: initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
     planningMode: initialLocalStore.planningMode || "off",
   }));
-  const [screen, setScreen] = useState("home");
+  const [screen, setScreen] = useState(initialParticipantSession.screen || "home");
   const [facSelectedId, setFacSelectedId] = useState(null);
   const [facTab, setFacTab] = useState("dashboard");
   const [dashboardView, setDashboardView] = useState("team");
   const [promptInsightsView, setPromptInsightsView] = useState("team");
-  const [entryCode, setEntryCode] = useState("");
+  const [entryCode, setEntryCode] = useState(initialParticipantSession.entryCode || initialParticipantSession.timeEventId || "");
   const [entryError, setEntryError] = useState("");
-  const [timeEventId, setTimeEventId] = useState(null);
-  const [timeTeamIdx, setTimeTeamIdx] = useState(null);
-  const [timeMissionIdx, setTimeMissionIdx] = useState(null);
+  const [timeEventId, setTimeEventId] = useState(initialParticipantSession.timeEventId || null);
+  const [timeTeamIdx, setTimeTeamIdx] = useState(
+    Number.isInteger(initialParticipantSession.timeTeamIdx) ? initialParticipantSession.timeTeamIdx : null,
+  );
+  const [timeMissionIdx, setTimeMissionIdx] = useState(
+    Number.isInteger(initialParticipantSession.timeMissionIdx) ? initialParticipantSession.timeMissionIdx : null,
+  );
   const [missionInput, setMissionInput] = useState("");
   const [missionAttachments, setMissionAttachments] = useState([]);
   const [activePrompt, setActivePrompt] = useState("");
@@ -3685,11 +3741,11 @@ function App() {
   const [broadcastMessage, setBroadcastMessage] = useState("");
   const [teamAnnouncementOpen, setTeamAnnouncementOpen] = useState(false);
   const [teamAnnouncementInboxOpen, setTeamAnnouncementInboxOpen] = useState(false);
-  const [anamnesisOpen, setAnamnesisOpen] = useState(false);
-  const [anamnesisAnswers, setAnamnesisAnswers] = useState({});
+  const [anamnesisOpen, setAnamnesisOpen] = useState(Boolean(initialParticipantSession.anamnesis?.open));
+  const [anamnesisAnswers, setAnamnesisAnswers] = useState(initialParticipantSession.anamnesis?.answers || {});
   const [anamnesisError, setAnamnesisError] = useState("");
-  const [anamnesisContext, setAnamnesisContext] = useState(null);
-  const [anamnesisStep, setAnamnesisStep] = useState(0);
+  const [anamnesisContext, setAnamnesisContext] = useState(initialParticipantSession.anamnesis?.context || null);
+  const [anamnesisStep, setAnamnesisStep] = useState(initialParticipantSession.anamnesis?.step || 0);
   const [reflectionComment, setReflectionComment] = useState("");
   const [reflectionError, setReflectionError] = useState("");
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
@@ -3704,7 +3760,7 @@ function App() {
   const [facilitatorToolView, setFacilitatorToolView] = useState(FACILITATOR_TOOL_VIEWS.MENU);
   const [tokenGrantTargetMissionId, setTokenGrantTargetMissionId] = useState("");
   const [tokenPolicyCustomInput, setTokenPolicyCustomInput] = useState("15000");
-  const [activeStudentName, setActiveStudentName] = useState("");
+  const [activeStudentName, setActiveStudentName] = useState(initialParticipantSession.activeStudentName || "");
   const [brandLoaderOpen, setBrandLoaderOpen] = useState(true);
   const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
   const [clockNow, setClockNow] = useState(Date.now());
@@ -3744,6 +3800,38 @@ function App() {
   useEffect(() => {
     saveStore(store);
   }, [store]);
+
+  useEffect(() => {
+    saveStore({
+      participantSession: {
+        screen,
+        entryCode,
+        timeEventId,
+        timeTeamIdx,
+        timeMissionIdx,
+        activeStudentName,
+        anamnesis: anamnesisOpen
+          ? {
+              open: true,
+              answers: anamnesisAnswers,
+              context: anamnesisContext,
+              step: anamnesisStep,
+            }
+          : null,
+      },
+    });
+  }, [
+    activeStudentName,
+    anamnesisAnswers,
+    anamnesisContext,
+    anamnesisOpen,
+    anamnesisStep,
+    entryCode,
+    screen,
+    timeEventId,
+    timeMissionIdx,
+    timeTeamIdx,
+  ]);
 
   useEffect(() => {
     currentEventsRef.current = store.events || [];
@@ -3997,6 +4085,7 @@ function App() {
   }, [teamScreenShareSessionId]);
 
   useEffect(() => {
+    if (!storeHydrated) return;
     if (!events.length) {
       if (facSelectedId) setFacSelectedId(null);
       if (timeEventId) {
@@ -4015,7 +4104,7 @@ function App() {
       setTimeMissionIdx(null);
       if (screen !== "home") setScreen("entry");
     }
-  }, [events, facSelectedId, timeEventId, screen]);
+  }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
   const currentExecs = currentMission && teamEvent
     ? isTrainingEvent
@@ -4365,6 +4454,16 @@ function App() {
 
   function showToast(message) {
     setToastText(message);
+  }
+
+  async function handleCopyResponse(text) {
+    try {
+      const copied = await copyTextToClipboard(text);
+      showToast(copied ? "Resposta copiada" : "Não foi possível copiar a resposta");
+    } catch (error) {
+      console.error(error);
+      showToast("Não foi possível copiar a resposta");
+    }
   }
 
   async function flushCriticalEvents(nextEvents) {
@@ -5429,6 +5528,62 @@ function App() {
               reasoningDetails: normalizedAnalysis,
               technicalAnalysis: normalizedAnalysis,
               technicalAnalysisUsage,
+            },
+          },
+    );
+  }
+
+  function updateExecutionTechnicalFeedback(eventId, teamIdx, missionId, execId, feedback) {
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const nextFeedback = {
+          rating: feedback.rating,
+          reason: feedback.reason || "",
+          comment: feedback.comment || "",
+          submittedAt: new Date().toISOString(),
+        };
+        if (missionId) {
+          const key = `${teamIdx}__${missionId}`;
+          const execucoes = { ...(event.execucoes || {}) };
+          execucoes[key] = (execucoes[key] || []).map((exec) =>
+            exec.id !== execId
+              ? exec
+              : {
+                  ...exec,
+                  technicalFeedback: nextFeedback,
+                },
+          );
+          return { ...event, execucoes };
+        }
+
+        const key = `${teamIdx}`;
+        const trainingRuns = { ...(event.trainingRuns || {}) };
+        trainingRuns[key] = (trainingRuns[key] || []).map((exec) =>
+          exec.id !== execId
+            ? exec
+            : {
+                ...exec,
+                technicalFeedback: nextFeedback,
+              },
+        );
+        return { ...event, trainingRuns };
+      }),
+    );
+
+    setMissionFlow((current) =>
+      current.exec?.id !== execId
+        ? current
+        : {
+            ...current,
+            exec: {
+              ...current.exec,
+              technicalFeedback: {
+                rating: feedback.rating,
+                reason: feedback.reason || "",
+                comment: feedback.comment || "",
+                submittedAt: new Date().toISOString(),
+              },
             },
           },
     );
@@ -7822,6 +7977,7 @@ function App() {
                               {selectedEvent.missions.map((mission, index) => {
                                 const missionAiMode = getMissionAiMode(mission);
                                 const reflections = getMissionReflections(selectedEvent, mission.id);
+                                const technicalFeedbackEntries = getMissionTechnicalFeedbackEntries(selectedEvent, mission.id);
                                 const feedbackKey = `${selectedEvent.id}__${mission.id}`;
                                 const feedbackOpen = Boolean(missionFeedbackOpen[feedbackKey]);
                                 const missionHasOpenTeams = selectedEvent.teams.some((_, teamIdx) => getMissionClosureStatus(selectedEvent, teamIdx, mission.id) === "aberta");
@@ -7876,6 +8032,13 @@ function App() {
                                 const overallAverage = scoredTopics.length
                                   ? scoredTopics.reduce((sum, item) => sum + item.average, 0) / scoredTopics.length
                                   : 0;
+                                const technicalHelpfulCount = technicalFeedbackEntries.filter((item) => item.rating === "up").length;
+                                const technicalUnhelpfulCount = technicalFeedbackEntries.filter((item) => item.rating === "down").length;
+                                const technicalReasonCounts = TECHNICAL_FEEDBACK_REASONS.map((reason) => ({
+                                  reason,
+                                  count: technicalFeedbackEntries.filter((item) => item.rating === "down" && item.reason === reason).length,
+                                })).filter((item) => item.count > 0);
+                                const hasAnyMissionFeedback = reflections.length || technicalFeedbackEntries.length;
 
                                 return (
                                   <div className="mission-row-wrap" key={`${mission.id}-${index}`}>
@@ -7907,53 +8070,86 @@ function App() {
                                         {mission.desc ? <div className="mdesc">{mission.desc}</div> : null}
                                         <div className="mission-inline-stats">
                                           <span>{reflections.length} feedback(s)</span>
+                                          <span>{technicalFeedbackEntries.length} feedback(s) da explicação</span>
                                           <span>
                                             {selectedEvent.teams.filter((_, teamIdx) => isConcluida(selectedEvent, teamIdx, mission.id)).length} time(s) concluíram
                                           </span>
                                         </div>
-                                        {reflections.length ? (
+                                        {hasAnyMissionFeedback ? (
                                           <div className="mission-feedback-list">
-                                            <div className="mission-feedback-card is-summary">
-                                              <div className="mission-feedback-head">
-                                                <div>
-                                                  <div className="mission-feedback-team">Média geral das avaliações</div>
-                                                  <div className="mission-feedback-meta">{reflections.length} time(s) responderam</div>
+                                            {reflections.length ? (
+                                              <div className="mission-feedback-card is-summary">
+                                                <div className="mission-feedback-head">
+                                                  <div>
+                                                    <div className="mission-feedback-team">Média geral das avaliações</div>
+                                                    <div className="mission-feedback-meta">{reflections.length} time(s) responderam</div>
+                                                  </div>
+                                                  <div className="mission-feedback-overall-score" aria-label={`${overallAverage.toFixed(1)} de 5`}>
+                                                    {overallAverage ? `${overallAverage.toFixed(1)}/5` : "-"}
+                                                  </div>
                                                 </div>
-                                                <div className="mission-feedback-overall-score" aria-label={`${overallAverage.toFixed(1)} de 5`}>
-                                                  {overallAverage ? `${overallAverage.toFixed(1)}/5` : "-"}
-                                                </div>
-                                              </div>
-                                              {scoredTopics.length ? (
-                                                <div className="mission-feedback-bars">
-                                                  {scoredTopics.map((item) => (
-                                                    <div className="mission-feedback-bar-row" key={item.id}>
-                                                      <div className="mission-feedback-bar-head">
-                                                        <strong>{item.label}</strong>
-                                                        <span className="mission-feedback-score" aria-label={`${item.average.toFixed(1)} de 5`}>
-                                                          {item.average.toFixed(1)}/5
-                                                        </span>
+                                                {scoredTopics.length ? (
+                                                  <div className="mission-feedback-bars">
+                                                    {scoredTopics.map((item) => (
+                                                      <div className="mission-feedback-bar-row" key={item.id}>
+                                                        <div className="mission-feedback-bar-head">
+                                                          <strong>{item.label}</strong>
+                                                          <span className="mission-feedback-score" aria-label={`${item.average.toFixed(1)} de 5`}>
+                                                            {item.average.toFixed(1)}/5
+                                                          </span>
+                                                        </div>
+                                                        <div className="mission-feedback-bar-track" aria-hidden="true">
+                                                          <div className="mission-feedback-bar-fill" style={{ width: `${(item.average / 5) * 100}%` }} />
+                                                        </div>
                                                       </div>
-                                                      <div className="mission-feedback-bar-track" aria-hidden="true">
-                                                        <div className="mission-feedback-bar-fill" style={{ width: `${(item.average / 5) * 100}%` }} />
-                                                      </div>
-                                                    </div>
-                                                  ))}
-                                                </div>
-                                              ) : null}
-                                              <div className="mission-feedback-actions">
-                                                <button
-                                                  className="mission-feedback-toggle"
-                                                  type="button"
-                                                  onClick={() =>
-                                                    setMissionFeedbackOpen((current) => ({
-                                                      ...current,
-                                                      [feedbackKey]: !current[feedbackKey],
-                                                    }))
-                                                  }
-                                                >
-                                                  {feedbackOpen ? "Ocultar times" : "Ver times"}
-                                                </button>
+                                                    ))}
+                                                  </div>
+                                                ) : null}
                                               </div>
+                                            ) : null}
+                                            {technicalFeedbackEntries.length ? (
+                                              <div className="mission-feedback-card is-summary">
+                                                <div className="mission-feedback-head">
+                                                  <div>
+                                                    <div className="mission-feedback-team">Feedback da explicação técnica</div>
+                                                    <div className="mission-feedback-meta">{technicalFeedbackEntries.length} retorno(s) coletados</div>
+                                                  </div>
+                                                </div>
+                                                <div className="mission-feedback-scores is-inline">
+                                                  <span className="mission-feedback-chip is-rating">
+                                                    <strong>Útil</strong>
+                                                    <span className="mission-feedback-score">{technicalHelpfulCount}</span>
+                                                  </span>
+                                                  <span className="mission-feedback-chip is-rating">
+                                                    <strong>Não útil</strong>
+                                                    <span className="mission-feedback-score">{technicalUnhelpfulCount}</span>
+                                                  </span>
+                                                </div>
+                                                {technicalReasonCounts.length ? (
+                                                  <div className="mission-feedback-scores is-detailed">
+                                                    {technicalReasonCounts.map((item) => (
+                                                      <div className="team-admin-feedback-topic" key={item.reason}>
+                                                        <span className="team-admin-feedback-topic-label">{item.reason}</span>
+                                                        <span className="mission-feedback-score">{item.count}</span>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            ) : null}
+                                            <div className="mission-feedback-actions">
+                                              <button
+                                                className="mission-feedback-toggle"
+                                                type="button"
+                                                onClick={() =>
+                                                  setMissionFeedbackOpen((current) => ({
+                                                    ...current,
+                                                    [feedbackKey]: !current[feedbackKey],
+                                                  }))
+                                                }
+                                              >
+                                                {feedbackOpen ? "Ocultar times" : "Ver times"}
+                                              </button>
                                             </div>
                                             {feedbackOpen
                                               ? reflections.map((reflection) => (
@@ -7973,6 +8169,29 @@ function App() {
                                                       ))}
                                                     </div>
                                                     {reflection.comment ? <div className="mission-feedback-comment">{reflection.comment}</div> : null}
+                                                  </div>
+                                                ))
+                                              : null}
+                                            {feedbackOpen
+                                              ? technicalFeedbackEntries.map((entry) => (
+                                                  <div className="mission-feedback-card" key={`tech-${entry.teamIdx}-${entry.execId}`}>
+                                                    <div className="mission-feedback-head">
+                                                      <div className="mission-feedback-team">{entry.teamName}</div>
+                                                      <div className="mission-feedback-meta">{formatDateTime(entry.submittedAt || entry.execTs)}</div>
+                                                    </div>
+                                                    <div className="mission-feedback-scores is-inline">
+                                                      <span className="mission-feedback-chip is-rating">
+                                                        <strong>Leitura</strong>
+                                                        <span className="mission-feedback-score">{entry.rating === "up" ? "Útil" : "Não útil"}</span>
+                                                      </span>
+                                                      {entry.reason ? (
+                                                        <span className="mission-feedback-chip is-rating">
+                                                          <strong>Motivo</strong>
+                                                          <span className="mission-feedback-score">{entry.reason}</span>
+                                                        </span>
+                                                      ) : null}
+                                                    </div>
+                                                    {entry.comment ? <div className="mission-feedback-comment">{entry.comment}</div> : null}
                                                   </div>
                                                 ))
                                               : null}
@@ -8448,6 +8667,25 @@ function App() {
                 <EmptyState icon="◎" title="Nenhuma missão selecionada" sub="Selecione uma missão liberada na barra lateral." />
               ) : (
                 <>
+                  {!isTrainingEvent && !currentConcluida && !currentQuestionarioPendente ? (
+                    <div className="workspace-mission-top-actions">
+                      <button
+                        className="mission-close-btn is-compact"
+                        type="button"
+                        onClick={() =>
+                          openConfirm(
+                            "Encerrar missão",
+                            "Ao encerrar, este time para de conversar nesta missão e entra direto no questionário final. Deseja continuar?",
+                            handleTeamCloseMission,
+                            { confirmTone: "primary" },
+                          )
+                        }
+                        disabled={running}
+                      >
+                        Encerrar missão
+                      </button>
+                    </div>
+                  ) : null}
                   <div className="workspace-col-label is-block">
                     <span className="ws-column-label-icon" aria-hidden="true">
                       <MessageSquareText size={15} strokeWidth={1.7} />
@@ -8469,26 +8707,8 @@ function App() {
                             pendingAttachments={activeAttachments}
                             runState={running ? runState : null}
                             liveAnswerRef={liveAnswerRef}
+                            onCopyResponse={handleCopyResponse}
                           />
-                          {!isTrainingEvent ? (
-                            <div className="prompt-composer-top-actions">
-                              <button
-                                className="mission-close-btn is-compact"
-                                type="button"
-                                onClick={() =>
-                                  openConfirm(
-                                    "Encerrar missão",
-                                    "Ao encerrar, este time para de conversar nesta missão e entra direto no questionário final. Deseja continuar?",
-                                    handleTeamCloseMission,
-                                    { confirmTone: "primary" },
-                                  )
-                                }
-                                disabled={running}
-                              >
-                                Encerrar missão
-                              </button>
-                            </div>
-                          ) : null}
                           <div className="prompt-entry-shell">
                             {missionAttachments.length ? (
                               <div className="composer-attachments">
@@ -8523,14 +8743,6 @@ function App() {
                               value={missionInput}
                               onChange={(event) => setMissionInput(event.target.value)}
                               disabled={running || teamTimerLockActive}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" && !event.shiftKey) {
-                                  event.preventDefault();
-                                  if (!running && !teamTimerLockActive) {
-                                    handleExecutarMissao();
-                                  }
-                                }
-                              }}
                               placeholder="Escreva sua mensagem ou anexe até 3 arquivos"
                             />
                             <input
@@ -8657,6 +8869,16 @@ function App() {
                   {readingStage && readingExec ? (
                     <MissionReadingPanel
                       exec={readingExec}
+                      onSubmitFeedback={(feedback) => {
+                        if (!teamEvent || timeTeamIdx === null || timeTeamIdx === undefined || !readingExec?.id) return;
+                        updateExecutionTechnicalFeedback(
+                          teamEvent.id,
+                          timeTeamIdx,
+                          isTrainingEvent ? null : currentMission?.id,
+                          readingExec.id,
+                          feedback,
+                        );
+                      }}
                     />
                   ) : (
                     <div className="reading-placeholder workspace-reading-placeholder">
@@ -9876,7 +10098,7 @@ const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpdate }, 
   );
 });
 
-function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState, liveAnswerRef }) {
+function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState, liveAnswerRef, onCopyResponse }) {
   const hasHistory = execs.length > 0;
   const hasPending = Boolean(runState && (pendingPrompt.trim() || pendingAttachments.length));
   const threadRef = useRef(null);
@@ -9916,6 +10138,17 @@ function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], run
               {exec.reasoningText ? <ReasoningPanel text={exec.reasoningText} /> : null}
               <MarkdownMessage text={exec.output} />
               <GeneratedArtifactsPanel exec={exec} compact />
+              <div className="prompt-thread-response-actions">
+                <button
+                  className="icon-copy-btn prompt-thread-copy-btn"
+                  type="button"
+                  aria-label="Copiar resposta"
+                  title="Copiar resposta"
+                  onClick={() => onCopyResponse?.(exec.output || "")}
+                >
+                  <Copy size={13} strokeWidth={1.9} />
+                </button>
+              </div>
             </div>
           </div>
         );
@@ -10057,12 +10290,63 @@ function TechnicalReadingBlock({ blockKey, children }) {
   );
 }
 
-function MissionReadingPanel({ exec }) {
+function MissionReadingPanel({ exec, onSubmitFeedback }) {
   const details = normalizeTechnicalAnalysis(exec.technicalAnalysis || exec.reasoningDetails || {}, {
     accumulatedGlossary: exec.technicalAnalysis?.glossary?.accumulated || exec.reasoningDetails?.glossary?.accumulated || [],
   });
   const [chainExpanded, setChainExpanded] = useState(false);
   const glossaryItems = details.glossary?.round?.length ? details.glossary.round : [];
+  const [feedbackRating, setFeedbackRating] = useState(exec.technicalFeedback?.rating || "");
+  const [feedbackReason, setFeedbackReason] = useState(exec.technicalFeedback?.reason || "");
+  const [feedbackComment, setFeedbackComment] = useState(exec.technicalFeedback?.comment || "");
+  const [feedbackOpen, setFeedbackOpen] = useState((exec.technicalFeedback?.rating || "") === "down");
+  const [feedbackSaved, setFeedbackSaved] = useState(false);
+
+  useEffect(() => {
+    setFeedbackRating(exec.technicalFeedback?.rating || "");
+    setFeedbackReason(exec.technicalFeedback?.reason || "");
+    setFeedbackComment(exec.technicalFeedback?.comment || "");
+    setFeedbackOpen((exec.technicalFeedback?.rating || "") === "down");
+    setFeedbackSaved(Boolean(exec.technicalFeedback?.submittedAt));
+  }, [exec.id, exec.technicalFeedback?.rating, exec.technicalFeedback?.reason, exec.technicalFeedback?.comment]);
+
+  function handleThumbSelection(rating) {
+    setFeedbackRating(rating);
+    setFeedbackSaved(false);
+    if (rating === "up") {
+      setFeedbackOpen(false);
+      setFeedbackReason("");
+      setFeedbackComment("");
+      onSubmitFeedback?.({ rating: "up", reason: "", comment: "" });
+      setFeedbackSaved(true);
+      return;
+    }
+    setFeedbackOpen(true);
+  }
+
+  function handleDownReasonChange(reason) {
+    setFeedbackReason(reason);
+    setFeedbackSaved(false);
+  }
+
+  function handleDownCommentChange(comment) {
+    setFeedbackComment(comment);
+    setFeedbackSaved(false);
+  }
+
+  function handleCloseFeedbackCard() {
+    setFeedbackOpen(false);
+  }
+
+  function handleSubmitNegativeFeedback() {
+    onSubmitFeedback?.({
+      rating: "down",
+      reason: feedbackReason,
+      comment: feedbackComment,
+    });
+    setFeedbackSaved(true);
+    setFeedbackOpen(false);
+  }
 
   if (details.pending) {
     return (
@@ -10091,9 +10375,84 @@ function MissionReadingPanel({ exec }) {
         <div className="tech-reading-meta">
           <span>Rodada {exec.iterationNumber || "-"}</span>
         </div>
+        <div className="tech-reading-feedback-strip">
+          <span className="tech-reading-feedback-question">Essa leitura foi útil?</span>
+          <div className="tech-reading-feedback-actions">
+            <button
+              className={`tech-reading-feedback-btn${feedbackRating === "up" ? " is-active" : ""}`}
+              type="button"
+              aria-label="Foi útil"
+              onClick={() => handleThumbSelection("up")}
+            >
+              <ThumbsUp size={16} strokeWidth={1.9} />
+            </button>
+            <button
+              className={`tech-reading-feedback-btn is-negative${feedbackRating === "down" ? " is-active" : ""}`}
+              type="button"
+              aria-label="Não foi útil"
+              onClick={() => handleThumbSelection("down")}
+            >
+              <ThumbsDown size={16} strokeWidth={1.9} />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="tech-reading-body">
+        {feedbackOpen ? (
+          <div className="tech-reading-feedback-card">
+            <div className="tech-reading-feedback-card-head">
+              <div className="tech-reading-feedback-card-title">O que te atrapalhou nesta explicação?</div>
+              <button
+                className="tech-reading-feedback-dismiss"
+                type="button"
+                aria-label="Fechar feedback"
+                onClick={handleCloseFeedbackCard}
+              >
+                <X size={14} strokeWidth={1.9} />
+              </button>
+            </div>
+            <div className="tech-reading-feedback-options">
+              {TECHNICAL_FEEDBACK_REASONS.map((reason) => (
+                <label
+                  key={reason}
+                  className={`tech-reading-feedback-option${feedbackReason === reason ? " is-selected" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name={`tech-reading-feedback-${exec.id}`}
+                    value={reason}
+                    checked={feedbackReason === reason}
+                    onChange={() => handleDownReasonChange(reason)}
+                  />
+                  <span>{reason}</span>
+                </label>
+              ))}
+            </div>
+            <textarea
+              className="tech-reading-feedback-textarea"
+              value={feedbackComment}
+              onChange={(event) => handleDownCommentChange(event.target.value)}
+              placeholder="Se quiser, escreva o que teria tornado essa leitura mais útil para você."
+            />
+            <div className="tech-reading-feedback-card-actions">
+              <button className="tech-reading-feedback-secondary" type="button" onClick={handleCloseFeedbackCard}>
+                Cancelar
+              </button>
+              <button
+                className="tech-reading-feedback-primary"
+                type="button"
+                onClick={handleSubmitNegativeFeedback}
+                disabled={!feedbackReason && !feedbackComment.trim()}
+              >
+                Enviar feedback
+              </button>
+            </div>
+            <div className="tech-reading-feedback-hint">
+              {feedbackSaved ? "Feedback salvo." : "Escolha um motivo ou escreva um comentário para enviar."}
+            </div>
+          </div>
+        ) : null}
         {details.unavailable ? (
           <div className="tech-reading-unavailable">
             <div className="tech-reading-block-label">Análise indisponível</div>

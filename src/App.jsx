@@ -17,12 +17,15 @@ const CODING_AI_MODE = "coding";
 const CODING_AI_REASONING_EFFORT = "medium";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
 const FACILITATOR_PASSWORD = "camila";
+const SURVIVAL_PASSWORD = "2805";
 const DEFAULT_MISSION_TOKEN_LIMIT = 15000;
 const DEFAULT_TOKEN_GRANT_AMOUNT = 15000;
 const TOKEN_MISSION_TRAINING_ID = "training_lab";
 const TOKEN_POLICY_MODE_UNLIMITED = "unlimited";
 const TOKEN_POLICY_MODE_DEFAULT = "default_15000";
 const TOKEN_POLICY_MODE_CUSTOM = "custom";
+const SURVIVAL_ROUTE = "/survival";
+const SURVIVAL_STORE = "techhall:survival:v1";
 const TECHNICAL_FEEDBACK_REASONS = [
   "Muito vaga",
   "Muito técnica",
@@ -207,6 +210,32 @@ const TRAINING_MISSION = {
   situacao: "Use este espaço para experimentar perguntas, reformulações e conversas livres com a IA.",
   instrucao: "Escreva o prompt livremente. Você pode iterar, testar variações e pedir ajuda ao facilitador quando quiser.",
   placeholder: "Escreva aqui o que você quer testar...",
+  acoes: [],
+};
+
+const SURVIVAL_CHAT_MISSION = {
+  id: "survival_chat",
+  num: 0,
+  aiMode: CHAT_AI_MODE,
+  name: "Pílula azul",
+  category: "chat",
+  desc: "Modo survival com chat livre e persistência local.",
+  situacao: "Conversa livre local, sem vínculo com evento, histórico remoto ou facilitador.",
+  instrucao: "Use este modo para conversar com a IA em contingência, com tudo salvo só neste navegador.",
+  placeholder: "Escreva sua mensagem...",
+  acoes: [],
+};
+
+const SURVIVAL_CODING_MISSION = {
+  id: "survival_coding",
+  num: 0,
+  aiMode: CODING_AI_MODE,
+  name: "Pílula vermelha",
+  category: "coding",
+  desc: "Modo survival focado em código, debugging e implementação.",
+  situacao: "Conversa técnica local, sem vínculo com evento, histórico remoto ou facilitador.",
+  instrucao: "Use este modo para pedir código, revisar arquitetura, debugar e gerar protótipos.",
+  placeholder: "Descreva o problema técnico, cole código ou peça um protótipo...",
   acoes: [],
 };
 
@@ -709,6 +738,47 @@ function saveStore(data) {
     ...current,
     ...data,
   }));
+}
+
+function loadSurvivalStore() {
+  try {
+    return JSON.parse(localStorage.getItem(SURVIVAL_STORE) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveSurvivalStore(data) {
+  const current = loadSurvivalStore();
+  localStorage.setItem(
+    SURVIVAL_STORE,
+    JSON.stringify({
+      ...current,
+      ...data,
+    }),
+  );
+}
+
+function normalizeAppPath(pathname = "/") {
+  const normalized = `${pathname || "/"}`.trim();
+  if (!normalized || normalized === "//") return "/";
+  return normalized.endsWith("/") && normalized !== "/" ? normalized.slice(0, -1) : normalized;
+}
+
+function isSurvivalPath(pathname = "") {
+  return normalizeAppPath(pathname) === SURVIVAL_ROUTE;
+}
+
+function replaceAppPath(pathname = "/") {
+  if (typeof window === "undefined") return;
+  const nextPath = normalizeAppPath(pathname);
+  const currentPath = normalizeAppPath(window.location.pathname);
+  if (nextPath === currentPath) return;
+  window.history.replaceState({}, "", nextPath);
+}
+
+function getSurvivalMission(aiMode) {
+  return aiMode === CODING_AI_MODE ? SURVIVAL_CODING_MISSION : SURVIVAL_CHAT_MISSION;
 }
 
 async function copyTextToClipboard(text) {
@@ -3656,8 +3726,11 @@ function ModelSelect({ options = [], value, onChange, disabled = false, ariaLabe
 
 function App() {
   const isLocalDev = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const initialPathname = typeof window !== "undefined" ? window.location.pathname : "/";
+  const initialIsSurvivalRoute = isSurvivalPath(initialPathname);
   const rawInitialLocalStore = loadStore();
-  const initialParticipantSession = rawInitialLocalStore.participantSession || {};
+  const initialParticipantSession = initialIsSurvivalRoute ? {} : rawInitialLocalStore.participantSession || {};
+  const initialSurvivalStore = loadSurvivalStore();
   const initialLocalStore = {
     ...rawInitialLocalStore,
     events: normalizeEventsForProduct(rawInitialLocalStore.events || []),
@@ -3670,7 +3743,7 @@ function App() {
     codingModel: initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
     planningMode: initialLocalStore.planningMode || "off",
   }));
-  const [screen, setScreen] = useState(initialParticipantSession.screen || "home");
+  const [screen, setScreen] = useState(initialIsSurvivalRoute ? "survival" : initialParticipantSession.screen || "home");
   const [facSelectedId, setFacSelectedId] = useState(null);
   const [facTab, setFacTab] = useState("dashboard");
   const [dashboardView, setDashboardView] = useState("team");
@@ -3764,6 +3837,33 @@ function App() {
   const [brandLoaderOpen, setBrandLoaderOpen] = useState(true);
   const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
   const [clockNow, setClockNow] = useState(Date.now());
+  const [survivalAccessGranted, setSurvivalAccessGranted] = useState(Boolean(initialSurvivalStore.authenticated));
+  const [survivalPasswordInput, setSurvivalPasswordInput] = useState("");
+  const [survivalAuthError, setSurvivalAuthError] = useState("");
+  const [survivalSelectedMode, setSurvivalSelectedMode] = useState(
+    [CHAT_AI_MODE, CODING_AI_MODE].includes(initialSurvivalStore.selectedMode) ? initialSurvivalStore.selectedMode : null,
+  );
+  const [survivalConversations, setSurvivalConversations] = useState(() => ({
+    [CHAT_AI_MODE]: Array.isArray(initialSurvivalStore.conversations?.[CHAT_AI_MODE])
+      ? initialSurvivalStore.conversations[CHAT_AI_MODE]
+      : [],
+    [CODING_AI_MODE]: Array.isArray(initialSurvivalStore.conversations?.[CODING_AI_MODE])
+      ? initialSurvivalStore.conversations[CODING_AI_MODE]
+      : [],
+  }));
+  const [survivalDrafts, setSurvivalDrafts] = useState(() => ({
+    [CHAT_AI_MODE]: `${initialSurvivalStore.drafts?.[CHAT_AI_MODE] || ""}`,
+    [CODING_AI_MODE]: `${initialSurvivalStore.drafts?.[CODING_AI_MODE] || ""}`,
+  }));
+  const [survivalModels, setSurvivalModels] = useState(() => ({
+    [CHAT_AI_MODE]: initialSurvivalStore.models?.[CHAT_AI_MODE] || initialLocalStore.chatModel || DEFAULT_CHAT_MODEL,
+    [CODING_AI_MODE]: initialSurvivalStore.models?.[CODING_AI_MODE] || initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
+  }));
+  const [survivalRunning, setSurvivalRunning] = useState(false);
+  const [survivalRunState, setSurvivalRunState] = useState(null);
+  const [survivalPendingPrompt, setSurvivalPendingPrompt] = useState("");
+  const [survivalError, setSurvivalError] = useState("");
+  const survivalLiveAnswerRef = useRef(null);
   const [serverConfig, setServerConfig] = useState({
     openaiConfigured: false,
     openaiSource: "none",
@@ -3802,6 +3902,7 @@ function App() {
   }, [store]);
 
   useEffect(() => {
+    if (screen === "survival") return;
     saveStore({
       participantSession: {
         screen,
@@ -3832,6 +3933,20 @@ function App() {
     timeMissionIdx,
     timeTeamIdx,
   ]);
+
+  useEffect(() => {
+    replaceAppPath(screen === "survival" ? SURVIVAL_ROUTE : "/");
+  }, [screen]);
+
+  useEffect(() => {
+    saveSurvivalStore({
+      authenticated: survivalAccessGranted,
+      selectedMode: survivalSelectedMode,
+      conversations: survivalConversations,
+      drafts: survivalDrafts,
+      models: survivalModels,
+    });
+  }, [survivalAccessGranted, survivalConversations, survivalDrafts, survivalModels, survivalSelectedMode]);
 
   useEffect(() => {
     currentEventsRef.current = store.events || [];
@@ -4395,6 +4510,15 @@ function App() {
   const selectedModelForMode = composerModelOptions.some((entry) => entry.id === storedModelForMode)
     ? storedModelForMode
     : getDefaultModelForMode(serverConfig, currentMissionAiMode);
+  const survivalModeOptions = survivalSelectedMode ? getModelsForMode(modelCatalog, survivalSelectedMode) : [];
+  const survivalStoredModel = survivalSelectedMode ? survivalModels[survivalSelectedMode] : "";
+  const survivalSelectedModel = survivalSelectedMode
+    ? survivalModeOptions.some((entry) => entry.id === survivalStoredModel)
+      ? survivalStoredModel
+      : getDefaultModelForMode(serverConfig, survivalSelectedMode)
+    : "";
+  const survivalExecs = survivalSelectedMode ? survivalConversations[survivalSelectedMode] || [] : [];
+  const survivalDraft = survivalSelectedMode ? survivalDrafts[survivalSelectedMode] || "" : "";
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";
@@ -4804,6 +4928,70 @@ function App() {
     setAnamnesisContext(null);
   }
 
+  function goSurvival() {
+    setScreen("survival");
+    setSurvivalAuthError("");
+    setSurvivalError("");
+  }
+
+  function handleUnlockSurvival() {
+    if (survivalPasswordInput.trim() !== SURVIVAL_PASSWORD) {
+      setSurvivalAuthError("Senha incorreta.");
+      return;
+    }
+    setSurvivalAccessGranted(true);
+    setSurvivalPasswordInput("");
+    setSurvivalAuthError("");
+  }
+
+  function handleLeaveSurvival() {
+    setSurvivalAccessGranted(false);
+    setSurvivalPasswordInput("");
+    setSurvivalAuthError("");
+    setSurvivalRunning(false);
+    setSurvivalRunState(null);
+    setSurvivalPendingPrompt("");
+    setSurvivalError("");
+    goHome();
+  }
+
+  function handleSelectSurvivalMode(aiMode) {
+    setSurvivalSelectedMode(aiMode);
+    setSurvivalError("");
+  }
+
+  function handleChangeSurvivalDraft(value) {
+    if (!survivalSelectedMode) return;
+    setSurvivalDrafts((current) => ({
+      ...current,
+      [survivalSelectedMode]: value,
+    }));
+  }
+
+  function handleChangeSurvivalModel(nextModel) {
+    if (!survivalSelectedMode) return;
+    setSurvivalModels((current) => ({
+      ...current,
+      [survivalSelectedMode]: nextModel,
+    }));
+  }
+
+  function handleClearSurvivalConversation() {
+    if (!survivalSelectedMode || survivalRunning) return;
+    setSurvivalConversations((current) => ({
+      ...current,
+      [survivalSelectedMode]: [],
+    }));
+    setSurvivalDrafts((current) => ({
+      ...current,
+      [survivalSelectedMode]: "",
+    }));
+    setSurvivalPendingPrompt("");
+    setSurvivalRunState(null);
+    setSurvivalError("");
+    showToast("Conversa local limpa");
+  }
+
   function goFacilitador() {
     setFacAccessPassword("");
     setFacAccessError("");
@@ -4890,6 +5078,219 @@ function App() {
     setTimeEventId(fallbackEvent.id);
     setTimeTeamIdx(fallbackTeamIdx);
     setScreen("workspace");
+  }
+
+  async function handleExecutarSurvival() {
+    if (!survivalSelectedMode) return;
+    const input = survivalDraft.trim();
+    if (!input) {
+      setSurvivalError("Escreva um prompt antes de enviar.");
+      return;
+    }
+
+    const mission = getSurvivalMission(survivalSelectedMode);
+    const selectedModel = survivalSelectedModel;
+    const historyContext = buildHistoryContext(survivalExecs);
+    const wasPlanningOn = false;
+    const shouldAutoOpenPreview = apiConfigured && survivalSelectedMode === CODING_AI_MODE && isHtmlPrototypeRequest(input);
+    const previousCodingResponseId =
+      survivalSelectedMode === CODING_AI_MODE ? survivalExecs[survivalExecs.length - 1]?.codingResponseId || "" : "";
+
+    setSurvivalPendingPrompt(input);
+    handleChangeSurvivalDraft("");
+    setSurvivalRunning(true);
+    setSurvivalError("");
+    setSurvivalRunState({
+      phase: "analisando",
+      stepIndex: 0,
+      displayedOutput: "",
+      fullOutput: "",
+      reasoningText: "",
+      processingSteps: buildRunSteps(apiConfigured),
+      reasoningDetails: null,
+      usedHistory: historyContext.length > 0,
+      simulationMode: apiConfigured ? "openai-live" : "mock-stream",
+    });
+
+    const previewWindow =
+      shouldAutoOpenPreview && typeof window !== "undefined"
+        ? window.open("", "_blank")
+        : null;
+    if (previewWindow) {
+      renderPreviewWindowPlaceholder(previewWindow, "Preview em preparação", "A IA começou a montar a instância HTML desta rodada.");
+    }
+
+    try {
+      if (!apiConfigured) {
+        for (let index = 0; index < 2; index += 1) {
+          setSurvivalRunState((current) =>
+            current
+              ? {
+                  ...current,
+                  phase: SIMULATION_STEPS[index].key,
+                  stepIndex: index,
+                  processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                    ...step,
+                    status: stepIndex < index ? "done" : stepIndex === index ? "active" : "pending",
+                  })),
+                }
+              : current,
+          );
+          await sleep(index === 0 ? 700 : 850);
+        }
+      } else {
+        setSurvivalRunState((current) =>
+          current
+            ? {
+                ...current,
+                phase: "estrategia",
+                stepIndex: 1,
+                processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                  ...step,
+                  status: stepIndex < 1 ? "done" : stepIndex === 1 ? "active" : "pending",
+                })),
+              }
+            : current,
+        );
+      }
+
+      const result = apiConfigured
+        ? await executarComIA({
+            mission,
+            input,
+            attachments: [],
+            acao: FREE_ACTION_KEY,
+            model: selectedModel,
+            modelPricing: modelPricingMap,
+            planningMode: "off",
+            historyContext,
+            previousResponseId: previousCodingResponseId,
+            onDelta: (nextText) => {
+              survivalLiveAnswerRef.current?.pushAnswer(nextText);
+            },
+            onReasoning: (nextReasoning) => {
+              survivalLiveAnswerRef.current?.pushReasoning(nextReasoning);
+            },
+          })
+        : executarMock({
+            mission,
+            input,
+            acao: FREE_ACTION_KEY,
+            model: selectedModel,
+            modelPricing: modelPricingMap,
+            planningMode: "off",
+            historyContext,
+          });
+
+      setSurvivalRunState((current) =>
+        current
+          ? {
+              ...current,
+              phase: "gerando",
+              stepIndex: 2,
+              fullOutput: result.output,
+              inputTokens: result.inputTokens,
+              outputTokens: result.outputTokens,
+              custo: result.custo,
+              processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                ...step,
+                status: stepIndex < 2 ? "done" : stepIndex === 2 ? "active" : "pending",
+              })),
+            }
+          : current,
+      );
+
+      if (!apiConfigured) {
+        let cursor = 0;
+        const chunkSize = 30;
+        while (cursor < result.output.length) {
+          cursor = Math.min(result.output.length, cursor + chunkSize);
+          survivalLiveAnswerRef.current?.pushAnswer(result.output.slice(0, cursor));
+          await sleep(40);
+        }
+      }
+
+      setSurvivalRunState((current) =>
+        current
+          ? {
+              ...current,
+              phase: "finalizando",
+              stepIndex: 3,
+              processingSteps: current.processingSteps.map((step, stepIndex) => ({
+                ...step,
+                status: stepIndex < 3 ? "done" : stepIndex === 3 ? "active" : "pending",
+              })),
+            }
+          : current,
+      );
+
+      if (!apiConfigured) {
+        await sleep(350);
+      }
+
+      const generatedArtifacts = survivalSelectedMode === CODING_AI_MODE ? extractGeneratedArtifacts(result.output, `survival-${Date.now()}`) : [];
+      const htmlArtifact = generatedArtifacts.find((artifact) => artifact.previewMode === "html");
+      if (previewWindow) {
+        if (htmlArtifact) {
+          writePreviewWindowDocument(
+            previewWindow,
+            buildPreviewWindowHtmlDocument(htmlArtifact.content, htmlArtifact.fileName || "Preview HTML"),
+          );
+        } else {
+          renderPreviewWindowPlaceholder(
+            previewWindow,
+            "Sem preview executável",
+            "Esta rodada terminou, mas a IA não devolveu um HTML completo para abrir automaticamente.",
+          );
+        }
+      }
+
+      const execRecord = {
+        id: `survival_${Date.now()}`,
+        ts: new Date().toISOString(),
+        input,
+        attachments: [],
+        acao: FREE_ACTION_KEY,
+        actionMode: "free",
+        isFreeInstruction: true,
+        output: result.output,
+        reasoningText: result.reasoningText || "",
+        promptApplied: result.promptApplied || "",
+        processingSteps: buildRunSteps(apiConfigured).map((step) => ({ ...step, status: "done" })),
+        inputTokens: result.inputTokens || 0,
+        outputTokens: result.outputTokens || 0,
+        tokens: result.tokens || (result.inputTokens || 0) + (result.outputTokens || 0),
+        custo: result.custo || 0,
+        iterationNumber: survivalExecs.length + 1,
+        generatedArtifacts,
+        codingResponseId: result.responseId || "",
+        effectiveModel: result.effectiveModel || selectedModel,
+        selectedModel,
+        aiMode: survivalSelectedMode,
+      };
+
+      setSurvivalConversations((current) => ({
+        ...current,
+        [survivalSelectedMode]: [...(current[survivalSelectedMode] || []), execRecord],
+      }));
+      setSurvivalPendingPrompt("");
+      setSurvivalRunState(null);
+      showToast(wasPlanningOn ? "Plano survival concluído" : "Rodada survival concluída");
+    } catch (error) {
+      if (previewWindow) {
+        renderPreviewWindowPlaceholder(
+          previewWindow,
+          "Preview interrompido",
+          "A rodada falhou antes de devolver um HTML executável. Você pode tentar novamente com um pedido mais específico.",
+        );
+      }
+      console.error(error);
+      setSurvivalError(error?.message || "Falha ao executar no modo survival.");
+      setSurvivalPendingPrompt("");
+      setSurvivalRunState(null);
+    } finally {
+      setSurvivalRunning(false);
+    }
   }
 
   function handleCreateEvent() {
@@ -7722,6 +8123,216 @@ function App() {
   return (
     <>
       <BrandLoaderOverlay open={brandLoaderOpen} />
+      {screen === "survival" && (
+        <div className="screen active survival-screen">
+          <Topbar
+            onLogoClick={survivalAccessGranted ? goHome : goSurvival}
+            right={
+              <div className="survival-topbar-actions">
+                <span className={`topbar-api-pill${apiConfigured ? " is-connected" : ""}`}>
+                  {apiConfigured ? "API ligada" : "API não configurada"}
+                </span>
+                {survivalAccessGranted ? (
+                  <button className="btn btn-sm btn-ghost" type="button" onClick={handleLeaveSurvival}>
+                    Sair
+                  </button>
+                ) : null}
+              </div>
+            }
+            leftMeta={<div className="survival-topbar-meta">Modo survival</div>}
+          />
+          <div className="survival-shell">
+            {!survivalAccessGranted ? (
+              <div className="survival-gate">
+                <div className="survival-gate-panel">
+                  <div className="survival-gate-kicker">Contingência ativa</div>
+                  <h1>Modo survival</h1>
+                  <p>
+                    Se o banco, a interface ou o sync falharem, este trilho segue vivo. Tudo fica salvo só neste navegador.
+                  </p>
+                  <div className="survival-gate-field">
+                    <label htmlFor="survival-password">Senha de acesso</label>
+                    <input
+                      id="survival-password"
+                      type="password"
+                      value={survivalPasswordInput}
+                      onChange={(event) => {
+                        setSurvivalAuthError("");
+                        setSurvivalPasswordInput(event.target.value);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleUnlockSurvival();
+                        }
+                      }}
+                      placeholder="Digite a senha"
+                    />
+                  </div>
+                  {survivalAuthError ? <div className="error-box">{survivalAuthError}</div> : null}
+                  <div className="survival-gate-actions">
+                    <button className="btn btn-primary" type="button" onClick={handleUnlockSurvival}>
+                      Entrar no survival
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : !survivalSelectedMode ? (
+              <div className="survival-intro">
+                <div className="survival-intro-copy">
+                  <div className="survival-intro-kicker">Sem evento. Sem facilitador. Sem banco.</div>
+                  <h1>Escolha sua pílula</h1>
+                  <p>
+                    A azul abre um chat livre para pensar, refinar e organizar. A vermelha abre o trilho técnico para código,
+                    protótipos e debugging.
+                  </p>
+                </div>
+                <div className="survival-pill-grid">
+                  <button
+                    className="survival-pill-card is-blue"
+                    type="button"
+                    onClick={() => handleSelectSurvivalMode(CHAT_AI_MODE)}
+                  >
+                    <span className="survival-pill-orb" aria-hidden="true" />
+                    <span className="survival-pill-label">Pílula azul</span>
+                    <strong>Chat</strong>
+                    <p>Converse, esclareça, sintetize e pense com a IA sem depender da infraestrutura do LAB.</p>
+                  </button>
+                  <button
+                    className="survival-pill-card is-red"
+                    type="button"
+                    onClick={() => handleSelectSurvivalMode(CODING_AI_MODE)}
+                  >
+                    <span className="survival-pill-orb" aria-hidden="true" />
+                    <span className="survival-pill-label">Pílula vermelha</span>
+                    <strong>Codex</strong>
+                    <p>Peça código, debug, refatoração e protótipos num trilho local de contingência.</p>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="survival-workspace">
+                <aside className="survival-sidebar">
+                  <div className="survival-sidebar-copy">
+                    <div className="survival-sidebar-kicker">Matrix fallback</div>
+                    <h2>{survivalSelectedMode === CHAT_AI_MODE ? "Pílula azul" : "Pílula vermelha"}</h2>
+                    <p>
+                      {survivalSelectedMode === CHAT_AI_MODE
+                        ? "Chat livre em contingência. Nada entra no evento e nada sincroniza com o facilitador."
+                        : "Trilho técnico em contingência. Ideal para seguir trabalhando mesmo com a operação do LAB comprometida."}
+                    </p>
+                  </div>
+                  <div className="survival-mode-switch">
+                    <button
+                      className={`survival-mini-pill is-blue${survivalSelectedMode === CHAT_AI_MODE ? " active" : ""}`}
+                      type="button"
+                      onClick={() => handleSelectSurvivalMode(CHAT_AI_MODE)}
+                      disabled={survivalRunning}
+                    >
+                      <MessageSquareText size={15} strokeWidth={1.7} />
+                      Chat
+                    </button>
+                    <button
+                      className={`survival-mini-pill is-red${survivalSelectedMode === CODING_AI_MODE ? " active" : ""}`}
+                      type="button"
+                      onClick={() => handleSelectSurvivalMode(CODING_AI_MODE)}
+                      disabled={survivalRunning}
+                    >
+                      <Code2 size={15} strokeWidth={1.7} />
+                      Codex
+                    </button>
+                  </div>
+                  <div className="survival-side-meta">
+                    <div className="survival-side-meta-row">
+                      <span>Persistência</span>
+                      <strong>Só neste navegador</strong>
+                    </div>
+                    <div className="survival-side-meta-row">
+                      <span>Registro no evento</span>
+                      <strong>Desligado</strong>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-sm btn-ghost survival-clear-btn"
+                    type="button"
+                    onClick={handleClearSurvivalConversation}
+                    disabled={survivalRunning}
+                  >
+                    Limpar conversa local
+                  </button>
+                </aside>
+                <main className="survival-main">
+                  <div className="workspace-col-label is-block survival-column-label">
+                    <span className="ws-column-label-icon" aria-hidden="true">
+                      {survivalSelectedMode === CHAT_AI_MODE ? (
+                        <MessageSquareText size={15} strokeWidth={1.7} />
+                      ) : (
+                        <Code2 size={15} strokeWidth={1.7} />
+                      )}
+                    </span>
+                    <div className="workspace-col-label-copy workspace-col-label-copy-inline">
+                      <span className="workspace-col-label-title">
+                        {survivalSelectedMode === CHAT_AI_MODE ? "SURVIVAL CHAT" : "SURVIVAL CODEX"}
+                      </span>
+                      <span className="workspace-col-label-sub workspace-col-label-sub-inline">
+                        LOCAL ONLY · SEM EVENTO · SEM SYNC
+                      </span>
+                    </div>
+                  </div>
+                  <div className="survival-chat-body">
+                    <div className="input-card input-card-chat survival-input-card">
+                      <div className="prompt-composer">
+                        <PromptConversation
+                          execs={survivalExecs}
+                          pendingPrompt={survivalPendingPrompt}
+                          pendingAttachments={[]}
+                          runState={survivalRunning ? survivalRunState : null}
+                          liveAnswerRef={survivalLiveAnswerRef}
+                          onCopyResponse={handleCopyResponse}
+                        />
+                        <div className="prompt-entry-shell">
+                          <textarea
+                            value={survivalDraft}
+                            onChange={(event) => {
+                              setSurvivalError("");
+                              handleChangeSurvivalDraft(event.target.value);
+                            }}
+                            disabled={survivalRunning}
+                            placeholder={getSurvivalMission(survivalSelectedMode).placeholder}
+                          />
+                          <div className="input-actions input-compose-bar">
+                            <div className="input-compose-meta">
+                              <div className="input-compact-control input-compact-control-model">
+                                <ModelSelect
+                                  ariaLabel="Modelo survival"
+                                  options={survivalModeOptions}
+                                  value={survivalSelectedModel}
+                                  onChange={handleChangeSurvivalModel}
+                                  disabled={survivalRunning}
+                                  dropUp
+                                />
+                              </div>
+                            </div>
+                            <button
+                              className="input-send-btn"
+                              aria-label={survivalRunning ? "Executando no modo survival" : "Executar no modo survival"}
+                              disabled={survivalRunning}
+                              onClick={handleExecutarSurvival}
+                            >
+                              <span className="input-send-btn-icon">{survivalRunning ? "…" : "↑"}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      {survivalError ? <div className="error-box top-gap-sm">{survivalError}</div> : null}
+                    </div>
+                  </div>
+                </main>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {screen === "home" && (
         <div className="screen active">
           <Topbar

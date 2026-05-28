@@ -4153,3 +4153,107 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
 .reasoning-toggle-caret{margin-left:auto;color:var(--text3)}
 .reasoning-body{padding:8px 12px 10px;border-top:1px solid var(--border);max-height:260px;overflow-y:auto}
 .reasoning-body .markdown-body{font-size:12.5px;color:var(--text2)}
+
+.survival-screen{height:100vh;min-height:100vh;overflow:hidden;background:
+  radial-gradient(circle at top, rgba(57,255,20,.12), transparent 28%),
+  linear-gradient(180deg, #03060f 0%, #07111f 42%, #0a1529 100%);
+color:#e7eefc}
+.survival-topbar-meta{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:rgba(226,236,255,.62)}
+.survival-topbar-actions{display:flex;align-items:center;gap:10px}
+.survival-shell{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.survival-gate,.survival-intro{flex:1;display:grid;place-items:center;padding:32px 24px 48px}
+.survival-gate-panel,.survival-intro-copy{max-width:720px}
+.survival-gate-panel{width:min(100%,520px);padding:32px;border:1px solid rgba(121,145,184,.24);background:rgba(5,11,23,.84);box-shadow:0 30px 90px rgba(0,0,0,.34)}
+.survival-gate-kicker,.survival-intro-kicker,.survival-sidebar-kicker{font-size:12px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#86f7b4}
+.survival-gate-panel h1,.survival-intro-copy h1{margin:14px 0 10px;font-size:42px;line-height:1.02;color:#f7fbff}
+.survival-gate-panel p,.survival-intro-copy p,.survival-sidebar-copy p{margin:0;color:rgba(226,236,255,.74);font-size:16px;line-height:1.7}
+.survival-gate-field{display:grid;gap:8px;margin-top:24px}
+.survival-gate-field label{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#9fb2d6}
+.survival-gate-field input{height:56px;padding:0 18px;border:1px solid rgba(123,143,177,.4);background:rgba(2,6,17,.78);color:#f7fbff;font-size:18px}
+.survival-gate-field input::placeholder{color:rgba(226,236,255,.34)}
+.survival-gate-actions{display:flex;justify-content:flex-end;margin-top:18px}
+.survival-intro{gap:30px;text-align:center}
+.survival-pill-grid{display:grid;grid-template-columns:repeat(2,minmax(280px,360px));gap:22px;align-items:stretch}
+.survival-pill-card{display:grid;justify-items:flex-start;gap:12px;padding:28px;border:1px solid rgba(120,140,176,.22);background:rgba(6,12,25,.82);color:#f6fbff;text-align:left;cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+.survival-pill-card:hover{transform:translateY(-3px)}
+.survival-pill-card.is-blue:hover{border-color:rgba(106,194,255,.7);box-shadow:0 22px 70px rgba(61,129,255,.18)}
+.survival-pill-card.is-red:hover{border-color:rgba(255,118,118,.72);box-shadow:0 22px 70px rgba(255,76,76,.16)}
+.survival-pill-orb{width:18px;height:18px;border-radius:999px;display:inline-block}
+.survival-pill-card.is-blue .survival-pill-orb{background:linear-gradient(135deg,#6ad0ff 0%,#2b8cff 100%);box-shadow:0 0 28px rgba(74,157,255,.45)}
+.survival-pill-card.is-red .survival-pill-orb{background:linear-gradient(135deg,#ff7d7d 0%,#d81f3a 100%);box-shadow:0 0 28px rgba(216,31,58,.42)}
+.survival-pill-label{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:rgba(226,236,255,.62)}
+.survival-pill-card strong{font-size:28px;line-height:1.05}
+.survival-pill-card p{margin:0;color:rgba(226,236,255,.74);line-height:1.7}
+.survival-workspace{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:24px;flex:1;padding:24px;min-height:0;height:100%;overflow:hidden}
+.survival-sidebar,.survival-input-card{border:1px solid rgba(121,145,184,.2);background:rgba(6,12,24,.84);box-shadow:0 30px 80px rgba(0,0,0,.28)}
+.survival-sidebar{padding:24px;display:grid;gap:20px;align-content:flex-start;min-height:0;overflow:auto}
+.survival-sidebar h2{margin:10px 0 0;font-size:30px;line-height:1.05;color:#f7fbff}
+.survival-mode-switch{display:grid;gap:10px}
+.survival-mini-pill{display:flex;align-items:center;gap:10px;padding:14px 16px;border:1px solid rgba(121,145,184,.24);background:transparent;color:#d9e7ff;font-weight:700;cursor:pointer}
+.survival-mini-pill.active{background:rgba(255,255,255,.05)}
+.survival-mini-pill.is-blue.active{border-color:rgba(106,194,255,.72);box-shadow:inset 0 0 0 1px rgba(106,194,255,.24)}
+.survival-mini-pill.is-red.active{border-color:rgba(255,118,118,.72);box-shadow:inset 0 0 0 1px rgba(255,118,118,.24)}
+.survival-side-meta{display:grid;gap:10px}
+.survival-side-meta-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;color:rgba(226,236,255,.72)}
+.survival-side-meta-row strong{color:#fff;font-weight:700}
+.survival-clear-btn{justify-content:center}
+.survival-main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.survival-column-label .workspace-col-label-title{color:#f7fbff}
+.survival-column-label .workspace-col-label-sub{color:rgba(226,236,255,.56)}
+.survival-chat-body{display:flex;flex:1;min-height:0;overflow:hidden}
+.survival-input-card{width:100%;display:grid;grid-template-rows:minmax(0,1fr);flex:1;height:100%;min-height:0;overflow:hidden}
+.survival-input-card .prompt-composer{background:transparent;display:grid;grid-template-rows:minmax(0,1fr) auto;flex:1;min-height:0;height:100%}
+.survival-input-card .prompt-thread{background:transparent;flex:1;min-height:0;overflow:auto}
+.survival-input-card .prompt-entry-shell{margin-top:auto;position:relative;bottom:auto}
+.survival-input-card .prompt-thread-bubble.is-user{background:rgba(31,45,72,.76);border-color:rgba(121,145,184,.2);color:#eef3ff}
+.survival-input-card .prompt-thread-bubble.is-assistant{background:rgba(9,17,33,.88);border-color:rgba(121,145,184,.18);color:#eef3ff}
+.survival-input-card .prompt-thread-turn.is-pending .prompt-thread-bubble.is-assistant{background:rgba(9,17,33,.92);border-color:rgba(121,145,184,.18)}
+.survival-input-card .prompt-thread-bubble.is-assistant .markdown-body{color:#eef3ff}
+.survival-input-card .prompt-thread-bubble.is-assistant .prompt-thread-text,
+.survival-input-card .prompt-thread-bubble.is-assistant .output-text,
+.survival-input-card .prompt-thread-bubble.is-assistant .thinking-indicator,
+.survival-input-card .prompt-thread-bubble.is-assistant .thinking-label,
+.survival-input-card .prompt-thread-bubble.is-assistant .prompt-thread-meta,
+.survival-input-card .prompt-thread-bubble.is-assistant .prompt-thread-meta span:first-child{color:#eef3ff}
+.survival-input-card .prompt-entry-shell{background:rgba(5,10,22,.92);border-top:1px solid rgba(121,145,184,.14)}
+.survival-input-card textarea{
+  min-height:0;
+  height:calc(1.6em * 2 + 20px);
+  max-height:calc(1.6em * 2 + 20px);
+  background:transparent;
+  color:#f7fbff;
+  resize:none;
+}
+.survival-input-card textarea::placeholder{color:rgba(226,236,255,.36)}
+.survival-input-card .model-select-trigger{border-color:rgba(121,145,184,.24);background:rgba(255,255,255,.04);color:#eef3ff}
+.survival-input-card .model-select-trigger:hover{border-color:rgba(121,145,184,.42)}
+.survival-input-card .input-send-btn{
+  border-color:rgba(255,255,255,.08);
+  background:#39ff14;
+  color:#07111f;
+  box-shadow:none;
+}
+.survival-input-card .input-send-btn .input-send-btn-icon{color:#07111f}
+.survival-input-card .input-send-btn:hover:not(:disabled){
+  border-color:#39ff14;
+  background:#6dff52;
+  color:#07111f;
+}
+.survival-input-card .input-send-btn:disabled{
+  background:rgba(57,255,20,.28);
+  color:rgba(7,17,31,.68);
+}
+.survival-input-card .reasoning-panel{background:rgba(255,255,255,.03);border-color:rgba(121,145,184,.2)}
+.survival-input-card .context-banner{background:rgba(255,255,255,.03);color:#d4e2ff}
+.survival-input-card .processing-step{color:#c8d8fb}
+
+@media (max-width:960px){
+  .survival-pill-grid{grid-template-columns:1fr}
+  .survival-workspace{grid-template-columns:1fr}
+}
+
+@media (max-width:640px){
+  .survival-gate-panel,.survival-sidebar,.survival-input-card{padding:20px}
+  .survival-gate-panel h1,.survival-intro-copy h1{font-size:32px}
+  .survival-workspace{padding:18px}
+}

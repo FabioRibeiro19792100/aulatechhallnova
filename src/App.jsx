@@ -6095,7 +6095,7 @@ function App() {
     const selectedModel = selectedModelForMode;
     const wasPlanningOn = store.planningMode === "on";
     const shouldStreamCoding = apiConfigured && aiMode === CODING_AI_MODE;
-    const shouldAutoOpenPreview = shouldStreamCoding && isHtmlPrototypeRequest(input);
+    const shouldAutoOpenPreview = shouldStreamCoding && !wasPlanningOn && isHtmlPrototypeRequest(input);
     const previousCodingResponseId =
       aiMode === CODING_AI_MODE
         ? currentExecs[currentExecs.length - 1]?.codingResponseId || ""

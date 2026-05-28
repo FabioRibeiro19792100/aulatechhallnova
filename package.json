@@ -7,7 +7,8 @@
     "dev": "vite",
     "dev:server": "node server.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "survival:load": "node scripts/load-survival.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

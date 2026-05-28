@@ -26,6 +26,8 @@ const TOKEN_POLICY_MODE_DEFAULT = "default_15000";
 const TOKEN_POLICY_MODE_CUSTOM = "custom";
 const SURVIVAL_ROUTE = "/survival";
 const SURVIVAL_STORE = "techhall:survival:v1";
+const SURVIVAL_THEME_DARK = "dark";
+const SURVIVAL_THEME_LIGHT = "light";
 const TECHNICAL_FEEDBACK_REASONS = [
   "Muito vaga",
   "Muito técnica",
@@ -3878,6 +3880,9 @@ function App() {
     [CODING_AI_MODE]: initialSurvivalStore.models?.[CODING_AI_MODE] || initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
   }));
   const [survivalPlanningMode, setSurvivalPlanningMode] = useState(initialSurvivalStore.planningMode || "off");
+  const [survivalTheme, setSurvivalTheme] = useState(
+    initialSurvivalStore.theme === SURVIVAL_THEME_LIGHT ? SURVIVAL_THEME_LIGHT : SURVIVAL_THEME_DARK,
+  );
   const [survivalAttachments, setSurvivalAttachments] = useState([]);
   const [survivalPendingAttachments, setSurvivalPendingAttachments] = useState([]);
   const [survivalRunning, setSurvivalRunning] = useState(false);
@@ -3968,8 +3973,9 @@ function App() {
       drafts: survivalDrafts,
       models: survivalModels,
       planningMode: survivalPlanningMode,
+      theme: survivalTheme,
     });
-  }, [survivalAccessGranted, survivalConversations, survivalDrafts, survivalModels, survivalPlanningMode, survivalSelectedMode]);
+  }, [survivalAccessGranted, survivalConversations, survivalDrafts, survivalModels, survivalPlanningMode, survivalSelectedMode, survivalTheme]);
 
   useEffect(() => {
     currentEventsRef.current = store.events || [];
@@ -5003,6 +5009,10 @@ function App() {
 
   function handleToggleSurvivalPlanningMode() {
     setSurvivalPlanningMode((current) => (current === "on" ? "off" : "on"));
+  }
+
+  function handleToggleSurvivalTheme() {
+    setSurvivalTheme((current) => (current === SURVIVAL_THEME_DARK ? SURVIVAL_THEME_LIGHT : SURVIVAL_THEME_DARK));
   }
 
   function handleClearSurvivalConversation() {
@@ -8203,7 +8213,7 @@ function App() {
     <>
       <BrandLoaderOverlay open={brandLoaderOpen} />
       {screen === "survival" && (
-        <div className="screen active survival-screen">
+        <div className={`screen active survival-screen survival-theme-${survivalTheme}`}>
           <Topbar
             onLogoClick={survivalAccessGranted ? goHome : goSurvival}
             right={
@@ -8211,6 +8221,9 @@ function App() {
                 <span className={`topbar-api-pill${apiConfigured ? " is-connected" : ""}`}>
                   {apiConfigured ? "API ligada" : "API não configurada"}
                 </span>
+                <button className="btn btn-sm btn-ghost survival-theme-btn" type="button" onClick={handleToggleSurvivalTheme}>
+                  {survivalTheme === SURVIVAL_THEME_DARK ? "Modo claro" : "Modo escuro"}
+                </button>
                 {survivalAccessGranted ? (
                   <button className="btn btn-sm btn-ghost" type="button" onClick={handleLeaveSurvival}>
                     Sair
@@ -8295,11 +8308,6 @@ function App() {
                   <div className="survival-sidebar-copy">
                     <div className="survival-sidebar-kicker">Matrix fallback</div>
                     <h2>{survivalSelectedMode === CHAT_AI_MODE ? "Pílula azul" : "Pílula vermelha"}</h2>
-                    <p>
-                      {survivalSelectedMode === CHAT_AI_MODE
-                        ? "Chat livre em contingência. Nada entra no evento e nada sincroniza com o facilitador."
-                        : "Trilho técnico em contingência. Ideal para seguir trabalhando mesmo com a operação do LAB comprometida."}
-                    </p>
                   </div>
                   <div className="survival-mode-switch">
                     <button

@@ -1028,7 +1028,13 @@ function getQuestionarioPendenteEntry(evento, teamIdx, missionId) {
 }
 
 function isQuestionarioPendente(evento, teamIdx, missionId) {
-  return Boolean(getQuestionarioPendenteEntry(evento, teamIdx, missionId));
+  const pendente = getQuestionarioPendenteEntry(evento, teamIdx, missionId);
+  if (!pendente) return false;
+  const conclusao = getConclusaoEntry(evento, teamIdx, missionId);
+  if (!conclusao) return true;
+  const openedAt = toTimestamp(typeof pendente === "object" ? pendente.openedAt : 0);
+  const closedAt = toTimestamp(typeof conclusao === "object" ? conclusao.closedAt || conclusao.concludedAt : 0);
+  return openedAt > closedAt;
 }
 
 function getQuestionarioPendenteSource(evento, teamIdx, missionId) {
@@ -1837,7 +1843,7 @@ function mergeEventEntity(remoteEvent, localEvent) {
       pickLatestByTimestamp(remoteValue, localValue, ["openedAt"]),
     ),
     conclusoes: mergeObjectMaps(remoteEvent.conclusoes, localEvent.conclusoes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["concludedAt"]),
+      pickLatestByTimestamp(remoteValue, localValue, ["closedAt", "concludedAt"]),
     ),
     preservedMissionUsage: {
       ...(remoteEvent.preservedMissionUsage || {}),
@@ -4132,9 +4138,6 @@ function App() {
       return;
     }
     if (currentQuestionarioPendente) {
-      setReflectionAnswers({});
-      setReflectionComment("");
-      setReflectionError("");
       setMissionFlow({
         stage: "questionario_final",
         exec: latestCurrentExec || null,
@@ -4153,6 +4156,13 @@ function App() {
       exec: latestCurrentExec || null,
     });
   }, [currentConcluida, currentMission?.id, currentQuestionarioPendente, isTrainingEvent, latestCurrentExec]);
+
+  useEffect(() => {
+    if (isTrainingEvent || !currentQuestionarioPendente) return;
+    setReflectionAnswers({});
+    setReflectionComment("");
+    setReflectionError("");
+  }, [currentMission?.id, currentQuestionarioPendente, isTrainingEvent]);
 
   useEffect(() => {
     if (!teamEvent || timeTeamIdx === null || isTrainingEvent) return;

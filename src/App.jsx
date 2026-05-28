@@ -36,6 +36,9 @@ import {
   normalizeGlossaryEntries, mergeGlossaryEntries, buildTechnicalAnalysisFallbackBlocks,
   normalizeTechnicalAnalysis,
 } from "./utils.js";
+import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
+import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
+import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
 
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
@@ -53,171 +56,10 @@ const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
 const REMOTE_SYNC_POLL_MS = 2000;
 const TIMER_NOTICE_TTL_MS = 30000;
 const TIMER_LOCK_TTL_MS = 15000;
-const STUDENT_RESOURCE_SECTIONS = [
-  {
-    id: "materials",
-    title: "Materiais de aula",
-    groups: [
-      {
-        id: "materials-1-2",
-        title: "Encontros 1 e 2",
-        items: [
-          {
-            id: "class-1-2",
-            title: "Material da aula 1 e 2",
-            href: "https://drive.google.com/file/d/1fWvpYy8qbm7QsnzeDpBuFhS8dTViupig/view?usp=sharing",
-          },
-        ],
-      },
-      {
-        id: "materials-3-4",
-        items: [
-          {
-            id: "class-3-4",
-            title: "Material da aula 3 e 4",
-            href: "https://material-de-aula.vercel.app",
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: "curation",
-    title: "Curadoria",
-    groups: [
-      {
-        id: "curation-1-2",
-        title: "Encontros 1 e 2",
-        description: "Leituras e referências para aprofundar os temas dos dois primeiros encontros.",
-        items: [
-          {
-            id: "cur-apple-gemini",
-            title: "Apple fecha parceria com Google para levar o Gemini aos iPhones por meio da Siri",
-            description: "g1",
-            href: "https://g1.globo.com/tecnologia/noticia/2026/01/12/apple-fecha-parceria-com-google-para-integrar-o-gemini-a-siri.ghtml",
-          },
-          {
-            id: "cur-wef-bargain",
-            title: "AI has broken the internet’s economic bargain – here’s how we fix it",
-            description: "World Economic Forum",
-            href: "https://www.weforum.org/stories/2026/01/ai-has-broken-the-internet-s-economic-bargain-here-s-how-we-fix-it/",
-          },
-          {
-            id: "cur-estonia",
-            title: "Estonia bets on artificial intelligence to offset demographic decline",
-            description: "Estonian World",
-            href: "https://estonianworld.com/technology/estonia-bets-on-artificial-intelligence-to-offset-demographic-decline/",
-          },
-          {
-            id: "cur-recall-copyright",
-            title: "Researchers Just Found Something That Could Shake the AI Industry to its Core",
-            description: "Futurism",
-            href: "https://futurism.com/artificial-intelligence/ai-industry-recall-copyright-books",
-          },
-          {
-            id: "cur-data-centers-br",
-            title: "Dispara construção de data centers no Brasil mesmo sem incentivo fiscal",
-            description: "UOL Tilt",
-            href: "https://www.uol.com.br/tilt/noticias/redacao/2026/04/15/data-centers-devem-crescer-cinco-vez-no-brasil-mesmo-sem-incentivo-fiscal.ghtm",
-          },
-          {
-            id: "cur-follow-money",
-            title: "Follow the money",
-            description: "Bloomberg",
-            href: "https://www.bloomberg.com/news/features/2025-10-07/openai-s-nvidia-amd-deals-boost-1-trillion-ai-boom-with-circular-deals",
-          },
-          {
-            id: "cur-circular-deals",
-            title: "Efeitos piramidais e circulares",
-            description: "Bloomberg",
-            href: "https://www.bloomberg.com/news/features/2025-10-07/openai-s-nvidia-amd-deals-boost-1-trillion-ai-boom-with-circular-deals",
-          },
-          {
-            id: "cur-androides",
-            title: "Androides sonham com leitores de carne e osso?",
-            description: "Folha",
-            href: "https://www1.folha.uol.com.br/colunas/alexandra-moraes-ombudsman/2026/02/androides-sonham-com-leitores-de-carne-e-osso.shtml",
-          },
-          {
-            id: "cur-moltbook",
-            title: "Moltbook was peak AI theater",
-            description: "Technology Review — busca sugerida",
-            href: "https://www.technologyreview.com",
-          },
-          {
-            id: "cur-claude-apocalypse",
-            title: "The Only Thing Standing Between Humanity and AI Apocalypse Is… Claude?",
-            description: "Wired",
-            href: "https://www.wired.com/story/the-only-thing-standing-between-humanity-and-ai-apocalypse-is-claude/",
-          },
-          {
-            id: "cur-block-jobs",
-            title: "Jack Dorsey’s Block cuts thousands of jobs as it embraces AI",
-            description: "BBC",
-            href: "https://www.bbc.com/news/articles/cq570d12y9do",
-          },
-          {
-            id: "cur-pokemon-go",
-            title: "Pokémon Go players built a 30-billion-photo map...",
-            description: "MIT Technology Review",
-            href: "https://www.technologyreview.com/2026/03/10/1134099/how-pokemon-go-is-helping-robots-deliver-pizza-on-time/",
-          },
-          {
-            id: "cur-anthropic-risk",
-            title: "Anthropic Hits Back After US Military Labels It a ‘Supply Chain Risk’",
-            description: "Wired",
-            href: "https://www.wired.com/story/anthropic-supply-chain-risk-shockwaves-silicon-valley/",
-          },
-          {
-            id: "cur-amazon-outages",
-            title: "Amazon convenes 'deep dive' internal meeting to address outages",
-            description: "CNBC",
-            href: "https://www.cnbc.com/2026/03/10/amazon-plans-deep-dive-internal-meeting-address-ai-related-outages.html",
-          },
-          {
-            id: "cur-roi-ai",
-            title: "O ROI do uso de IA",
-            description: "Wall Street Journal",
-            href: "https://www.wsj.com/tech/ai/ai-tokens-productivity-d35c6bd8",
-          },
-        ],
-      },
-    ],
-  },
-];
 const MAX_ATTACHMENT_COUNT = 3;
-
-function getStudentResourcePreviewUrl(href = "") {
-  if (!href) return "";
-  try {
-    const url = new URL(href);
-    if (url.hostname.includes("drive.google.com")) {
-      const match = href.match(/\/file\/d\/([^/]+)/);
-      if (match?.[1]) {
-        return `https://drive.google.com/file/d/${match[1]}/preview`;
-      }
-    }
-    return href;
-  } catch {
-    return href;
-  }
-}
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 12000;
 const ATTACHMENT_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp";
-const TRAINING_MISSION = {
-  id: TRAINING_THREAD_ID,
-  num: 0,
-  aiMode: CHAT_AI_MODE,
-  name: "Modo treino",
-  category: "livre",
-  desc: "Laboratório livre para explorar prompts sem catálogo de missões.",
-  situacao: "Use este espaço para experimentar perguntas, reformulações e conversas livres com a IA.",
-  instrucao: "Escreva o prompt livremente. Você pode iterar, testar variações e pedir ajuda ao facilitador quando quiser.",
-  placeholder: "Escreva aqui o que você quer testar...",
-  acoes: [],
-};
-
 const SURVIVAL_CHAT_MISSION = {
   id: "survival_chat",
   num: 0,
@@ -244,162 +86,8 @@ const SURVIVAL_CODING_MISSION = {
   acoes: [],
 };
 
-const AI_MODE_LABELS = {
-  [CHAT_AI_MODE]: "Chat",
-  [CODING_AI_MODE]: "Coding",
-};
-
-const RESPOND_IN_PT = "Responda sempre em portugues do Brasil, qualquer que seja o idioma do pedido, dos anexos ou do historico.";
-const PLAN_CLOSING_QUESTION = "Ao final do plano, pergunte ao usuario se ele aprova o plano e quer que voce inicie a execucao, se prefere ajustar algum ponto ou se tem feedbacks a dar antes de prosseguir.";
-
-const SYSTEM_PROMPTS = {
-  [CHAT_AI_MODE]: {
-    off: [
-      "Voce e o assistente de chat do Tech Hall AI Lab, especializado em analise geral: sintetizar, comparar, interpretar, organizar e revisar informacoes com clareza estrutural.",
-      "Responda de forma util, clara e honesta. Nao invente fatos ausentes e diferencie o que esta explicito do que e inferencia. Se o pedido estiver vago, ajude a melhorar o prompt antes de responder.",
-      RESPOND_IN_PT,
-    ].join(" "),
-    on: [
-      "Voce e o assistente de chat do Tech Hall AI Lab em modo planejamento. Sua unica tarefa e planejar como a solicitacao seria resolvida, sem executa-la.",
-      "Nao produza o resultado ou o entregavel final: entregue apenas um plano claro com objetivo, premissas, etapas ordenadas, decisoes e trade-offs, dependencias e riscos.",
-      "Pare apos apresentar o plano, mesmo que o pedido peca o resultado pronto.",
-      PLAN_CLOSING_QUESTION,
-      RESPOND_IN_PT,
-    ].join(" "),
-  },
-  [CODING_AI_MODE]: {
-    off: [
-      "Voce e o assistente de programacao do Tech Hall AI Lab. Priorize codigo funcional, debugging, arquitetura, refatoracao, explicacoes tecnicas e exemplos praticos orientados a implementacao, mostrando implementacoes concretas, riscos, trade-offs e cuidados de manutencao.",
-      "Quando a resposta principal for codigo utilizavel, entregue arquivos reais em blocos nomeados com a linguagem (por exemplo, ```js app.js```); para interfaces ou prototipos web, prefira um unico HTML autocontido em um bloco ```html index.html```. Depois dos blocos, adicione apenas notas curtas de uso ou proximos passos.",
-      RESPOND_IN_PT,
-    ].join(" "),
-    on: [
-      "Voce e o assistente de programacao do Tech Hall AI Lab em modo planejamento. Sua unica tarefa e planejar a abordagem tecnica, sem implementa-la.",
-      "Nao escreva o codigo final nem produza o entregavel: entregue apenas um plano claro com objetivo, premissas, arquitetura proposta, etapas ordenadas, decisoes e trade-offs tecnicos, dependencias e riscos.",
-      "Pare apos apresentar o plano, mesmo que o pedido peca o codigo pronto.",
-      PLAN_CLOSING_QUESTION,
-      RESPOND_IN_PT,
-    ].join(" "),
-  },
-};
-
-function getSystemPrompt(aiMode, planningMode = "off") {
-  const byMode = SYSTEM_PROMPTS[aiMode] || SYSTEM_PROMPTS[CHAT_AI_MODE];
-  return planningMode === "on" ? byMode.on : byMode.off;
-}
-
-const FIXED_MISSION_TEMPLATE = "fixed-v2";
-
-const FIXED_MISSIONS_CATALOG = [
-  {
-    id: "mission_general_chat",
-    num: 1,
-    aiMode: CHAT_AI_MODE,
-    name: "Análise geral",
-    category: "chat",
-    desc: "Missão ampla para análise, síntese, interpretação, revisão crítica e estruturação de informação.",
-    situacao:
-      "Use esta missão quando o time precisar pensar, resumir, comparar, organizar ideias, revisar uma resposta ou transformar material disperso em algo útil para decisão.",
-    instrucao:
-      "Escreva o pedido livremente e contextualize o objetivo, o destinatário e o formato esperado da resposta. A IA vai atuar como parceira de análise geral.",
-    placeholder:
-      "Cole seu contexto, pergunta, notas, briefing, resposta de IA ou material bruto. Ex.: \"Preciso transformar estas anotações em um resumo executivo com próximos passos.\"",
-    acoes: [],
-  },
-  {
-    id: "mission_programming_coding",
-    num: 2,
-    aiMode: CODING_AI_MODE,
-    name: "Programação",
-    category: "coding",
-    desc: "Missão dedicada a código, debugging, arquitetura, refatoração e exemplos práticos.",
-    situacao:
-      "Use esta missão quando o time precisar programar, depurar, revisar arquitetura, refatorar código ou transformar uma ideia técnica em implementação concreta.",
-    instrucao:
-      "Descreva o problema técnico, cole código quando existir e diga o resultado esperado. A IA vai responder priorizando implementação, debugging e decisões de engenharia.",
-    placeholder:
-      "Cole o código, o erro, a arquitetura ou o requisito. Ex.: \"Este componente React renderiza duas vezes e quebra o estado. Quero entender a causa e corrigir com uma solução limpa.\"",
-    acoes: [],
-  },
-];
-
-const MOCKS = {
-  mission_general_chat: (input) =>
-    `ANÁLISE GERAL\n\nLeitura principal:\n- Objetivo central identificado a partir do pedido.\n- Pontos prioritários organizados para resposta útil.\n- Lacunas ou ambiguidades marcadas quando faltou contexto.\n\nPróximo passo sugerido:\n- Refinar o pedido com destinatário, formato e critério de prioridade.\n\nTrecho de contexto recebido:\n"${input.slice(0, 140)}${input.length > 140 ? "..." : ""}"`,
-  mission_programming_coding: (input) =>
-    `RESPOSTA DE PROGRAMAÇÃO\n\nDiagnóstico inicial:\n- Identifiquei o problema técnico principal no pedido.\n- Priorizaria uma solução implementável, com explicação de trade-offs.\n- Se o contexto estiver incompleto, começo pelo caminho mais seguro e explicito as suposições.\n\nAbordagem prática:\n1. Isolar a causa provável.\n2. Propor correção concreta.\n3. Explicar impacto em arquitetura, manutenção e debugging.\n\nTrecho do pedido técnico:\n"${input.slice(0, 140)}${input.length > 140 ? "..." : ""}"`,
-};
-
-const EXPLICACOES = {
-  mission_general_chat:
-    "Estratégia: leitura ampla e organizada do pedido, com foco em síntese, clareza estrutural e utilidade para decisão. A IA prioriza o que parece central, explicita ambiguidades e evita inventar fatos que não apareceram no material.",
-  mission_programming_coding:
-    "Estratégia: abordagem orientada a implementação. A IA lê o pedido como problema técnico, prioriza debugging, arquitetura, refatoração e exemplos concretos, e tenta responder com passos reproduzíveis e decisões de engenharia justificadas.",
-};
 
 const STORE = "techhall:v3";
-const FALLBACK_MODEL_CATALOG = {
-  chat: [
-    { id: "gpt-4o-mini", label: "GPT-4o mini", releasedAt: "2024-07", pricing: { input: 0.15, output: 0.6 } },
-    { id: "gpt-4.1-mini", label: "GPT-4.1 mini", releasedAt: "2025-04", pricing: { input: 0.4, output: 1.6 } },
-    { id: "gpt-4o", label: "GPT-4o", releasedAt: "2024-05", pricing: { input: 5, output: 15 } },
-    { id: "gpt-4.1", label: "GPT-4.1", releasedAt: "2025-04", pricing: { input: 2, output: 8 } },
-    { id: "gpt-5-mini", label: "GPT-5 mini", releasedAt: "2025-08", pricing: { input: 0.25, output: 2 } },
-    { id: "gpt-5", label: "GPT-5", releasedAt: "2025-08", pricing: { input: 1.25, output: 10 } },
-  ],
-  coding: [
-    { id: "gpt-5.1-codex-mini", label: "GPT-5.1 Codex Mini", releasedAt: "2025-11", pricing: { input: 0.25, output: 2 } },
-    { id: "gpt-5.1-codex", label: "GPT-5.1 Codex", releasedAt: "2025-11", pricing: { input: 1.25, output: 10 } },
-    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", releasedAt: "2026-02", pricing: { input: 1.75, output: 14 } },
-  ],
-};
-const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
-const DEFAULT_CODING_MODEL = "gpt-5.1-codex-mini";
-function getModelCatalog(serverConfig) {
-  const models = serverConfig?.models;
-  if (models && Array.isArray(models.chat) && models.chat.length && Array.isArray(models.coding) && models.coding.length) {
-    return models;
-  }
-  return FALLBACK_MODEL_CATALOG;
-}
-
-function getModelsForMode(catalog, aiMode) {
-  return aiMode === CODING_AI_MODE ? catalog.coding : catalog.chat;
-}
-
-function getCatalogEntries(catalog) {
-  return [...(catalog?.chat || []), ...(catalog?.coding || [])];
-}
-
-function findModelEntry(catalog, id) {
-  return getCatalogEntries(catalog).find((model) => model.id === id) || null;
-}
-
-function getModelPricingMap(catalog) {
-  const map = {};
-  getCatalogEntries(catalog).forEach((model) => {
-    if (model?.id && model.pricing) map[model.id] = model.pricing;
-  });
-  return map;
-}
-
-function getModelLabel(catalog, id) {
-  return findModelEntry(catalog, id)?.label || id;
-}
-
-function getDefaultModelForMode(serverConfig, aiMode) {
-  if (aiMode === CODING_AI_MODE) {
-    return serverConfig?.defaultCodingModel || DEFAULT_CODING_MODEL;
-  }
-  return serverConfig?.defaultChatModel || DEFAULT_CHAT_MODEL;
-}
-
-const SIMULATION_STEPS = [
-  { key: "analisando", label: "analisando pedido" },
-  { key: "estrategia", label: "selecionando estratégia" },
-  { key: "gerando", label: "gerando resposta" },
-  { key: "finalizando", label: "finalizando" },
-];
 const SHOW_DEV_SWITCH = true;
 
 function buildRunSteps(apiConfigured) {
@@ -412,19 +100,6 @@ function buildRunSteps(apiConfigured) {
     label: step.label,
   }));
 }
-const MISSION_CONCEPTS = {
-  mission_general_chat: [
-    { name: "Síntese", explanation: "Condensa contexto extenso em uma resposta mais clara e utilizável." },
-    { name: "Estruturação", explanation: "Organiza o pedido em blocos lógicos para melhorar entendimento e decisão." },
-    { name: "Ambiguidade controlada", explanation: "Explicita lacunas e evita preencher informação ausente como se fosse fato." },
-  ],
-  mission_programming_coding: [
-    { name: "Debugging", explanation: "Isola a causa provável de um erro antes de propor correção." },
-    { name: "Refatoração", explanation: "Melhora clareza, manutenção e robustez sem alterar o objetivo funcional." },
-    { name: "Trade-off técnico", explanation: "Explica custo, risco e benefício das escolhas de implementação." },
-  ],
-};
-
 function loadStore() {
   try {
     return JSON.parse(localStorage.getItem(STORE) || "{}");

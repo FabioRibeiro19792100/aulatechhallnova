@@ -40,6 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
+import { listEvents as listEventsPerTeam } from "./api/perTeam.js";
 
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
@@ -2585,7 +2586,7 @@ function App() {
         if (cancelled) return;
         setServerConfig(config);
 
-        if (config.sharedStateConfigured) {
+        if (config.sharedStateConfigured && !config.usePerTeamBackend) {
           const remoteState = await fetchRemoteStateWithRetry(3);
           if (cancelled || !remoteState) return;
           syncServerClock(remoteState.serverNowMs);
@@ -2595,6 +2596,12 @@ function App() {
             ...current,
             events: normalizedRemoteEvents,
           }));
+        }
+
+        if (config.sharedStateConfigured && config.usePerTeamBackend) {
+          const eventList = await listEventsPerTeam();
+          if (cancelled) return;
+          setStore((current) => ({ ...current, eventList }));
         }
       } catch (error) {
         console.error("[state] falha ao carregar estado remoto:", error);
@@ -2650,6 +2657,7 @@ function App() {
 
   useEffect(() => {
     if (!storeHydrated) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     const serializedEvents = JSON.stringify(store.events || []);
     if (serializedEvents === lastRemoteEventsRef.current) return undefined;
@@ -2681,10 +2689,11 @@ function App() {
     }, REMOTE_SYNC_SAVE_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [serverConfig.sharedStateConfigured, store.events, storeHydrated]);
+  }, [serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend, store.events, storeHydrated]);
 
   useEffect(() => {
     if (!storeHydrated || !supabaseRealtimeClient || !serverConfig.remoteStateKey) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     const activeEventId = timeEventId || facSelectedId;
     const activeStateKey = activeEventId ? `event-${activeEventId}` : serverConfig.remoteStateKey;
@@ -2724,7 +2733,7 @@ function App() {
     return () => {
       supabaseRealtimeClient.removeChannel(channel);
     };
-  }, [serverConfig.remoteStateKey, storeHydrated, supabaseRealtimeClient, timeEventId, facSelectedId]);
+  }, [serverConfig.remoteStateKey, serverConfig.usePerTeamBackend, storeHydrated, supabaseRealtimeClient, timeEventId, facSelectedId]);
 
   // Poll config at a low frequency — it rarely changes and doesn't need realtime cadence
   useEffect(() => {
@@ -2745,6 +2754,7 @@ function App() {
   // Poll state as fallback — slower when Realtime is active, faster when it's not
   useEffect(() => {
     if (!["workspace", "facilitador", "team", "entry"].includes(screen)) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     const interval = supabaseRealtimeClient ? STATE_POLL_MS_WITH_REALTIME : STATE_POLL_MS_WITHOUT_REALTIME;
 
@@ -2787,11 +2797,12 @@ function App() {
     }, interval);
 
     return () => window.clearInterval(timer);
-  }, [screen, serverConfig.sharedStateConfigured, supabaseRealtimeClient]);
+  }, [screen, serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend, supabaseRealtimeClient]);
 
   useEffect(() => {
     if (!["workspace", "facilitador", "team"].includes(screen)) return undefined;
     if (!serverConfig.sharedStateConfigured) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     let cancelled = false;
     const syncImmediately = async () => {
@@ -2828,7 +2839,7 @@ function App() {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [screen, serverConfig.sharedStateConfigured]);
+  }, [screen, serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend]);
 
   useEffect(() => {
     if (!storeHydrated || !isLocalDev) return;

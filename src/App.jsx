@@ -4549,7 +4549,6 @@ function App() {
   const survivalExecs = survivalSelectedMode ? survivalConversations[survivalSelectedMode] || [] : [];
   const survivalDraft = survivalSelectedMode ? survivalDrafts[survivalSelectedMode] || "" : "";
   const survivalTokenTotal = survivalExecs.reduce((sum, exec) => sum + (exec.tokens || 0), 0);
-  const survivalCostTotal = survivalExecs.reduce((sum, exec) => sum + (exec.custo || 0), 0);
   const survivalRecentTransactions = [...survivalExecs].slice(-5).reverse();
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
@@ -8355,7 +8354,6 @@ function App() {
                       <span>Extrato local</span>
                       <strong>{survivalTokenTotal.toLocaleString("pt-BR")} tok</strong>
                     </div>
-                    <div className="survival-token-rail-value">~{formatBRL(survivalCostTotal * USD_TO_BRL)}</div>
                     <div className="survival-token-rail-subtitle">Últimas 5 transações</div>
                     {survivalRecentTransactions.length ? (
                       <div className="survival-token-list">
@@ -8377,7 +8375,6 @@ function App() {
                               <strong>{(exec.tokens || 0).toLocaleString("pt-BR")}</strong>
                               <span>tok</span>
                             </div>
-                            <div className="survival-token-item-value">~{formatBRL((exec.custo || 0) * USD_TO_BRL)}</div>
                           </div>
                         ))}
                       </div>

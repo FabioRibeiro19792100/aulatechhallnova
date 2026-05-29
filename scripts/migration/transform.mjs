@@ -89,7 +89,7 @@ export function extractExecutions(event) {
         team_idx: teamIdx,
         mission_id: missionId,
         kind: exec.kind || "chat",
-        payload: stripIdAndTs(exec),
+        payload: stripFields(exec, ["id", "ts", "createdAt", "kind", "tokens", "custo"]),
         tokens: exec.tokens || {},
         custo: exec.custo ?? null,
         created_at: exec.ts || exec.createdAt || new Date(0).toISOString(),
@@ -109,7 +109,7 @@ export function extractExecutions(event) {
         team_idx: teamIdx,
         mission_id: "__training__",
         kind: "training",
-        payload: stripIdAndTs(exec),
+        payload: stripFields(exec, ["id", "ts", "createdAt", "kind", "tokens", "custo"]),
         tokens: exec.tokens || {},
         custo: exec.custo ?? null,
         created_at: exec.ts || exec.createdAt || new Date(0).toISOString(),
@@ -126,20 +126,20 @@ export function extractTokenLogs(event) {
     event_id: event.id,
     team_idx: entry.teamIdx ?? null,
     mission_id: entry.missionId || null,
-    payload: stripIdAndTs(entry),
+    payload: stripFields(entry, ["id", "ts", "createdAt", "teamIdx", "missionId"]),
     created_at: entry.ts || entry.createdAt || new Date(0).toISOString(),
   }));
 }
 
 export function extractHelpRequests(event) {
   const list = Array.isArray(event.helpRequests) ? event.helpRequests : [];
-  return list.map((entry) => ({
-    id: `${entry.id || `${event.id}_${entry.teamIdx}_${entry.createdAt || entry.ts || Math.random()}`}`,
+  return list.map((entry, i) => ({
+    id: `${entry.id || `${event.id}_hr_${entry.teamIdx ?? 0}_${i}`}`,
     event_id: event.id,
     team_idx: entry.teamIdx ?? 0,
     mission_id: entry.missionId || null,
     status: entry.status || "open",
-    payload: stripIdAndTs(entry),
+    payload: stripFields(entry, ["id", "ts", "createdAt", "updatedAt", "resolvedAt", "cancelledAt", "teamIdx", "missionId", "status"]),
     created_at: entry.createdAt || entry.ts || new Date(0).toISOString(),
     updated_at: entry.updatedAt || entry.resolvedAt || entry.cancelledAt || entry.createdAt || entry.ts || new Date(0).toISOString(),
   }));
@@ -152,13 +152,16 @@ export function extractPresence(event) {
     .map(([teamIdxRaw, value]) => ({
       event_id: event.id,
       team_idx: Number(teamIdxRaw),
-      member_name: value.memberName || "",
+      member_name: value.memberName ?? "",
       last_seen_at: value.lastSeenAt,
     }));
 }
 
-function stripIdAndTs(item) {
+function stripFields(item, fields) {
   if (!item || typeof item !== "object") return {};
-  const { id: _id, ts: _ts, createdAt: _createdAt, ...rest } = item;
-  return rest;
+  const out = {};
+  for (const [k, v] of Object.entries(item)) {
+    if (!fields.includes(k)) out[k] = v;
+  }
+  return out;
 }

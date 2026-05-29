@@ -132,3 +132,66 @@ describe("extractPresence", () => {
     });
   });
 });
+
+describe("idempotent ids", () => {
+  it("uses stable index when help-request id is missing", () => {
+    const event = {
+      id: "evt_x",
+      teams: [],
+      helpRequests: [
+        { teamIdx: 0, status: "open" },
+        { teamIdx: 1, status: "open" },
+      ],
+    };
+    const a = extractHelpRequests(event);
+    const b = extractHelpRequests(event);
+    expect(a[0].id).toBe(b[0].id);
+    expect(a[1].id).toBe(b[1].id);
+    expect(a[0].id).not.toBe(a[1].id);
+  });
+});
+
+describe("no promoted-column duplication", () => {
+  const event = {
+    id: "evt_y",
+    teams: [],
+    execucoes: {
+      "0__m_x": [{ id: "ex_a", ts: "2026-05-29T00:00:00Z", kind: "coding", tokens: { total: 1 }, custo: 1.5, output: "ok" }],
+    },
+    trainingRuns: {
+      "0": [{ id: "tr_a", ts: "2026-05-29T00:01:00Z", tokens: { total: 2 }, custo: 0.5, output: "ok" }],
+    },
+    tokenOperationalLogs: [{ teamIdx: 0, missionId: "m_x", ts: "2026-05-29T00:02:00Z", delta: -5 }],
+    helpRequests: [{ id: "h_a", teamIdx: 0, missionId: "m_x", status: "open", createdAt: "2026-05-29T00:03:00Z", payload_note: "keep me" }],
+  };
+
+  it("strips kind/tokens/custo from execution payload", () => {
+    const rows = extractExecutions(event);
+    rows.forEach((row) => {
+      expect(row.payload.kind).toBeUndefined();
+      expect(row.payload.tokens).toBeUndefined();
+      expect(row.payload.custo).toBeUndefined();
+      expect(row.payload.id).toBeUndefined();
+      expect(row.payload.ts).toBeUndefined();
+    });
+    const chat = rows.find((r) => r.id === "ex_a");
+    expect(chat.payload.output).toBe("ok");
+  });
+
+  it("strips teamIdx/missionId from token log payload", () => {
+    const [row] = extractTokenLogs(event);
+    expect(row.payload.teamIdx).toBeUndefined();
+    expect(row.payload.missionId).toBeUndefined();
+    expect(row.payload.delta).toBe(-5);
+  });
+
+  it("strips teamIdx/missionId/status/timestamps from help request payload", () => {
+    const [row] = extractHelpRequests(event);
+    expect(row.payload.teamIdx).toBeUndefined();
+    expect(row.payload.missionId).toBeUndefined();
+    expect(row.payload.status).toBeUndefined();
+    expect(row.payload.createdAt).toBeUndefined();
+    expect(row.payload.id).toBeUndefined();
+    expect(row.payload.payload_note).toBe("keep me");
+  });
+});

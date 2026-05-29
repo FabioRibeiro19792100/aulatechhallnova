@@ -8,7 +8,6 @@ import {
   extractDocumentText,
   getRemoteAppState,
   getRuntimeConfig,
-  initCache,
   removeOpenAIKey,
   saveRemoteAppState,
   saveOpenAIKey,
@@ -16,8 +15,6 @@ import {
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
-
-await initCache();
 
 app.use(express.json());
 

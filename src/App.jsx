@@ -2562,6 +2562,28 @@ function App() {
       };
     };
     const reshapedExecs = execKey ? perTeamExecutionsHook.executions.map(reshapeExec) : [];
+    const reshapeHelpRequest = (row) => {
+      const payload = row?.payload || {};
+      return {
+        ...payload,
+        id: row.id,
+        teamIdx: row.team_idx,
+        missionId: row.mission_id,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    };
+    const reshapeTokenLog = (row) => {
+      const payload = row?.payload || {};
+      return {
+        ...payload,
+        id: row.id,
+        teamIdx: row.team_idx,
+        missionId: row.mission_id,
+        createdAt: row.created_at,
+      };
+    };
     const isTraining = perTeamMissionId === "__training__";
     return {
       ...teamEvent,
@@ -2576,10 +2598,10 @@ function App() {
       preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
       trainingRuns: isTraining ? { [perTeamTeamIdx]: reshapedExecs } : {},
       anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
-      helpRequests: (perTeamHelpHook.items || []).filter(
-        (item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id),
-      ),
-      tokenOperationalLogs: perTeamTokenLogHook.items || [],
+      helpRequests: (perTeamHelpHook.items || [])
+        .filter((item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id))
+        .map(reshapeHelpRequest),
+      tokenOperationalLogs: (perTeamTokenLogHook.items || []).map(reshapeTokenLog),
     };
   }, [
     teamEvent,
@@ -2651,8 +2673,28 @@ function App() {
         });
         return groups;
       })(),
-      helpRequests: dash.helpRequests || [],
-      tokenOperationalLogs: dash.tokenLogs || [],
+      helpRequests: (dash.helpRequests || []).map((row) => {
+        const payload = row?.payload || {};
+        return {
+          ...payload,
+          id: row.id,
+          teamIdx: row.team_idx,
+          missionId: row.mission_id,
+          status: row.status,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      }),
+      tokenOperationalLogs: (dash.tokenLogs || []).map((row) => {
+        const payload = row?.payload || {};
+        return {
+          ...payload,
+          id: row.id,
+          teamIdx: row.team_idx,
+          missionId: row.mission_id,
+          createdAt: row.created_at,
+        };
+      }),
       presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
     };
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);

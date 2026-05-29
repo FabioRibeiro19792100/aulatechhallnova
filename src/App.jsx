@@ -41,6 +41,12 @@ import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
 import { listEvents as listEventsPerTeam } from "./api/perTeam.js";
+import { useEventState } from "./hooks/useEventState.js";
+import { useTeamState } from "./hooks/useTeamState.js";
+import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
+import { useHelpRequests } from "./hooks/useHelpRequests.js";
+import { useTokenLogs } from "./hooks/useTokenLogs.js";
+import { usePresence } from "./hooks/usePresence.js";
 
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
@@ -2931,6 +2937,25 @@ function App() {
     }
   }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
+
+  const usePerTeamBackend = Boolean(serverConfig?.usePerTeamBackend);
+  const workspaceActive = usePerTeamBackend && screen === "workspace";
+  const perTeamEventId = workspaceActive ? timeEventId : null;
+  const perTeamTeamIdx = workspaceActive ? timeTeamIdx : null;
+  const perTeamMissionId = workspaceActive ? currentMission?.id ?? null : null;
+
+  const perTeamEventStateHook = useEventState(perTeamEventId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamTeamStateHook = useTeamState(perTeamEventId, perTeamTeamIdx, { realtimeClient: supabaseRealtimeClient });
+  const perTeamExecutionsHook = useTeamExecutions(perTeamEventId, perTeamTeamIdx, perTeamMissionId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamHelpHook = useHelpRequests(perTeamEventId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamTokenLogHook = useTokenLogs(perTeamEventId, { realtimeClient: supabaseRealtimeClient, teamIdx: perTeamTeamIdx });
+  usePresence({
+    eventId: perTeamEventId,
+    teamIdx: perTeamTeamIdx,
+    memberName: activeStudentName,
+    enabled: workspaceActive,
+  });
+
   const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
   const currentExecs = currentMission && teamEvent
     ? isTrainingEvent
@@ -3283,6 +3308,9 @@ function App() {
   }
 
   function markTeamPresence(eventId, teamIdx, memberName) {
+    if (usePerTeamBackend) {
+      return;
+    }
     if (!eventId || teamIdx === null || teamIdx === undefined) return;
     const normalizedName = normalizeStudentName(memberName || "");
     const now = Date.now();
@@ -4708,6 +4736,19 @@ function App() {
   }
 
   function saveExecution(eventId, teamIdx, missionId, execData) {
+    if (usePerTeamBackend) {
+      const executionId = `${execData.id || `${teamIdx}_${missionId}_${execData.ts || Date.now()}`}`;
+      void perTeamExecutionsHook.append({
+        id: executionId,
+        mission_id: missionId,
+        kind: execData.aiMode === CODING_AI_MODE ? "coding" : "chat",
+        payload: execData,
+        tokens: execData.usage || execData.tokens || {},
+        custo: execData.cost ?? execData.custo ?? null,
+        created_at: execData.ts || new Date().toISOString(),
+      });
+      return;
+    }
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -4721,6 +4762,19 @@ function App() {
   }
 
   function saveTrainingExecution(eventId, teamIdx, execData) {
+    if (usePerTeamBackend) {
+      const executionId = `${execData.id || `training_${teamIdx}_${execData.ts || Date.now()}`}`;
+      void perTeamExecutionsHook.append({
+        id: executionId,
+        mission_id: "__training__",
+        kind: "training",
+        payload: execData,
+        tokens: execData.usage || execData.tokens || {},
+        custo: execData.cost ?? execData.custo ?? null,
+        created_at: execData.ts || new Date().toISOString(),
+      });
+      return;
+    }
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -4860,6 +4914,39 @@ function App() {
   }
 
   function saveReflection(eventId, teamIdx, missionId, missionName, respostas, comment) {
+    if (usePerTeamBackend) {
+      const submittedAt = new Date().toISOString();
+      const reflexao = {
+        key: `${teamIdx}__${missionId}`,
+        teamIdx,
+        missionId,
+        missionName,
+        respostas,
+        comment: comment || "",
+        submittedAt,
+        ts: submittedAt,
+      };
+      void perTeamTeamStateHook.update((payload) => {
+        const pendingMap = { ...(payload?.questionariosPendentes || {}) };
+        const pendingEntry = pendingMap[missionId];
+        delete pendingMap[missionId];
+        const pendingSource = typeof pendingEntry === "object" && pendingEntry ? pendingEntry.source : "team";
+        return {
+          ...(payload || {}),
+          reflexoes: { ...(payload?.reflexoes || {}), [missionId]: reflexao },
+          questionariosPendentes: pendingMap,
+          conclusoes: {
+            ...(payload?.conclusoes || {}),
+            [missionId]: {
+              closedAt: submittedAt,
+              updatedAt: submittedAt,
+              source: pendingSource === "team" ? "team" : "facilitator",
+            },
+          },
+        };
+      });
+      return;
+    }
     updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -5356,6 +5443,25 @@ function App() {
     const message = helpMessage.trim();
     if (!message) return;
     if (currentOpenHelpRequest) return;
+    if (usePerTeamBackend) {
+      const requestId = `hr_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+      void perTeamHelpHook.create({
+        id: requestId,
+        team_idx: timeTeamIdx,
+        mission_id: currentMission?.id || null,
+        status: "open",
+        payload: {
+          message,
+          missionName: currentMission?.name || "",
+          memberName: activeStudentName || "",
+        },
+        created_at: new Date().toISOString(),
+      });
+      setHelpOpen(false);
+      setHelpMessage("");
+      showToast("Pedido de ajuda enviado ao facilitador");
+      return;
+    }
     const nowIso = new Date(getSyncedNowMs()).toISOString();
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== teamEvent.id

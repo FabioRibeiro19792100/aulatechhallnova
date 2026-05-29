@@ -29,8 +29,9 @@ export function useEventState(eventId, { realtimeClient } = {}) {
     realtimeClient,
     { table: "event_state", filter: eventId ? `event_id=eq.${eventId}` : null, enabled: Boolean(eventId) },
     useCallback((change) => {
-      const row = change.new || change.old;
-      if (!row) return;
+      if (change.eventType === "DELETE") return;
+      const row = change.new;
+      if (!row || row.version === undefined) return;
       setState({ payload: row.payload || {}, version: row.version, updated_at: row.updated_at });
     }, []),
   );

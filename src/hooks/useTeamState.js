@@ -39,8 +39,9 @@ export function useTeamState(eventId, teamIdx, { realtimeClient } = {}) {
     },
     useCallback(
       (change) => {
-        const row = change.new || change.old;
-        if (!row || row.team_idx !== teamIdx) return;
+        if (change.eventType === "DELETE") return;
+        const row = change.new;
+        if (!row || row.team_idx !== teamIdx || row.version === undefined) return;
         setState({ payload: row.payload || {}, version: row.version, updated_at: row.updated_at });
       },
       [teamIdx],

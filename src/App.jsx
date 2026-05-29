@@ -4812,6 +4812,21 @@ function App() {
       return;
     }
     const concludedAt = new Date().toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const pending = { ...(existing.questionariosPendentes || {}) };
+        delete pending[missionId];
+        return {
+          ...existing,
+          questionariosPendentes: pending,
+          conclusoes: {
+            ...(existing.conclusoes || {}),
+            [missionId]: { closedAt: concludedAt, updatedAt: concludedAt, source: "facilitator_no_evaluation" },
+          },
+        };
+      });
+    });
     updateCriticalEvents((current) =>
       current.map((item) => {
         if (item.id !== eventId) return item;

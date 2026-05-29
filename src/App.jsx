@@ -2933,14 +2933,17 @@ function App() {
   ) : null;
 
   function updateEvents(updater) {
-    setStore((current) => {
-      const previousEvents = current.events || [];
-      const nextEvents = updater(previousEvents);
-      if (nextEvents === previousEvents) return current;
-      return {
-        ...current,
-        events: stampUpdatedEvents(previousEvents, nextEvents),
-      };
+    const previousEvents = currentEventsRef.current || [];
+    const nextEvents = updater(previousEvents);
+    if (nextEvents === previousEvents) return;
+    const stamped = stampUpdatedEvents(previousEvents, nextEvents);
+    currentEventsRef.current = stamped;
+    setStore((current) => ({ ...current, events: stamped }));
+    const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+    stamped.forEach((event) => {
+      if (previousById.get(event.id) !== event) {
+        void pushEventStateChange(event.id, event);
+      }
     });
   }
 

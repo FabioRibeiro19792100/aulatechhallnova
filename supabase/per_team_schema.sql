@@ -40,7 +40,7 @@ create index if not exists executions_slot on public.executions (event_id, team_
 create index if not exists executions_event on public.executions (event_id, created_at desc);
 
 create table if not exists public.token_operational_logs (
-  id          bigserial primary key,
+  id          text primary key,
   event_id    text not null,
   team_idx    int,
   mission_id  text,

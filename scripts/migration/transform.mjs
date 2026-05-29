@@ -122,7 +122,8 @@ export function extractExecutions(event) {
 
 export function extractTokenLogs(event) {
   const list = Array.isArray(event.tokenOperationalLogs) ? event.tokenOperationalLogs : [];
-  return list.map((entry) => ({
+  return list.map((entry, i) => ({
+    id: `${entry.id || `${event.id}_tl_${i}`}`,
     event_id: event.id,
     team_idx: entry.teamIdx ?? null,
     mission_id: entry.missionId || null,

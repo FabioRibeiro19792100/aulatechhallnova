@@ -37,17 +37,22 @@ async function call(env, pathname, options = {}) {
 async function loadAppState(env) {
   const rows = await call(env, `/rest/v1/app_state?id=eq.${APP_STATE_KEY}&select=payload`);
   if (!rows?.length) throw new Error(`app_state ${APP_STATE_KEY} não encontrado.`);
-  const events = rows[0].payload?.events || [];
+  const events = rows[0].payload?.events;
+  if (!Array.isArray(events)) {
+    throw new Error(`app_state ${APP_STATE_KEY}.payload.events não é um array.`);
+  }
   return events;
 }
 
-async function insertMany(env, table, rows, { ignoreConflict = true } = {}) {
+async function insertMany(env, table, rows, { chunkSize = 200 } = {}) {
   if (!rows.length) return { inserted: 0 };
-  await call(env, `/rest/v1/${table}`, {
-    method: "POST",
-    headers: ignoreConflict ? { Prefer: "resolution=ignore-duplicates,return=minimal" } : { Prefer: "return=minimal" },
-    body: rows,
-  });
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    await call(env, `/rest/v1/${table}`, {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: rows.slice(i, i + chunkSize),
+    });
+  }
   return { inserted: rows.length };
 }
 

@@ -149,6 +149,22 @@ describe("idempotent ids", () => {
     expect(a[1].id).toBe(b[1].id);
     expect(a[0].id).not.toBe(a[1].id);
   });
+
+  it("uses stable index when token-log id is missing", () => {
+    const event = {
+      id: "evt_x",
+      teams: [],
+      tokenOperationalLogs: [
+        { teamIdx: 0, ts: "2026-05-29T00:00:00Z", delta: -10 },
+        { teamIdx: 1, ts: "2026-05-29T00:00:01Z", delta: -20 },
+      ],
+    };
+    const a = extractTokenLogs(event);
+    const b = extractTokenLogs(event);
+    expect(a[0].id).toBe(b[0].id);
+    expect(a[1].id).toBe(b[1].id);
+    expect(a[0].id).not.toBe(a[1].id);
+  });
 });
 
 describe("no promoted-column duplication", () => {

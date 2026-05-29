@@ -5,7 +5,7 @@ import { getActionLabel } from "../../utils.js";
 import { AttachmentList, ReasoningPanel, ProcessingPipeline, LiveAnswer } from "./ResponseComponents.jsx";
 import { GeneratedArtifactsPanel } from "./ArtifactComponents.jsx";
 
-export function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState, liveAnswerRef, onCopyResponse }) {
+export function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState, liveAnswerRef, onCopyResponse, planningApproval, onApprovePlanning, onAdjustPlanning }) {
   const hasHistory = execs.length > 0;
   const hasPending = Boolean(runState && (pendingPrompt.trim() || pendingAttachments.length));
   const threadRef = useRef(null);
@@ -20,7 +20,7 @@ export function PromptConversation({ execs, pendingPrompt, pendingAttachments = 
 
   useEffect(() => {
     scrollToBottom();
-  }, [execs.length, hasPending, scrollToBottom]);
+  }, [execs.length, hasPending, planningApproval?.open, scrollToBottom]);
 
   return (
     <div className={`prompt-thread${!hasHistory && !hasPending ? " is-empty" : ""}`} ref={threadRef}>
@@ -83,6 +83,25 @@ export function PromptConversation({ execs, pendingPrompt, pendingAttachments = 
             <div className="prompt-thread-text is-live">
               <LiveAnswer ref={liveAnswerRef} simulationMode={runState?.simulationMode} onUpdate={scrollToBottom} />
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {planningApproval?.open ? (
+        <div className="planning-approval-card">
+          <div className="planning-approval-header">
+            <span className="planning-approval-badge">Plano pronto</span>
+            <span className="planning-approval-desc">
+              Revise o plano acima e escolha como prosseguir.
+            </span>
+          </div>
+          <div className="planning-approval-actions">
+            <button className="btn planning-approval-btn-adjust" type="button" onClick={onAdjustPlanning}>
+              Reformular pedido
+            </button>
+            <button className="btn btn-primary planning-approval-btn-accept" type="button" onClick={onApprovePlanning}>
+              Aceitar e executar
+            </button>
           </div>
         </div>
       ) : null}

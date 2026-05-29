@@ -10,8 +10,15 @@ function toTimestamp(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function getMissionResetAt(evento, teamIdx, missionId) {
+  return evento?.missionResets?.[`${teamIdx}__${missionId}`] || null;
+}
+
 function getExecucoes(evento, teamIdx, missionId) {
-  return evento.execucoes?.[`${teamIdx}__${missionId}`] || [];
+  const execs = evento.execucoes?.[`${teamIdx}__${missionId}`] || [];
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  if (!resetAt) return execs;
+  return execs.filter((exec) => exec?.ts && exec.ts >= resetAt);
 }
 
 function getTrainingRuns(evento, teamIdx) {
@@ -25,19 +32,47 @@ function getLatestTrainingRun(evento, teamIdx) {
 }
 
 function getQuestionarioPendenteEntry(evento, teamIdx, missionId) {
-  return evento.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+  const entry = evento.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+  if (!entry) return null;
+  if (typeof entry === "object" && entry.source === "reopened") return null;
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const openedAt = typeof entry === "object" ? entry.openedAt : null;
+  if (resetAt && openedAt && openedAt < resetAt) return null;
+  return entry;
 }
 
 function getConclusaoEntry(evento, teamIdx, missionId) {
-  return evento.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+  const entry = evento.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+  if (!entry) return null;
+  if (typeof entry === "object" && entry.source === "reopened") return null;
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const concludedAt = typeof entry === "object" ? (entry.closedAt || entry.concludedAt) : null;
+  if (resetAt && concludedAt && concludedAt < resetAt) return null;
+  return entry;
 }
 
 function isConcluida(evento, teamIdx, missionId) {
   return Boolean(getConclusaoEntry(evento, teamIdx, missionId));
 }
 
+function getQuestionarioPendenteSource(evento, teamIdx, missionId) {
+  const entry = getQuestionarioPendenteEntry(evento, teamIdx, missionId);
+  if (!entry) return null;
+  if (typeof entry === "string") return "facilitator";
+  return entry.source || "facilitator";
+}
+
+function getConclusaoSource(evento, teamIdx, missionId) {
+  const entry = getConclusaoEntry(evento, teamIdx, missionId);
+  if (!entry) return null;
+  if (typeof entry === "string") return "legacy";
+  return entry.source || "legacy";
+}
+
 function canFacilitatorReopenMissionForTeam(evento, teamIdx, missionId) {
-  return isConcluida(evento, teamIdx, missionId);
+  const closureSource = getConclusaoSource(evento, teamIdx, missionId);
+  if (closureSource === "facilitator" || closureSource === "facilitator_no_evaluation") return true;
+  return getQuestionarioPendenteSource(evento, teamIdx, missionId) === "facilitator";
 }
 
 function isQuestionarioPendente(evento, teamIdx, missionId) {

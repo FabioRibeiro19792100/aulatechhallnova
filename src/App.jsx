@@ -54,7 +54,9 @@ const SURVIVAL_THEME_DARK = "dark";
 const SURVIVAL_THEME_LIGHT = "light";
 const BRAND_LOADER_DURATION_MS = 700;
 const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
-const REMOTE_SYNC_POLL_MS = 2000;
+const CONFIG_POLL_MS = 30000;
+const STATE_POLL_MS_WITH_REALTIME = 5000;
+const STATE_POLL_MS_WITHOUT_REALTIME = 3000;
 const TIMER_NOTICE_TTL_MS = 30000;
 const TIMER_LOCK_TTL_MS = 15000;
 const MAX_ATTACHMENT_COUNT = 3;
@@ -187,7 +189,11 @@ async function fetchRemoteState() {
     const errorText = await response.text();
     throw new Error(errorText || "Falha ao carregar estado remoto.");
   }
-  return response.json();
+  const data = await response.json();
+  return {
+    ...data,
+    serverNowMs: data?.serverNow ? new Date(data.serverNow).getTime() : null,
+  };
 }
 
 async function saveRemoteState(events) {
@@ -202,7 +208,11 @@ async function saveRemoteState(events) {
     const errorText = await response.text();
     throw new Error(errorText || "Falha ao salvar estado remoto.");
   }
-  return response.json();
+  const data = await response.json();
+  return {
+    ...data,
+    serverNowMs: data?.serverNow ? new Date(data.serverNow).getTime() : null,
+  };
 }
 
 function estimateCost(pricingMap, model, inputTokens, outputTokens) {
@@ -341,8 +351,15 @@ function isEventHidden(evento) {
   return Boolean(evento?.hiddenAt);
 }
 
+function getMissionResetAt(evento, teamIdx, missionId) {
+  return evento.missionResets?.[`${teamIdx}__${missionId}`] || null;
+}
+
 function getExecucoes(evento, teamIdx, missionId) {
-  return evento.execucoes?.[`${teamIdx}__${missionId}`] || [];
+  const execs = evento.execucoes?.[`${teamIdx}__${missionId}`] || [];
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  if (!resetAt) return execs;
+  return execs.filter((exec) => exec.ts && exec.ts >= resetAt);
 }
 
 function getTrainingRuns(evento, teamIdx) {
@@ -350,11 +367,21 @@ function getTrainingRuns(evento, teamIdx) {
 }
 
 function getReflexao(evento, teamIdx, missionId) {
-  return evento.reflexoes?.[`${teamIdx}__${missionId}`] || null;
+  const reflexao = evento.reflexoes?.[`${teamIdx}__${missionId}`] || null;
+  if (!reflexao) return null;
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  if (resetAt && reflexao.submittedAt && reflexao.submittedAt < resetAt) return null;
+  return reflexao;
 }
 
 function getQuestionarioPendenteEntry(evento, teamIdx, missionId) {
-  return evento.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+  const entry = evento.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+  if (!entry) return null;
+  if (typeof entry === "object" && entry.source === "reopened") return null;
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const openedAt = typeof entry === "object" ? entry.openedAt : null;
+  if (resetAt && openedAt && openedAt < resetAt) return null;
+  return entry;
 }
 
 function isQuestionarioPendente(evento, teamIdx, missionId) {
@@ -375,7 +402,13 @@ function getQuestionarioPendenteSource(evento, teamIdx, missionId) {
 }
 
 function getConclusaoEntry(evento, teamIdx, missionId) {
-  return evento.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+  const entry = evento.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+  if (!entry) return null;
+  if (typeof entry === "object" && entry.source === "reopened") return null;
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const concludedAt = typeof entry === "object" ? (entry.closedAt || entry.concludedAt) : null;
+  if (resetAt && concludedAt && concludedAt < resetAt) return null;
+  return entry;
 }
 
 function isConcluida(evento, teamIdx, missionId) {
@@ -390,7 +423,9 @@ function getConclusaoSource(evento, teamIdx, missionId) {
 }
 
 function canFacilitatorReopenMissionForTeam(evento, teamIdx, missionId) {
-  return isConcluida(evento, teamIdx, missionId);
+  const closureSource = getConclusaoSource(evento, teamIdx, missionId);
+  if (closureSource === "facilitator" || closureSource === "facilitator_no_evaluation") return true;
+  return getQuestionarioPendenteSource(evento, teamIdx, missionId) === "facilitator";
 }
 
 function getMissionClosureStatus(evento, teamIdx, missionId) {
@@ -565,6 +600,7 @@ function getEventAnnouncements(evento) {
             ...evento.announcement,
             id: evento.announcement.id || `announcement_legacy_${evento.id || Date.now()}`,
             createdAt: evento.announcement.createdAt || new Date().toISOString(),
+            updatedAt: evento.announcement.updatedAt || evento.announcement.createdAt || new Date().toISOString(),
             message: evento.announcement.message.trim(),
             dismissedBy: evento.announcement.dismissedBy || {},
             readBy: evento.announcement.readBy || {},
@@ -577,6 +613,7 @@ function getEventAnnouncements(evento) {
       ...announcement,
       message: `${announcement.message || ""}`.trim(),
       createdAt: announcement.createdAt || new Date().toISOString(),
+      updatedAt: announcement.updatedAt || announcement.createdAt || new Date().toISOString(),
       dismissedBy: announcement.dismissedBy || {},
       readBy: announcement.readBy || {},
     }))
@@ -607,6 +644,7 @@ function getSessionTimer(evento) {
     startedAt: null,
     endsAt: null,
     durationMs: 0,
+    updatedAt: null,
     ...(evento?.sessionTimer || {}),
   };
 }
@@ -782,9 +820,12 @@ function mergeAnnouncements(remoteItems = [], localItems = []) {
   [...remoteItems, ...localItems].forEach((item) => {
     if (!item?.id) return;
     const previous = merged.get(item.id) || {};
+    const remoteLike = previous;
+    const localLike = item;
+    const newestBase = pickLatestByTimestamp(remoteLike, localLike, ["updatedAt", "createdAt"]);
     merged.set(item.id, {
       ...previous,
-      ...item,
+      ...newestBase,
       dismissedBy: {
         ...(previous.dismissedBy || {}),
         ...(item.dismissedBy || {}),
@@ -832,8 +873,37 @@ function mergeScreenShareState(remoteState = {}, localState = {}) {
   return pickLatestByTimestamp(remoteState, localState, ["startedAt", "endedAt"]);
 }
 
+function mergeSessionTimerState(remoteTimer = {}, localTimer = {}) {
+  const remoteUpdatedAt = toTimestamp(remoteTimer?.updatedAt);
+  const localUpdatedAt = toTimestamp(localTimer?.updatedAt);
+
+  if (remoteUpdatedAt || localUpdatedAt) {
+    return remoteUpdatedAt >= localUpdatedAt
+      ? { ...localTimer, ...remoteTimer }
+      : { ...remoteTimer, ...localTimer };
+  }
+
+  return pickLatestByTimestamp(remoteTimer, localTimer, ["startedAt", "endsAt"]);
+}
+
 function mergeTimerNotice(remoteNotice, localNotice) {
   return pickLatestByTimestamp(remoteNotice, localNotice, ["createdAt"]);
+}
+
+function mergeMissions(remoteMissions = [], localMissions = []) {
+  const mergedById = new globalThis.Map();
+
+  [...remoteMissions, ...localMissions].forEach((mission, index) => {
+    const missionId = mission?.id || `__index_${index}`;
+    const previous = mergedById.get(missionId);
+    if (!previous) {
+      mergedById.set(missionId, mission);
+      return;
+    }
+    mergedById.set(missionId, pickLatestByTimestamp(previous, mission, ["updatedAt"]));
+  });
+
+  return [...mergedById.values()];
 }
 
 function mergeEventEntity(remoteEvent, localEvent) {
@@ -849,16 +919,16 @@ function mergeEventEntity(remoteEvent, localEvent) {
     ...oldestEvent,
     ...newestEvent,
     teams: newestEvent.teams || oldestEvent.teams || [],
-    missions: newestEvent.missions || oldestEvent.missions || [],
+    missions: mergeMissions(remoteEvent.missions || [], localEvent.missions || []),
     execucoes: mergeExecucaoMaps(remoteEvent.execucoes, localEvent.execucoes),
     reflexoes: mergeObjectMaps(remoteEvent.reflexoes, localEvent.reflexoes, (remoteValue, localValue) =>
       pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "ts"]),
     ),
     questionariosPendentes: mergeObjectMaps(remoteEvent.questionariosPendentes, localEvent.questionariosPendentes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["openedAt"]),
+      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt", "openedAt"]),
     ),
     conclusoes: mergeObjectMaps(remoteEvent.conclusoes, localEvent.conclusoes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["closedAt", "concludedAt"]),
+      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt", "closedAt", "concludedAt"]),
     ),
     preservedMissionUsage: {
       ...(remoteEvent.preservedMissionUsage || {}),
@@ -878,11 +948,16 @@ function mergeEventEntity(remoteEvent, localEvent) {
       localEvent.anamnesisResponses,
       (remoteValue, localValue) => pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "updatedAt"]),
     ),
+    missionResets: mergeObjectMaps(remoteEvent.missionResets, localEvent.missionResets, (r, l) => {
+      if (!r) return l;
+      if (!l) return r;
+      return r >= l ? r : l;
+    }),
     trainingRuns: mergeExecucaoMaps(remoteEvent.trainingRuns, localEvent.trainingRuns),
     trainingHelpRequests: mergeHelpRequestArrays(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
     announcements: mergeAnnouncements(getEventAnnouncements(remoteEvent), getEventAnnouncements(localEvent)),
     presenceMap: mergePresenceMaps(remoteEvent.presenceMap, localEvent.presenceMap),
-    sessionTimer: pickLatestByTimestamp(remoteEvent.sessionTimer, localEvent.sessionTimer, ["startedAt", "endsAt"]),
+    sessionTimer: mergeSessionTimerState(remoteEvent.sessionTimer, localEvent.sessionTimer),
     sessionTimerNotice: mergeTimerNotice(remoteEvent.sessionTimerNotice, localEvent.sessionTimerNotice),
     screenShare: mergeScreenShareState(remoteEvent.screenShare, localEvent.screenShare),
     updatedAt: newestEvent.updatedAt || oldestEvent.updatedAt || new Date().toISOString(),
@@ -931,9 +1006,11 @@ function isFixedMissionsEvent(event) {
 }
 
 function buildFixedMissionList() {
+  const now = new Date().toISOString();
   return FIXED_MISSIONS_CATALOG.map((mission, index) => ({
     ...normalizeMission(mission),
     unlocked: index === 0,
+    updatedAt: mission.updatedAt || now,
   }));
 }
 
@@ -946,6 +1023,7 @@ function buildCanonicalFixedMissionList(event) {
       ...mission,
       unlocked: typeof savedMission.unlocked === "boolean" ? savedMission.unlocked : index === 0,
       aiMode: getMissionAiMode(savedMission),
+      updatedAt: savedMission.updatedAt || mission.updatedAt || event?.updatedAt || event?.createdAt || new Date().toISOString(),
     };
   });
 }
@@ -1816,20 +1894,38 @@ async function gerarExplicacaoGuiadaIA({ model, modelPricing, mission, input, at
     .filter(Boolean)
     .join("\n\n");
 
-  const result = await fetchChatCompletion({
-    model: analysisModel,
-    reasoningEffort: "low",
-    messages: [
-      {
-        role: "system",
-        content: "Produza apenas JSON valido. Nao use markdown. Nao inclua texto fora do JSON.",
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-  });
+  // Jitter: spread concurrent class requests over 0–4s to avoid simultaneous rate-limit spikes
+  await sleep(Math.random() * 4000);
+
+  const analysisMessages = [
+    {
+      role: "system",
+      content: "Produza apenas JSON valido. Nao use markdown. Nao inclua texto fora do JSON.",
+    },
+    { role: "user", content: prompt },
+  ];
+
+  let result;
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(2000 * attempt);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+    try {
+      result = await fetchChatCompletion({
+        model: analysisModel,
+        reasoningEffort: "low",
+        signal: controller.signal,
+        messages: analysisMessages,
+      });
+      break;
+    } catch (err) {
+      lastError = err;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  if (!result) throw lastError;
 
   const parsed = tryParseJson(result.output) || tryParseJson(extractJsonObject(result.output));
   if (!parsed) return null;
@@ -1850,7 +1946,7 @@ async function gerarExplicacaoGuiadaIA({ model, modelPricing, mission, input, at
   }, { historyContext });
 }
 
-async function fetchChatCompletion({ model, messages, reasoningEffort }) {
+async function fetchChatCompletion({ model, messages, reasoningEffort, signal }) {
   const requestBody = {
     model,
     temperature: 0.4,
@@ -1863,6 +1959,7 @@ async function fetchChatCompletion({ model, messages, reasoningEffort }) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(requestBody),
+    signal,
   });
 
   if (!response.ok) {
@@ -2276,9 +2373,16 @@ function App() {
   const [missionMenuOpen, setMissionMenuOpen] = useState(null);
   const [missionFeedbackOpen, setMissionFeedbackOpen] = useState({});
   const [missionTeamRowsOpen, setMissionTeamRowsOpen] = useState({});
+  const [missionTogglePending, setMissionTogglePending] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [materialsDrawerOpen, setMaterialsDrawerOpen] = useState(false);
   const [studentResourcePreview, setStudentResourcePreview] = useState(null);
+  const [planningApprovalState, setPlanningApprovalState] = useState({
+    open: false,
+    input: "",
+    attachments: [],
+    missionName: "",
+  });
   const [dismissedScreenShareSession, setDismissedScreenShareSession] = useState("");
   const [tokenLimitModalOpen, setTokenLimitModalOpen] = useState(false);
   const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
@@ -2289,6 +2393,7 @@ function App() {
   const [brandLoaderOpen, setBrandLoaderOpen] = useState(true);
   const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
   const [clockNow, setClockNow] = useState(Date.now());
+  const serverClockOffsetRef = useRef(0);
   const [survivalAccessGranted, setSurvivalAccessGranted] = useState(Boolean(initialSurvivalStore.authenticated));
   const [survivalPasswordInput, setSurvivalPasswordInput] = useState("");
   const [survivalAuthError, setSurvivalAuthError] = useState("");
@@ -2360,6 +2465,16 @@ function App() {
     saveStore(store);
   }, [store]);
 
+  function syncServerClock(serverNowMs) {
+    if (!Number.isFinite(serverNowMs) || serverNowMs <= 0) return;
+    serverClockOffsetRef.current = serverNowMs - Date.now();
+    setClockNow(Date.now() + serverClockOffsetRef.current);
+  }
+
+  function getSyncedNowMs() {
+    return Date.now() + serverClockOffsetRef.current;
+  }
+
   useEffect(() => {
     if (screen === "survival") return;
     saveStore({
@@ -2430,8 +2545,9 @@ function App() {
         if (config.sharedStateConfigured) {
           const remoteState = await fetchRemoteState();
           if (cancelled) return;
+          syncServerClock(remoteState.serverNowMs);
           const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          lastRemoteEventsRef.current = JSON.stringify(remoteState.events || []);
+          lastRemoteEventsRef.current = JSON.stringify(normalizedRemoteEvents);
           setStore((current) => ({
             ...current,
             events: normalizedRemoteEvents,
@@ -2484,7 +2600,7 @@ function App() {
   }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    const timer = window.setInterval(() => setClockNow(Date.now() + serverClockOffsetRef.current), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -2500,19 +2616,20 @@ function App() {
       (async () => {
         try {
           const remoteState = await fetchRemoteState();
+          syncServerClock(remoteState.serverNowMs);
           const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
           const mergedEvents = normalizeEventsForProduct(mergeEventCollections(normalizedRemoteEvents, store.events || []));
-          const mergedSerialized = JSON.stringify(mergedEvents);
-          lastRemoteEventsRef.current = mergedSerialized;
-          await saveRemoteState(mergedEvents);
-          setStore((current) =>
-            JSON.stringify(current.events || []) === mergedSerialized
+          const saveResult = await saveRemoteState(mergedEvents);
+          syncServerClock(saveResult.serverNowMs);
+          // Re-merge with current state to preserve any updates that happened during the async fetch
+          setStore((current) => {
+            const safeMerged = normalizeEventsForProduct(mergeEventCollections(mergedEvents, current.events || []));
+            const safeSerialized = JSON.stringify(safeMerged);
+            lastRemoteEventsRef.current = safeSerialized;
+            return JSON.stringify(current.events || []) === safeSerialized
               ? current
-              : {
-                  ...current,
-                  events: mergedEvents,
-                },
-          );
+              : { ...current, events: safeMerged };
+          });
         } catch (error) {
           console.error(error);
         }
@@ -2554,24 +2671,52 @@ function App() {
     };
   }, [serverConfig.remoteStateKey, storeHydrated, supabaseRealtimeClient]);
 
+  // Poll config at a low frequency — it rarely changes and doesn't need realtime cadence
   useEffect(() => {
-    if (!["workspace", "facilitador"].includes(screen)) return undefined;
+    if (!["workspace", "facilitador", "team", "entry"].includes(screen)) return undefined;
 
     const timer = window.setInterval(async () => {
       try {
         const config = await fetchServerConfig();
         setServerConfig(config);
+      } catch (error) {
+        console.error(error);
+      }
+    }, CONFIG_POLL_MS);
 
-        if (config.sharedStateConfigured) {
+    return () => window.clearInterval(timer);
+  }, [screen]);
+
+  // Poll state as fallback — slower when Realtime is active, faster when it's not
+  useEffect(() => {
+    if (!["workspace", "facilitador", "team", "entry"].includes(screen)) return undefined;
+
+    const interval = supabaseRealtimeClient ? STATE_POLL_MS_WITH_REALTIME : STATE_POLL_MS_WITHOUT_REALTIME;
+
+    const timer = window.setInterval(async () => {
+      try {
+        if (serverConfig.sharedStateConfigured) {
           const remoteState = await fetchRemoteState();
+          syncServerClock(remoteState.serverNowMs);
           const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
           setStore((current) => {
             const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
             lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-            return {
-              ...current,
-              events: mergedEvents,
-            };
+            return { ...current, events: mergedEvents };
+          });
+          return;
+        }
+        // Bootstrap may have failed — try to recover config so next tick fetches remote
+        const recoveredConfig = await fetchServerConfig();
+        setServerConfig(recoveredConfig);
+        if (recoveredConfig.sharedStateConfigured) {
+          const remoteState = await fetchRemoteState();
+          syncServerClock(remoteState.serverNowMs);
+          const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
+          setStore((current) => {
+            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
+            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
+            return { ...current, events: mergedEvents };
           });
           return;
         }
@@ -2582,15 +2727,53 @@ function App() {
       setStore((current) => {
         const normalizedCurrentEvents = normalizeEventsForProduct(current.events || []);
         lastRemoteEventsRef.current = JSON.stringify(normalizedCurrentEvents);
-        return {
-          ...current,
-          events: normalizedCurrentEvents,
-        };
+        return { ...current, events: normalizedCurrentEvents };
       });
-    }, REMOTE_SYNC_POLL_MS);
+    }, interval);
 
     return () => window.clearInterval(timer);
-  }, [screen]);
+  }, [screen, serverConfig.sharedStateConfigured, supabaseRealtimeClient]);
+
+  useEffect(() => {
+    if (!["workspace", "facilitador", "team"].includes(screen)) return undefined;
+    if (!serverConfig.sharedStateConfigured) return undefined;
+
+    let cancelled = false;
+    const syncImmediately = async () => {
+      if (cancelled) return;
+      try {
+        const remoteState = await fetchRemoteState();
+        if (cancelled) return;
+        syncServerClock(remoteState.serverNowMs);
+        const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
+        setStore((current) => {
+          const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
+          lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
+          return { ...current, events: mergedEvents };
+        });
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void syncImmediately();
+      }
+    };
+
+    const handleFocus = () => {
+      void syncImmediately();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [screen, serverConfig.sharedStateConfigured]);
 
   useEffect(() => {
     if (!storeHydrated || !isLocalDev) return;
@@ -2682,6 +2865,7 @@ function App() {
     }
   }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
+  const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
   const currentExecs = currentMission && teamEvent
     ? isTrainingEvent
       ? getTrainingRuns(teamEvent, timeTeamIdx)
@@ -2772,7 +2956,8 @@ function App() {
   }, [currentMission, currentMissionStatus, isTrainingEvent, missionFlow.stage, screen, teamEvent, timeTeamIdx]);
 
   useEffect(() => {
-    if (screen !== "workspace" || !teamEvent || timeTeamIdx === null) {
+    const isStudentScreen = ["workspace", "team", "entry"].includes(screen);
+    if (!isStudentScreen || !teamEvent || timeTeamIdx === null) {
       setTeamAnnouncementOpen(false);
       return;
     }
@@ -2858,6 +3043,24 @@ function App() {
       setTimeMissionIdx(pendingMissionIdx);
     }
   }, [isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
+
+  useEffect(() => {
+    if (!teamEvent || timeTeamIdx === null || isTrainingEvent || !currentMissionLocked) return;
+
+    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
+    const firstUnlockedMissionIdx = teamEvent.missions.findIndex((mission) => mission.unlocked);
+    const fallbackMissionIdx = pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null;
+
+    if (fallbackMissionIdx !== timeMissionIdx) {
+      setTimeMissionIdx(fallbackMissionIdx);
+    } else if (fallbackMissionIdx === null && timeMissionIdx !== null) {
+      setTimeMissionIdx(null);
+    }
+
+    setMissionInput("");
+    setMissionAttachments([]);
+    setRunError("Esta missão foi bloqueada pelo facilitador.");
+  }, [currentMissionLocked, isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
     if (!selectedEvent) {
@@ -3044,6 +3247,10 @@ function App() {
     setToastText(message);
   }
 
+  function getMissionTogglePendingKey(eventId, index) {
+    return `${eventId}__${index}`;
+  }
+
   async function handleCopyResponse(text) {
     try {
       const copied = await copyTextToClipboard(text);
@@ -3107,8 +3314,26 @@ function App() {
     };
   }
 
+  function commitCriticalEventsDirect(nextEvents) {
+    const stampedEvents = stampUpdatedEvents(currentEventsRef.current || [], nextEvents);
+    currentEventsRef.current = stampedEvents;
+    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
+    setStore((current) => ({ ...current, events: stampedEvents }));
+
+    if (serverConfig.sharedStateConfigured) {
+      void saveRemoteState(stampedEvents)
+        .then((saveResult) => {
+          syncServerClock(saveResult.serverNowMs);
+        })
+        .catch((error) => {
+          lastRemoteEventsRef.current = "__out_of_sync__";
+          console.error("Failed to save critical event state:", error);
+        });
+    }
+  }
+
   function handleUpdateMissionTokenPolicy(eventId, missionId, nextPolicyInput) {
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
@@ -3160,50 +3385,49 @@ function App() {
       showToast("Defina uma quantidade válida de tokens");
       return;
     }
+    const createdAt = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) => {
+      if (event.id !== eventId) return event;
+      const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
+      const nextEvent = {
+        ...event,
+        tokenGrants: [
+          ...(event.tokenGrants || []),
+          {
+            id: `grant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            missionId: tokenMissionId,
+            scope,
+            teamIdx: scope === "turma" ? null : teamIdx,
+            amount: numericAmount,
+            createdAt,
+            updatedAt: createdAt,
+            note,
+            source,
+          },
+        ],
+        helpRequests: (event.helpRequests || []).map((request) =>
+          request.kind === "tokens" &&
+          request.status === "open" &&
+          request.missionId === tokenMissionId &&
+          (scope === "turma" || request.teamIdx === teamIdx)
+            ? {
+                ...request,
+                status: "resolved",
+                resolvedAt: createdAt,
+                updatedAt: createdAt,
+              }
+            : request,
+        ),
+      };
+      return appendTokenOperationalLog(nextEvent, {
+        missionId: tokenMissionId,
+        teamIdx: scope === "turma" ? null : teamIdx,
+        type: "grant",
+        message: `Facilitador liberou +${numericAmount.toLocaleString("pt-BR")} tokens.`,
+      });
+    });
 
-    updateCriticalEvents((current) =>
-      current.map((event) => {
-        if (event.id !== eventId) return event;
-        const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
-        const createdAt = new Date().toISOString();
-        const nextEvent = {
-          ...event,
-          tokenGrants: [
-            ...(event.tokenGrants || []),
-            {
-              id: `grant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-              missionId: tokenMissionId,
-              scope,
-              teamIdx: scope === "turma" ? null : teamIdx,
-              amount: numericAmount,
-              createdAt,
-              updatedAt: createdAt,
-              note,
-              source,
-            },
-          ],
-          helpRequests: (event.helpRequests || []).map((request) =>
-            request.kind === "tokens" &&
-            request.status === "open" &&
-            request.missionId === tokenMissionId &&
-            (scope === "turma" || request.teamIdx === teamIdx)
-              ? {
-                  ...request,
-                  status: "resolved",
-                  resolvedAt: createdAt,
-                  updatedAt: createdAt,
-                }
-              : request,
-          ),
-        };
-        return appendTokenOperationalLog(nextEvent, {
-          missionId: tokenMissionId,
-          teamIdx: scope === "turma" ? null : teamIdx,
-          type: "grant",
-          message: `Facilitador liberou +${numericAmount.toLocaleString("pt-BR")} tokens.`,
-        });
-      }),
-    );
+    commitCriticalEventsDirect(nextEvents);
 
     showToast(`+${numericAmount.toLocaleString("pt-BR")} tokens liberados`);
   }
@@ -3223,31 +3447,30 @@ function App() {
       return;
     }
 
-    const createdAt = new Date().toISOString();
-    updateCriticalEvents((current) =>
-      current.map((event) =>
-        event.id !== teamEvent.id
-          ? event
-          : {
-              ...event,
-              helpRequests: [
-                ...(event.helpRequests || []),
-                {
-                  id: `token_help_${Date.now()}`,
-                  kind: "tokens",
-                  teamIdx: timeTeamIdx,
-                  missionId: currentTokenBudget.missionId,
-                  message: "Solicitação de liberação de tokens.",
-                  status: "open",
-                  createdAt,
-                  updatedAt: createdAt,
-                  currentUsage: currentTokenBudget.usage.totalTokens,
-                  currentLimit: currentTokenBudget.effectiveLimit,
-                },
-              ],
-            },
-      ),
+    const createdAt = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== teamEvent.id
+        ? event
+        : {
+            ...event,
+            helpRequests: [
+              ...(event.helpRequests || []),
+              {
+                id: `token_help_${Date.now()}`,
+                kind: "tokens",
+                teamIdx: timeTeamIdx,
+                missionId: currentTokenBudget.missionId,
+                message: "Solicitação de liberação de tokens.",
+                status: "open",
+                createdAt,
+                updatedAt: createdAt,
+                currentUsage: currentTokenBudget.usage.totalTokens,
+                currentLimit: currentTokenBudget.effectiveLimit,
+              },
+            ],
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     showToast("Solicitação enviada ao facilitador.");
   }
 
@@ -4071,23 +4294,74 @@ function App() {
     showToast("Time removido");
   }
 
-  function handleToggleMission(eventId, index, unlocked) {
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== eventId
-          ? event
-          : {
-              ...event,
-              missions: event.missions.map((mission, missionIndex) =>
-                missionIndex === index ? { ...mission, unlocked } : mission,
-              ),
-            },
-      ),
+  async function handleToggleMission(eventId, index, unlocked) {
+    const pendingKey = getMissionTogglePendingKey(eventId, index);
+    if (missionTogglePending[pendingKey]) return;
+
+    const previousEvents = currentEventsRef.current || [];
+    const currentEvent = previousEvents.find((event) => event.id === eventId);
+    const currentMission = currentEvent?.missions?.[index];
+    const previousUnlocked = Boolean(currentMission?.unlocked);
+    if (!currentMission || previousUnlocked === unlocked) return;
+
+    setMissionTogglePending((current) => ({ ...current, [pendingKey]: true }));
+    const missionUpdatedAt = new Date().toISOString();
+    const nextEvents = previousEvents.map((event) =>
+      event.id !== eventId
+        ? event
+        : {
+            ...event,
+            missions: event.missions.map((mission, missionIndex) =>
+              missionIndex === index ? { ...mission, unlocked, updatedAt: missionUpdatedAt } : mission,
+            ),
+          },
     );
-    showToast(unlocked ? "Missão liberada" : "Missão bloqueada");
+    const updatedEvents = stampUpdatedEvents(previousEvents, nextEvents);
+
+    currentEventsRef.current = updatedEvents;
+    lastRemoteEventsRef.current = JSON.stringify(updatedEvents);
+    setStore((current) => ({ ...current, events: updatedEvents }));
+
+    try {
+      if (serverConfig.sharedStateConfigured) {
+        const saveResult = await saveRemoteState(updatedEvents);
+        syncServerClock(saveResult.serverNowMs);
+      }
+      showToast(unlocked ? "Missão liberada" : "Missão bloqueada");
+    } catch (error) {
+      console.error("Failed to save mission toggle:", error);
+      setStore((current) => {
+        const revertedEvents = stampUpdatedEvents(
+          current.events || [],
+          (current.events || []).map((event) =>
+            event.id !== eventId
+              ? event
+              : {
+                  ...event,
+                  missions: event.missions.map((mission, missionIndex) =>
+                    missionIndex === index && mission.unlocked === unlocked
+                      ? { ...mission, unlocked: previousUnlocked, updatedAt: missionUpdatedAt }
+                      : mission,
+                  ),
+                },
+          ),
+        );
+        currentEventsRef.current = revertedEvents;
+        lastRemoteEventsRef.current = "__out_of_sync__";
+        return { ...current, events: revertedEvents };
+      });
+      showToast(error.message || "Falha ao salvar a missão");
+    } finally {
+      setMissionTogglePending((current) => {
+        const next = { ...current };
+        delete next[pendingKey];
+        return next;
+      });
+    }
   }
 
   function handleMissionAiModeChange(eventId, index, aiMode) {
+    const missionUpdatedAt = new Date().toISOString();
     updateEvents((current) =>
       current.map((event) =>
         event.id !== eventId
@@ -4095,7 +4369,13 @@ function App() {
           : {
               ...event,
               missions: event.missions.map((mission, missionIndex) =>
-                missionIndex === index ? { ...mission, aiMode: aiMode === CODING_AI_MODE ? CODING_AI_MODE : CHAT_AI_MODE } : mission,
+                missionIndex === index
+                  ? {
+                      ...mission,
+                      aiMode: aiMode === CODING_AI_MODE ? CODING_AI_MODE : CHAT_AI_MODE,
+                      updatedAt: missionUpdatedAt,
+                    }
+                  : mission,
               ),
             },
       ),
@@ -4515,7 +4795,7 @@ function App() {
   }
 
   function saveReflection(eventId, teamIdx, missionId, missionName, respostas, comment) {
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const key = `${teamIdx}__${missionId}`;
@@ -4546,6 +4826,7 @@ function App() {
             ...(event.conclusoes || {}),
             [key]: {
               closedAt: submittedAt,
+              updatedAt: submittedAt,
               source: pendingSource === "team" ? "team" : "facilitator",
             },
           },
@@ -4556,15 +4837,17 @@ function App() {
 
   function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
     if (!teamIndexes.length) return;
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const pendingMap = { ...(event.questionariosPendentes || {}) };
         teamIndexes.forEach((teamIdx) => {
           const key = `${teamIdx}__${missionId}`;
-          if (!event.conclusoes?.[key]) {
+          if (!getConclusaoEntry(event, teamIdx, missionId)) {
+            const openedAt = new Date().toISOString();
             pendingMap[key] = {
-              openedAt: new Date().toISOString(),
+              openedAt,
+              updatedAt: openedAt,
               source,
             };
           }
@@ -4636,7 +4919,7 @@ function App() {
       return;
     }
     const concludedAt = new Date().toISOString();
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((item) => {
         if (item.id !== eventId) return item;
         const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
@@ -4646,6 +4929,7 @@ function App() {
           delete questionariosPendentes[key];
           conclusoes[key] = {
             closedAt: concludedAt,
+            updatedAt: concludedAt,
             source: "facilitator_no_evaluation",
           };
         });
@@ -4664,31 +4948,40 @@ function App() {
     if (!event) return;
     const teamIndexes = event.teams
       .map((_, teamIdx) => teamIdx)
-      .filter((teamIdx) => isConcluida(event, teamIdx, missionId));
+      .filter((teamIdx) => canFacilitatorReopenMissionForTeam(event, teamIdx, missionId));
     if (!teamIndexes.length) {
       showToast("Nenhum time elegível para reabertura nesta missão");
       return;
     }
-    updateCriticalEvents((current) =>
-      current.map((item) => {
-        if (item.id !== eventId) return item;
-        const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
-        const conclusoes = { ...(item.conclusoes || {}) };
-        const reflexoes = { ...(item.reflexoes || {}) };
-        teamIndexes.forEach((teamIdx) => {
-          const key = `${teamIdx}__${missionId}`;
-          delete questionariosPendentes[key];
-          delete conclusoes[key];
-          delete reflexoes[key];
-        });
-        return {
-          ...item,
-          questionariosPendentes,
-          conclusoes,
-          reflexoes,
+    const resetAt = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((item) => {
+      if (item.id !== eventId) return item;
+      const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
+      const conclusoes = { ...(item.conclusoes || {}) };
+      const reflexoes = { ...(item.reflexoes || {}) };
+      const missionResets = { ...(item.missionResets || {}) };
+      teamIndexes.forEach((teamIdx) => {
+        const key = `${teamIdx}__${missionId}`;
+        questionariosPendentes[key] = {
+          source: "reopened",
+          updatedAt: resetAt,
         };
-      }),
-    );
+        conclusoes[key] = {
+          source: "reopened",
+          updatedAt: resetAt,
+        };
+        delete reflexoes[key];
+        missionResets[key] = resetAt;
+      });
+      return {
+        ...item,
+        questionariosPendentes,
+        conclusoes,
+        reflexoes,
+        missionResets,
+      };
+    });
+    commitCriticalEventsDirect(nextEvents);
     showToast("Missão reaberta do zero para os times concluídos");
   }
 
@@ -4764,29 +5057,31 @@ function App() {
       showToast("Defina um tempo válido em MM:SS");
       return;
     }
-    const startedAt = new Date().toISOString();
-    const endsAt = new Date(Date.now() + durationMs).toISOString();
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== selectedEvent.id
-          ? event
-          : {
-              ...event,
-              sessionTimer: {
-                active: true,
-                startedAt,
-                endsAt,
-                durationMs,
-              },
-              sessionTimerNotice: {
-                id: `timer_notice_${Date.now()}`,
-                message: `Cronômetro iniciado com ${formatCountdown(durationMs)}.`,
-                createdAt: new Date().toISOString(),
-                dismissedAt: null,
-              },
+    const nowMs = getSyncedNowMs();
+    const startedAt = new Date(nowMs).toISOString();
+    const endsAt = new Date(nowMs + durationMs).toISOString();
+    const timerUpdatedAt = new Date(nowMs).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== selectedEvent.id
+        ? event
+        : {
+            ...event,
+            sessionTimer: {
+              active: true,
+              startedAt,
+              endsAt,
+              durationMs,
+              updatedAt: timerUpdatedAt,
             },
-      ),
+            sessionTimerNotice: {
+              id: `timer_notice_${Date.now()}`,
+              message: `Cronômetro iniciado com ${formatCountdown(durationMs)}.`,
+              createdAt: new Date(nowMs).toISOString(),
+              dismissedAt: null,
+            },
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     showToast("Cronômetro iniciado");
   }
 
@@ -4798,72 +5093,73 @@ function App() {
       return;
     }
     const currentTimer = getSessionTimer(selectedEvent);
-    const now = Date.now();
+    const now = getSyncedNowMs();
     const currentEndsAt = currentTimer.endsAt ? new Date(currentTimer.endsAt).getTime() : now;
     const baseTime = Math.max(now, currentEndsAt);
     const nextEndsAt = new Date(baseTime + extraDurationMs).toISOString();
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== selectedEvent.id
-          ? event
-          : {
-              ...event,
-              sessionTimer: {
-                active: true,
-                startedAt: currentTimer.startedAt || new Date(now).toISOString(),
-                endsAt: nextEndsAt,
-                durationMs: Math.max(0, currentTimer.durationMs || 0) + extraDurationMs,
-              },
-              sessionTimerNotice: {
-                id: `timer_notice_${Date.now()}`,
-                message: `Tempo acrescentado: +${formatCountdown(extraDurationMs)}.`,
-                createdAt: new Date().toISOString(),
-                dismissedAt: null,
-              },
+    const timerUpdatedAt = new Date(now).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== selectedEvent.id
+        ? event
+        : {
+            ...event,
+            sessionTimer: {
+              active: true,
+              startedAt: currentTimer.startedAt || new Date(now).toISOString(),
+              endsAt: nextEndsAt,
+              durationMs: Math.max(0, currentTimer.durationMs || 0) + extraDurationMs,
+              updatedAt: timerUpdatedAt,
             },
-      ),
+            sessionTimerNotice: {
+              id: `timer_notice_${Date.now()}`,
+              message: `Tempo acrescentado: +${formatCountdown(extraDurationMs)}.`,
+              createdAt: new Date(now).toISOString(),
+              dismissedAt: null,
+            },
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     showToast(`+${formatCountdown(extraDurationMs)} adicionados`);
   }
 
   function handleClearSessionTimer() {
     if (!selectedEvent) return;
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== selectedEvent.id
-          ? event
-          : {
-              ...event,
-              sessionTimer: {
-                active: false,
-                startedAt: null,
-                endsAt: null,
-                durationMs: 0,
-              },
-              sessionTimerNotice: null,
+    const timerUpdatedAt = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== selectedEvent.id
+        ? event
+        : {
+            ...event,
+            sessionTimer: {
+              active: false,
+              startedAt: null,
+              endsAt: null,
+              durationMs: 0,
+              updatedAt: timerUpdatedAt,
             },
-      ),
+            sessionTimerNotice: null,
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     showToast("Cronômetro encerrado");
   }
 
   function handleDismissSessionTimerNotice() {
     if (!selectedEvent) return;
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== selectedEvent.id
-          ? event
-          : {
-              ...event,
-              sessionTimerNotice: event.sessionTimerNotice
-                ? {
-                    ...event.sessionTimerNotice,
-                    dismissedAt: new Date().toISOString(),
-                  }
-                : null,
-            },
-      ),
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== selectedEvent.id
+        ? event
+        : {
+            ...event,
+            sessionTimerNotice: event.sessionTimerNotice
+              ? {
+                  ...event.sessionTimerNotice,
+                  dismissedAt: new Date(getSyncedNowMs()).toISOString(),
+                }
+              : null,
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
   }
 
   function handleSaveMissionTokenPolicy(missionId, nextPolicyInput) {
@@ -4882,44 +5178,43 @@ function App() {
     if (!selectedEvent) return;
     const message = broadcastMessage.trim();
     if (!message) return;
-    const createdAt = new Date().toISOString();
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== selectedEvent.id
-          ? event
-          : {
-              ...event,
-              announcements: [
-                ...getEventAnnouncements(event),
-                {
-                  id: `announcement_${Date.now()}`,
-                  message,
-                  createdAt,
-                  dismissedBy: {},
-                  readBy: {},
-                },
-              ],
-              announcement: null,
-            },
-      ),
+    const nowIso = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== selectedEvent.id
+        ? event
+        : {
+            ...event,
+            announcements: [
+              ...getEventAnnouncements(event),
+              {
+                id: `announcement_${Date.now()}`,
+                message,
+                createdAt: nowIso,
+                updatedAt: nowIso,
+                dismissedBy: {},
+                readBy: {},
+              },
+            ],
+            announcement: null,
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     setBroadcastOpen(false);
     showToast("Mensagem enviada para a turma");
   }
 
   function handleClearBroadcastMessage() {
     if (!selectedEvent) return;
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== selectedEvent.id
-          ? event
-          : {
-              ...event,
-              announcements: [],
-              announcement: null,
-            },
-      ),
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== selectedEvent.id
+        ? event
+        : {
+            ...event,
+            announcements: [],
+            announcement: null,
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     setBroadcastOpen(false);
     setBroadcastMessage("");
     setTeamAnnouncementOpen(false);
@@ -4931,27 +5226,32 @@ function App() {
       setTeamAnnouncementOpen(false);
       return;
     }
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== teamEvent.id
-          ? event
-          : {
-              ...event,
-              announcements: getEventAnnouncements(event).map((announcement) =>
-                announcement.id !== latestUnreadAnnouncement.id
-                  ? announcement
-                  : {
-                      ...announcement,
-                      dismissedBy: {
-                        ...(announcement.dismissedBy || {}),
-                        [timeTeamIdx]: new Date().toISOString(),
-                      },
+    const nowIso = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== teamEvent.id
+        ? event
+        : {
+            ...event,
+            announcements: getEventAnnouncements(event).map((announcement) =>
+              announcement.id !== latestUnreadAnnouncement.id
+                ? announcement
+                : {
+                    ...announcement,
+                    updatedAt: nowIso,
+                    dismissedBy: {
+                      ...(announcement.dismissedBy || {}),
+                      [timeTeamIdx]: nowIso,
                     },
-              ),
-              announcement: null,
-            },
-      ),
+                    readBy: {
+                      ...(announcement.readBy || {}),
+                      [timeTeamIdx]: nowIso,
+                    },
+                  },
+            ),
+            announcement: null,
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     setTeamAnnouncementOpen(false);
   }
 
@@ -4960,23 +5260,24 @@ function App() {
       setTeamAnnouncementInboxOpen(true);
       return;
     }
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== teamEvent.id
-          ? event
-          : {
-              ...event,
-              announcements: getEventAnnouncements(event).map((announcement) => ({
-                ...announcement,
-                readBy: {
-                  ...(announcement.readBy || {}),
-                  [timeTeamIdx]: new Date().toISOString(),
-                },
-              })),
-              announcement: null,
-            },
-      ),
+    const nowIso = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== teamEvent.id
+        ? event
+        : {
+            ...event,
+            announcements: getEventAnnouncements(event).map((announcement) => ({
+              ...announcement,
+              updatedAt: nowIso,
+              readBy: {
+                ...(announcement.readBy || {}),
+                [timeTeamIdx]: nowIso,
+              },
+            })),
+            announcement: null,
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     setTeamAnnouncementOpen(false);
     setTeamAnnouncementInboxOpen(true);
   }
@@ -4990,44 +5291,43 @@ function App() {
     const message = helpMessage.trim();
     if (!message) return;
     if (currentOpenHelpRequest) return;
-
-    updateCriticalEvents((current) =>
-      current.map((event) =>
-        event.id !== teamEvent.id
-          ? event
-          : {
-              ...event,
-              ...(isTrainingEvent
-                ? {
-                    trainingHelpRequests: [
-                      ...(event.trainingHelpRequests || []),
-                      {
-                        id: `help_${Date.now()}`,
-                        teamIdx: timeTeamIdx,
-                        message,
-                        status: "open",
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                      },
-                    ],
-                  }
-                : {
-                    helpRequests: [
-                      ...(event.helpRequests || []),
-                      {
-                        id: `help_${Date.now()}`,
-                        teamIdx: timeTeamIdx,
-                        missionId: currentMission.id,
-                        message,
-                        status: "open",
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                      },
-                    ],
-                  }),
-            },
-      ),
+    const nowIso = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== teamEvent.id
+        ? event
+        : {
+            ...event,
+            ...(isTrainingEvent
+              ? {
+                  trainingHelpRequests: [
+                    ...(event.trainingHelpRequests || []),
+                    {
+                      id: `help_${Date.now()}`,
+                      teamIdx: timeTeamIdx,
+                      message,
+                      status: "open",
+                      createdAt: nowIso,
+                      updatedAt: nowIso,
+                    },
+                  ],
+                }
+              : {
+                  helpRequests: [
+                    ...(event.helpRequests || []),
+                    {
+                      id: `help_${Date.now()}`,
+                      teamIdx: timeTeamIdx,
+                      missionId: currentMission.id,
+                      message,
+                      status: "open",
+                      createdAt: nowIso,
+                      updatedAt: nowIso,
+                    },
+                  ],
+                }),
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
 
     setHelpOpen(false);
     setHelpMessage("");
@@ -5035,102 +5335,112 @@ function App() {
   }
 
   function handleCancelHelpRequest(eventId, requestId) {
-    updateCriticalEvents((current) =>
-      current.map((event) =>
-        event.id !== eventId
-          ? event
-          : {
-              ...event,
-              ...(isTrainingEvent && !(event.helpRequests || []).some((request) => request.id === requestId)
-                ? {
-                    trainingHelpRequests: (event.trainingHelpRequests || []).map((request) =>
-                      request.id !== requestId
-                        ? request
-                        : {
-                            ...request,
-                            status: "cancelled",
-                            cancelledAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString(),
-                          },
-                    ),
-                  }
-                : {
-                    helpRequests: (event.helpRequests || []).map((request) =>
-                      request.id !== requestId
-                        ? request
-                        : {
-                            ...request,
-                            status: "cancelled",
-                            cancelledAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString(),
-                          },
-                    ),
-                  }),
-            },
-      ),
+    const nowIso = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== eventId
+        ? event
+        : {
+            ...event,
+            ...(isTrainingEvent && !(event.helpRequests || []).some((request) => request.id === requestId)
+              ? {
+                  trainingHelpRequests: (event.trainingHelpRequests || []).map((request) =>
+                    request.id !== requestId
+                      ? request
+                      : {
+                          ...request,
+                          status: "cancelled",
+                          cancelledAt: nowIso,
+                          updatedAt: nowIso,
+                        },
+                  ),
+                }
+              : {
+                  helpRequests: (event.helpRequests || []).map((request) =>
+                    request.id !== requestId
+                      ? request
+                      : {
+                          ...request,
+                          status: "cancelled",
+                          cancelledAt: nowIso,
+                          updatedAt: nowIso,
+                        },
+                  ),
+                }),
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     setHelpOpen(false);
     setHelpMessage("");
     showToast("Pedido de ajuda cancelado");
   }
 
   function handleResolveHelpRequest(eventId, requestId) {
-    updateCriticalEvents((current) =>
-      current.map((event) =>
-        event.id !== eventId
-          ? event
-          : {
-              ...event,
-              ...(getEventMode(event) === TRAINING_MODE_EVENT && !(event.helpRequests || []).some((request) => request.id === requestId)
-                ? {
-                    trainingHelpRequests: (event.trainingHelpRequests || []).map((request) =>
-                      request.id !== requestId
-                        ? request
-                        : {
-                            ...request,
-                            status: "resolved",
-                            resolvedAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString(),
-                          },
-                    ),
-                  }
-                : {
-                    helpRequests: (event.helpRequests || []).map((request) =>
-                      request.id !== requestId
-                        ? request
-                        : {
-                            ...request,
-                            status: "resolved",
-                            resolvedAt: new Date().toISOString(),
-                            updatedAt: new Date().toISOString(),
-                          },
-                    ),
-                  }),
-            },
-      ),
+    const nowIso = new Date(getSyncedNowMs()).toISOString();
+    const nextEvents = (currentEventsRef.current || []).map((event) =>
+      event.id !== eventId
+        ? event
+        : {
+            ...event,
+            ...(getEventMode(event) === TRAINING_MODE_EVENT && !(event.helpRequests || []).some((request) => request.id === requestId)
+              ? {
+                  trainingHelpRequests: (event.trainingHelpRequests || []).map((request) =>
+                    request.id !== requestId
+                      ? request
+                      : {
+                          ...request,
+                          status: "resolved",
+                          resolvedAt: nowIso,
+                          updatedAt: nowIso,
+                        },
+                  ),
+                }
+              : {
+                  helpRequests: (event.helpRequests || []).map((request) =>
+                    request.id !== requestId
+                      ? request
+                      : {
+                          ...request,
+                          status: "resolved",
+                          resolvedAt: nowIso,
+                          updatedAt: nowIso,
+                        },
+                  ),
+                }),
+          },
     );
+    commitCriticalEventsDirect(nextEvents);
     showToast("Pedido marcado como resolvido");
   }
 
   function handlePublishScreenShare(eventId, nextState) {
-    updateEvents((current) =>
-      current.map((event) =>
-        event.id !== eventId
-          ? event
-          : {
-              ...event,
-              screenShare: {
-                ...getScreenShareState(event),
-                ...nextState,
-              },
-            },
-      ),
+    const previousEvents = currentEventsRef.current || [];
+    const nextEvents = previousEvents.map((event) =>
+      event.id !== eventId
+        ? event
+        : { ...event, screenShare: { ...getScreenShareState(event), ...nextState } },
     );
+    const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
+    currentEventsRef.current = stampedEvents;
+    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
+    setStore((current) => ({ ...current, events: stampedEvents }));
+
+    // Save directly without fetch-merge cycle — only facilitator writes screenShare
+    if (serverConfig.sharedStateConfigured) {
+      saveRemoteState(stampedEvents)
+        .then((saveResult) => {
+          syncServerClock(saveResult.serverNowMs);
+        })
+        .catch((error) => {
+          console.error("Failed to save screen share state:", error);
+        });
+    }
   }
 
   function handleResetMissionFromZero() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const key = getMissionUsageKey(timeTeamIdx, currentMission.id);
+    const resetAt = new Date(getSyncedNowMs()).toISOString();
+
     const removedTotals = currentExecs.reduce(
       (acc, exec) => ({
         total: acc.total + (exec.tokens || 0),
@@ -5145,30 +5455,14 @@ function App() {
       { total: 0, input: 0, output: 0, cost: 0, explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0 },
     );
 
-    updateEvents((current) =>
+    updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== teamEvent.id) return event;
-        const execucoes = { ...(event.execucoes || {}) };
-        const reflexoes = { ...(event.reflexoes || {}) };
-        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
-        const conclusoes = { ...(event.conclusoes || {}) };
         const preservedMissionUsage = { ...(event.preservedMissionUsage || {}) };
         const currentPreserved = preservedMissionUsage[key] || {
-          total: 0,
-          input: 0,
-          output: 0,
-          cost: 0,
-          explanationTotal: 0,
-          explanationInput: 0,
-          explanationOutput: 0,
-          explanationCost: 0,
+          total: 0, input: 0, output: 0, cost: 0,
+          explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0,
         };
-
-        delete execucoes[key];
-        delete reflexoes[key];
-        delete questionariosPendentes[key];
-        delete conclusoes[key];
-
         preservedMissionUsage[key] = {
           total: currentPreserved.total + removedTotals.total,
           input: currentPreserved.input + removedTotals.input,
@@ -5179,13 +5473,9 @@ function App() {
           explanationOutput: currentPreserved.explanationOutput + removedTotals.explanationOutput,
           explanationCost: currentPreserved.explanationCost + removedTotals.explanationCost,
         };
-
         return {
           ...event,
-          execucoes,
-          reflexoes,
-          questionariosPendentes,
-          conclusoes,
+          missionResets: { ...(event.missionResets || {}), [key]: resetAt },
           preservedMissionUsage,
         };
       }),
@@ -5221,24 +5511,17 @@ function App() {
     showToast("Conversa do time reiniciada");
   }
 
-  async function handleExecutarMissao() {
+  async function executeMissionRun({
+    input,
+    attachments,
+    planningModeOverride = store.planningMode,
+  }) {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
-    if (!isTrainingEvent && currentMissionStatus !== "aberta") return;
-    if (teamTimerLockActive) {
-      setRunError("O cronômetro desta atividade foi encerrado pelo facilitador.");
-      return;
-    }
-    if (currentTokenBudget?.blocked) {
-      setTokenLimitModalOpen(true);
-      return;
-    }
-    const input = missionInput.trim();
-    const attachments = missionAttachments;
     const acao = FREE_ACTION_KEY;
     const historyContext = buildHistoryContext(currentExecs);
     const aiMode = getMissionAiMode(currentMission);
     const selectedModel = selectedModelForMode;
-    const wasPlanningOn = store.planningMode === "on";
+    const wasPlanningOn = planningModeOverride === "on";
     const shouldStreamCoding = apiConfigured && aiMode === CODING_AI_MODE;
     const shouldAutoOpenPreview = shouldStreamCoding && !wasPlanningOn && isHtmlPrototypeRequest(input);
     const previousCodingResponseId =
@@ -5330,7 +5613,7 @@ function App() {
             acao,
             model: selectedModel,
             modelPricing: modelPricingMap,
-            planningMode: store.planningMode,
+            planningMode: planningModeOverride,
             historyContext,
             previousResponseId: previousCodingResponseId,
             onDelta: apiConfigured
@@ -5350,7 +5633,7 @@ function App() {
             acao,
             model: selectedModel,
             modelPricing: modelPricingMap,
-            planningMode: store.planningMode,
+            planningMode: planningModeOverride,
             historyContext,
           });
 
@@ -5465,7 +5748,7 @@ function App() {
         effectiveModel: result.effectiveModel || selectedModel,
         codingResponseId: result.responseId || "",
         reasoningText: result.reasoningText || "",
-        planningMode: store.planningMode,
+        planningMode: planningModeOverride,
         planningModeReal: Boolean(result.planningModeReal),
         planningResolution: result.planningResolution || "off",
       };
@@ -5501,11 +5784,17 @@ function App() {
       }
       setRunState(null);
       setMissionFlow({ stage: "cot_aberto", exec: execRecord });
-      showToast(apiConfigured ? "Execução concluída" : "Execução simulada");
+      showToast(wasPlanningOn ? "Plano concluído" : apiConfigured ? "Execução concluída" : "Execução simulada");
 
       if (wasPlanningOn) {
         setStore((current) => ({ ...current, planningMode: "off" }));
         setConfigForm((current) => ({ ...current, planningMode: "off" }));
+        setPlanningApprovalState({
+          open: true,
+          input,
+          attachments,
+          missionName: currentMission.name || "Missão atual",
+        });
       }
 
       if (apiConfigured) {
@@ -5579,6 +5868,54 @@ function App() {
     } finally {
       setRunning(false);
     }
+  }
+
+  async function handleExecutarMissao() {
+    if (!teamEvent || timeTeamIdx === null || !currentMission) return;
+    if (!isTrainingEvent && currentMissionLocked) {
+      setRunError("Esta missão foi bloqueada pelo facilitador.");
+      return;
+    }
+    if (!isTrainingEvent && currentMissionStatus !== "aberta") return;
+    if (teamTimerLockActive) {
+      setRunError("O cronômetro desta atividade foi encerrado pelo facilitador.");
+      return;
+    }
+    if (currentTokenBudget?.blocked) {
+      setTokenLimitModalOpen(true);
+      return;
+    }
+    const input = missionInput.trim();
+    const attachments = missionAttachments;
+    if (!input && !attachments.length) {
+      setRunError("Escreva um input ou anexe pelo menos um arquivo.");
+      return;
+    }
+    await executeMissionRun({
+      input,
+      attachments,
+      planningModeOverride: store.planningMode,
+    });
+  }
+
+  async function handleApprovePlannedMission() {
+    const nextInput = planningApprovalState.input.trim();
+    const nextAttachments = planningApprovalState.attachments || [];
+    setPlanningApprovalState({ open: false, input: "", attachments: [], missionName: "" });
+    if (!nextInput && !nextAttachments.length) return;
+    await executeMissionRun({
+      input: nextInput,
+      attachments: nextAttachments,
+      planningModeOverride: "off",
+    });
+  }
+
+  function handleAdjustPlannedMission() {
+    setMissionInput(planningApprovalState.input || "");
+    setMissionAttachments(planningApprovalState.attachments || []);
+    setPlanningApprovalState({ open: false, input: "", attachments: [], missionName: "" });
+    setStore((current) => ({ ...current, planningMode: "on" }));
+    setConfigForm((current) => ({ ...current, planningMode: "on" }));
   }
 
   function handleSaveReflection() {
@@ -6157,6 +6494,7 @@ function App() {
                     <MissionsPanel
                       evento={selectedEvent}
                       eventMode={selectedEventMode}
+                      missionTogglePending={missionTogglePending}
                       missionFeedbackOpen={missionFeedbackOpen}
                       missionTeamRowsOpen={missionTeamRowsOpen}
                       missionMenuOpen={missionMenuOpen}
@@ -6229,6 +6567,13 @@ function App() {
             right={
               <>
                 {devQuickSwitch}
+                {teamEventAnnouncements.length ? (
+                  <button className="btn btn-sm topbar-participant-action" onClick={handleOpenTeamAnnouncementInbox}>
+                    <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
+                    Mensagens
+                    <span className="help-trigger-badge">{teamEventAnnouncements.length}</span>
+                  </button>
+                ) : null}
                 <span className="topbar-caption">{teamEvent.name}</span>
                 <button className="btn btn-ghost btn-sm" onClick={goEntradaTime}>
                   Trocar evento
@@ -6481,7 +6826,11 @@ function App() {
                   onDismiss={() => setDismissedScreenShareSession(teamScreenShareSessionId)}
                 />
               ) : !currentMission ? (
-                <EmptyState icon="◎" title="Nenhuma missão selecionada" sub="Selecione uma missão liberada na barra lateral." />
+                <EmptyState
+                  icon="◎"
+                  title="Nenhuma missão disponível"
+                  sub="Aguarde o facilitador liberar uma missão para continuar."
+                />
               ) : (
                 <>
                   {!isTrainingEvent && !currentConcluida && !currentQuestionarioPendente ? (
@@ -6525,6 +6874,9 @@ function App() {
                             runState={running ? runState : null}
                             liveAnswerRef={liveAnswerRef}
                             onCopyResponse={handleCopyResponse}
+                            planningApproval={planningApprovalState}
+                            onApprovePlanning={() => void handleApprovePlannedMission()}
+                            onAdjustPlanning={handleAdjustPlannedMission}
                           />
                           <div className="prompt-entry-shell">
                             {missionAttachments.length ? (
@@ -6559,8 +6911,8 @@ function App() {
                             <textarea
                               value={missionInput}
                               onChange={(event) => setMissionInput(event.target.value)}
-                              disabled={running || teamTimerLockActive}
-                              placeholder="Escreva sua mensagem ou anexe até 3 arquivos"
+                              disabled={running || teamTimerLockActive || planningApprovalState.open}
+                              placeholder={planningApprovalState.open ? "Aceite ou reformule o plano acima" : "Escreva sua mensagem ou anexe até 3 arquivos"}
                             />
                             <input
                               ref={composerFileInputRef}
@@ -6590,7 +6942,7 @@ function App() {
                                     aria-label="Planejar"
                                     aria-pressed={store.planningMode === "on"}
                                     onClick={() => handleQuickPlanningModeChange(store.planningMode === "on" ? "off" : "on")}
-                                    disabled={running}
+                                    disabled={running || planningApprovalState.open}
                                   >
                                     Planejar
                                   </button>
@@ -6609,9 +6961,9 @@ function App() {
                                 <button
                                   className="input-send-btn"
                                   aria-label={running ? "Executando com IA" : "Executar com IA"}
-                                  disabled={running || teamTimerLockActive}
+                                  disabled={running || teamTimerLockActive || planningApprovalState.open}
                                   onClick={handleExecutarMissao}
-                                  title={teamTimerLockActive ? "Tempo encerrado pelo facilitador" : running ? "Executando com IA" : "Executar com IA"}
+                                  title={planningApprovalState.open ? "Aceite ou reformule o plano acima" : teamTimerLockActive ? "Tempo encerrado pelo facilitador" : running ? "Executando com IA" : "Executar com IA"}
                                 >
                                   <span className="input-send-btn-icon">{running ? "…" : "↑"}</span>
                                 </button>

@@ -1,5 +1,5 @@
 import { MessageSquareText } from "lucide-react";
-import { getActionLabel, TRAINING_THREAD_ID } from "../../utils.js";
+import { getActionLabel, TRAINING_THREAD_ID, ANALYSIS_NOT_APPLICABLE, formatDateTime } from "../../utils.js";
 
 const TRAINING_MODE_EVENT = "training";
 
@@ -29,7 +29,42 @@ function extractPromptFeatures(text) {
   };
 }
 
-function analyzePromptQuality({ exec, mission }) {
+const NA = (ANALYSIS_NOT_APPLICABLE || "").toLowerCase();
+
+function isRealValue(text) {
+  const v = (text || "").trim().toLowerCase();
+  return v.length > 0 && v !== NA && v !== "n/a" && v !== "não aplicável";
+}
+
+function filterReal(arr) {
+  return (Array.isArray(arr) ? arr : []).filter((v) => isRealValue(v));
+}
+
+function analyzePromptQuality({ exec }) {
+  const ta = exec.technicalAnalysis;
+  const aiReady = ta && !ta.pending && !ta.unavailable;
+
+  if (aiReady) {
+    const strengths = filterReal(ta.outputEvaluation?.whatWorked);
+    const watchouts = [
+      ...filterReal(ta.outputEvaluation?.whatStayedGeneric),
+      ...filterReal(ta.outputEvaluation?.gapBetweenRequestAndDelivery),
+    ].slice(0, 3);
+
+    const risk = isRealValue(ta.executiveSummary?.risk) ? ta.executiveSummary.risk : null;
+    const nextMove = isRealValue(ta.executiveSummary?.nextMove) ? ta.executiveSummary.nextMove : null;
+    const rewriteSuggestion = filterReal(ta.nextStep?.howToReformulate).join(" ");
+
+    return {
+      strengths: strengths.slice(0, 3),
+      watchouts: watchouts.length ? watchouts : (risk ? [risk] : []),
+      rewriteSuggestion,
+      teachingNote: nextMove || "",
+      fromAI: true,
+    };
+  }
+
+  // Fallback: heuristic rules when AI analysis isn't ready yet
   const features = extractPromptFeatures(exec.input);
   const strengths = [];
   const watchouts = [];
@@ -57,15 +92,14 @@ function analyzePromptQuality({ exec, mission }) {
     `Saída: ${features.asksFormat ? "mantenha o formato pedido" : "diga em que formato a resposta deve vir"}.`,
   ].join(" ");
 
-  const teachingNote = strengths.length
-    ? "Quando o prompt define contexto, tarefa e formato, a resposta tende a ficar mais aproveitável."
-    : "Antes de buscar uma resposta melhor, vale tornar o pedido mais concreto e menos ambíguo.";
-
   return {
     strengths: strengths.slice(0, 3),
     watchouts: watchouts.slice(0, 3),
     rewriteSuggestion,
-    teachingNote,
+    teachingNote: strengths.length
+      ? "Quando o prompt define contexto, tarefa e formato, a resposta tende a ficar mais aproveitável."
+      : "Antes de buscar uma resposta melhor, vale tornar o pedido mais concreto e menos ambíguo.",
+    fromAI: false,
   };
 }
 
@@ -88,7 +122,8 @@ function getPromptInsightEntries(evento) {
           ts: exec.ts,
           prompt: exec.input || "",
           output: exec.output || "",
-          analysis: analyzePromptQuality({ exec, mission: TRAINING_MISSION }),
+          technicalFeedback: exec.technicalFeedback || null,
+          analysis: analyzePromptQuality({ exec }),
         });
       });
     });
@@ -102,20 +137,21 @@ function getPromptInsightEntries(evento) {
     const team = evento.teams?.[teamIdx];
     const mission = evento.missions?.find((item) => item.id === missionId);
     (execs || []).forEach((exec, index) => {
-      entries.push({
-        id: `${key}-${exec.ts || index}`,
-        key,
-        teamIdx,
-        teamName: team?.name || `Time ${teamIdx + 1}`,
+        entries.push({
+          id: `${key}-${exec.ts || index}`,
+          key,
+          teamIdx,
+          teamName: team?.name || `Time ${teamIdx + 1}`,
         missionId,
         missionName: mission?.name || missionId,
         missionNum: mission?.num || null,
         actionLabel: getActionLabel(exec.acao),
-        ts: exec.ts,
-        prompt: exec.input || "",
-        output: exec.output || "",
-        analysis: analyzePromptQuality({ exec, mission }),
-      });
+          ts: exec.ts,
+          prompt: exec.input || "",
+          output: exec.output || "",
+          technicalFeedback: exec.technicalFeedback || null,
+          analysis: analyzePromptQuality({ exec }),
+        });
     });
   });
   return entries.sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
@@ -133,23 +169,38 @@ function groupPromptInsightsByObservation(entries, side) {
   entries.forEach((entry) => {
     (entry.analysis?.[side] || []).forEach((item) => {
       if (!grouped.has(item)) {
-        grouped.set(item, new globalThis.Map());
-      }
-      const participants = grouped.get(item);
-      if (!participants.has(entry.teamName)) {
-        participants.set(entry.teamName, {
-          id: entry.teamName,
-          teamName: entry.teamName,
-          actionLabel: entry.actionLabel,
-          prompt: truncatePromptSnippet(entry.prompt, 84),
+        grouped.set(item, {
+          promptIds: new globalThis.Set(),
+          teamNames: new globalThis.Set(),
         });
       }
+      const bucket = grouped.get(item);
+      bucket.promptIds.add(entry.id);
+      bucket.teamNames.add(entry.teamName);
     });
   });
-  return [...grouped.entries()].map(([text, participants]) => ({
+  return [...grouped.entries()].map(([text, bucket]) => ({
     text,
-    participants: [...participants.values()],
+    promptCount: bucket.promptIds.size,
+    teamCount: bucket.teamNames.size,
   }));
+}
+
+function getExplicitFeedbackEntries(entries) {
+  return entries
+    .filter((entry) => entry.technicalFeedback?.rating)
+    .map((entry) => ({
+      id: `feedback-${entry.id}`,
+      teamName: entry.teamName,
+      missionId: entry.missionId,
+      missionName: entry.missionName,
+      prompt: truncatePromptSnippet(entry.prompt, 120),
+      rating: entry.technicalFeedback.rating,
+      reason: entry.technicalFeedback.reason || "",
+      comment: entry.technicalFeedback.comment || "",
+      submittedAt: entry.technicalFeedback.submittedAt || entry.ts,
+    }))
+    .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
 }
 
 export function PromptInsightsPanel({ evento }) {
@@ -157,6 +208,9 @@ export function PromptInsightsPanel({ evento }) {
   if (!entries.length) {
     return <div className="teams-empty">Nenhum prompt executado ainda.</div>;
   }
+
+  const autoAnalysisNote = "Leitura automática dos prompts. Não representa feedback clicado pelo aluno.";
+  const explicitFeedbackEntries = getExplicitFeedbackEntries(entries);
 
   if (getEventMode(evento) === TRAINING_MODE_EVENT) {
     const byTeam = evento.teams
@@ -177,6 +231,36 @@ export function PromptInsightsPanel({ evento }) {
           </span>
           <span className="muted-mini">{entries.length} rodada(s) livres analisadas</span>
         </div>
+        <div className="prompt-insight-empty">
+          <strong>Análise automática</strong>
+          <span>{autoAnalysisNote}</span>
+        </div>
+
+        {explicitFeedbackEntries.length ? (
+          <section className="prompt-insight-group editorial">
+            <div className="prompt-insight-group-head">
+              <div>
+                <div className="prompt-insight-group-title">Feedback explícito da explicação técnica</div>
+                <div className="prompt-insight-group-sub">{explicitFeedbackEntries.length} retorno(s) clicados pelos alunos</div>
+              </div>
+            </div>
+            <div className="prompt-insight-open-list">
+              {explicitFeedbackEntries.map((entry) => (
+                <article className="prompt-insight-open-item" key={entry.id}>
+                  <div className="prompt-insight-open-note prompt-insight-observation">
+                    {entry.rating === "up" ? "Útil" : "Não útil"} · {entry.teamName} · {formatDateTime(entry.submittedAt)}
+                  </div>
+                  <div className="prompt-insight-chip-row">
+                    <span className="prompt-insight-person-chip">{entry.teamName}</span>
+                    {entry.reason ? <span className="prompt-insight-person-chip">{entry.reason}</span> : null}
+                  </div>
+                  <div className="prompt-insight-open-note">Prompt: "{entry.prompt}"</div>
+                  {entry.comment ? <div className="prompt-insight-open-note">{entry.comment}</div> : null}
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <div className="prompt-insight-group-list">
           {byTeam.map(({ teamName, entries: teamEntries }) => (
@@ -202,6 +286,7 @@ export function PromptInsightsPanel({ evento }) {
                         <article className="prompt-insight-open-item" key={`${entry.id}-good`}>
                           <div className="prompt-insight-open-note prompt-insight-observation">"{truncatePromptSnippet(entry.prompt, 120)}"</div>
                           <div className="prompt-insight-chip-row">
+                            <span className="prompt-insight-person-chip">Automático</span>
                             {(entry.analysis?.strengths || []).map((item) => (
                               <span className="prompt-insight-person-chip" key={`${entry.id}-${item}`}>{item}</span>
                             ))}
@@ -218,7 +303,7 @@ export function PromptInsightsPanel({ evento }) {
                   <div className="prompt-insight-column-head">
                     <div className="prompt-insight-column-title">
                       <span className="prompt-insight-column-icon" aria-hidden="true">!</span>
-                      <span>A observar</span>
+                      <span>Pontos de melhoria</span>
                     </div>
                   </div>
                   <div className="prompt-insight-open-list">
@@ -227,6 +312,7 @@ export function PromptInsightsPanel({ evento }) {
                         <article className="prompt-insight-open-item" key={`${entry.id}-watch`}>
                           <div className="prompt-insight-open-note prompt-insight-observation">"{truncatePromptSnippet(entry.prompt, 120)}"</div>
                           <div className="prompt-insight-chip-row">
+                            <span className="prompt-insight-person-chip">Automático</span>
                             {(entry.analysis?.watchouts || []).map((item) => (
                               <span className="prompt-insight-person-chip" key={`${entry.id}-${item}`}>{item}</span>
                             ))}
@@ -259,6 +345,37 @@ export function PromptInsightsPanel({ evento }) {
         <span className="section-title">Leitura pedagógica dos prompts</span>
         <span className="muted-mini">{byMission.length} missão(ões) com prompts analisados</span>
       </div>
+      <div className="prompt-insight-empty">
+        <strong>Análise automática</strong>
+        <span>{autoAnalysisNote}</span>
+      </div>
+
+      {explicitFeedbackEntries.length ? (
+        <section className="prompt-insight-group editorial">
+          <div className="prompt-insight-group-head">
+            <div>
+              <div className="prompt-insight-group-title">Feedback explícito da explicação técnica</div>
+              <div className="prompt-insight-group-sub">{explicitFeedbackEntries.length} retorno(s) clicados pelos alunos</div>
+            </div>
+          </div>
+          <div className="prompt-insight-open-list">
+            {explicitFeedbackEntries.map((entry) => (
+              <article className="prompt-insight-open-item" key={entry.id}>
+                <div className="prompt-insight-open-note prompt-insight-observation">
+                  {entry.rating === "up" ? "Útil" : "Não útil"} · {entry.teamName} · {formatDateTime(entry.submittedAt)}
+                </div>
+                <div className="prompt-insight-chip-row">
+                  <span className="prompt-insight-person-chip">{entry.teamName}</span>
+                  <span className="prompt-insight-person-chip">{entry.missionName}</span>
+                  {entry.reason ? <span className="prompt-insight-person-chip">{entry.reason}</span> : null}
+                </div>
+                <div className="prompt-insight-open-note">Prompt: "{entry.prompt}"</div>
+                {entry.comment ? <div className="prompt-insight-open-note">{entry.comment}</div> : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="prompt-insight-group-list">
         {byMission.map(({ mission, entries: missionEntries }) => (
@@ -300,11 +417,9 @@ export function PromptInsightsPanel({ evento }) {
                         <article className="prompt-insight-open-item" key={`strength-group-${group.text}`}>
                           <div className="prompt-insight-open-note prompt-insight-observation">{group.text}</div>
                           <div className="prompt-insight-chip-row">
-                            {group.participants.map((participant) => (
-                              <span className="prompt-insight-person-chip" key={`${group.text}-${participant.id}`}>
-                                {participant.teamName}
-                              </span>
-                            ))}
+                            <span className="prompt-insight-person-chip">Automático</span>
+                            <span className="prompt-insight-person-chip">{group.promptCount} prompt(s)</span>
+                            <span className="prompt-insight-person-chip">{group.teamCount} time(s)</span>
                           </div>
                         </article>
                       ))
@@ -327,7 +442,7 @@ export function PromptInsightsPanel({ evento }) {
                           <path d="M10 2.8l7 12.1a1 1 0 0 1-.86 1.5H3.86a1 1 0 0 1-.86-1.5l7-12.1a1 1 0 0 1 1.72 0Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
                         </svg>
                       </span>
-                      <span>A observar</span>
+                      <span>Pontos de melhoria</span>
                     </div>
                   </div>
                   <div className="prompt-insight-open-list">
@@ -336,11 +451,9 @@ export function PromptInsightsPanel({ evento }) {
                         <article className="prompt-insight-open-item" key={`watchout-group-${group.text}`}>
                           <div className="prompt-insight-open-note prompt-insight-observation">{group.text}</div>
                           <div className="prompt-insight-chip-row">
-                            {group.participants.map((participant) => (
-                              <span className="prompt-insight-person-chip" key={`${group.text}-${participant.id}`}>
-                                {participant.teamName}
-                              </span>
-                            ))}
+                            <span className="prompt-insight-person-chip">Automático</span>
+                            <span className="prompt-insight-person-chip">{group.promptCount} prompt(s)</span>
+                            <span className="prompt-insight-person-chip">{group.teamCount} time(s)</span>
                           </div>
                         </article>
                       ))

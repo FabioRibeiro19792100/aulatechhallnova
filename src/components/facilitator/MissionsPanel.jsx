@@ -7,24 +7,59 @@ import { AI_MODE_LABELS } from "../../data/missions.js";
 
 const TRAINING_MODE_EVENT = "training";
 
+function getMissionResetAt(evento, teamIdx, missionId) {
+  return evento?.missionResets?.[`${teamIdx}__${missionId}`] || null;
+}
+
 function getExecucoes(evento, teamIdx, missionId) {
-  return (evento?.execucoes?.[`${teamIdx}__${missionId}`] || []);
+  const execs = evento?.execucoes?.[`${teamIdx}__${missionId}`] || [];
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  if (!resetAt) return execs;
+  return execs.filter((exec) => exec?.ts && exec.ts >= resetAt);
 }
 
 function getQuestionarioPendenteEntry(evento, teamIdx, missionId) {
-  return (evento?.questionariosPendentes || []).find((item) => item.teamIdx === teamIdx && item.missionId === missionId) || null;
+  const entry = evento?.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+  if (!entry) return null;
+  if (typeof entry === "object" && entry.source === "reopened") return null;
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const openedAt = typeof entry === "object" ? entry.openedAt : null;
+  if (resetAt && openedAt && openedAt < resetAt) return null;
+  return entry;
 }
 
 function getConclusaoEntry(evento, teamIdx, missionId) {
-  return (evento?.conclusoes || []).find((item) => item.teamIdx === teamIdx && item.missionId === missionId) || null;
+  const entry = evento?.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+  if (!entry) return null;
+  if (typeof entry === "object" && entry.source === "reopened") return null;
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const concludedAt = typeof entry === "object" ? (entry.closedAt || entry.concludedAt) : null;
+  if (resetAt && concludedAt && concludedAt < resetAt) return null;
+  return entry;
 }
 
 function isConcluida(evento, teamIdx, missionId) {
   return Boolean(getConclusaoEntry(evento, teamIdx, missionId));
 }
 
+function getQuestionarioPendenteSource(evento, teamIdx, missionId) {
+  const entry = getQuestionarioPendenteEntry(evento, teamIdx, missionId);
+  if (!entry) return null;
+  if (typeof entry === "string") return "facilitator";
+  return entry.source || "facilitator";
+}
+
+function getConclusaoSource(evento, teamIdx, missionId) {
+  const entry = getConclusaoEntry(evento, teamIdx, missionId);
+  if (!entry) return null;
+  if (typeof entry === "string") return "legacy";
+  return entry.source || "legacy";
+}
+
 function canFacilitatorReopenMissionForTeam(evento, teamIdx, missionId) {
-  return getConclusaoEntry(evento, teamIdx, missionId)?.closedBy === "facilitador";
+  const closureSource = getConclusaoSource(evento, teamIdx, missionId);
+  if (closureSource === "facilitator" || closureSource === "facilitator_no_evaluation") return true;
+  return getQuestionarioPendenteSource(evento, teamIdx, missionId) === "facilitator";
 }
 
 function isQuestionarioPendente(evento, teamIdx, missionId) {
@@ -78,7 +113,13 @@ function getOpenHelpRequests(evento) {
 function getMissionReflections(evento, missionId) {
   return Object.entries(evento.reflexoes || {})
     .map(([key, entry]) => ({ ...entry, key }))
-    .filter((entry) => entry?.missionId === missionId || `${entry?.key || ""}`.endsWith(`__${missionId}`))
+    .filter((entry) => {
+      if (!(entry?.missionId === missionId || `${entry?.key || ""}`.endsWith(`__${missionId}`))) return false;
+      const teamIdx = Number(`${entry?.key || ""}`.split("__")[0]);
+      const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+      if (resetAt && entry?.submittedAt && entry.submittedAt < resetAt) return false;
+      return true;
+    })
     .sort((a, b) => new Date(b.submittedAt || b.ts || 0) - new Date(a.submittedAt || a.ts || 0));
 }
 
@@ -111,6 +152,7 @@ function truncatePromptSnippet(text, max = 140) {
 export function MissionsPanel({
   evento,
   eventMode,
+  missionTogglePending,
   missionFeedbackOpen,
   missionTeamRowsOpen,
   missionMenuOpen,
@@ -152,6 +194,7 @@ export function MissionsPanel({
         <div className="mission-simple-list">
           {evento.missions.map((mission, index) => {
             const missionAiMode = getMissionAiMode(mission);
+            const togglePending = Boolean(missionTogglePending?.[`${evento.id}__${index}`]);
             const reflections = getMissionReflections(evento, mission.id);
             const technicalFeedbackEntries = getMissionTechnicalFeedbackEntries(evento, mission.id);
             const feedbackKey = `${evento.id}__${mission.id}`;
@@ -223,9 +266,12 @@ export function MissionsPanel({
                     <div className="mission-row-header">
                       <span className="mission-num">{mission.num || ""}</span>
                       <button
-                        className={`mission-toggle mission-toggle-inline${mission.unlocked ? " is-on" : ""}`}
+                        type="button"
+                        className={`mission-toggle mission-toggle-inline${mission.unlocked ? " is-on" : ""}${togglePending ? " is-loading" : ""}`}
                         onClick={() => handleToggleMission(evento.id, index, !mission.unlocked)}
+                        disabled={togglePending}
                         aria-label={mission.unlocked ? `Desligar missão ${mission.name}` : `Ligar missão ${mission.name}`}
+                        aria-busy={togglePending}
                       >
                         <span className="mission-toggle-track">
                           <span className="mission-toggle-thumb" />

@@ -1,0 +1,830 @@
+{
+  "id": "techhall-v1",
+  "events": [
+    {
+      "id": "ev_1779964241181",
+      "name": "Lab de teste",
+      "desc": "Ambiente rápido para validar fluxo local",
+      "status": "open",
+      "eventMode": "missions",
+      "missionTemplate": "fixed-v2",
+      "teams": [
+        {
+          "name": "Time 1",
+          "runs": 1,
+          "members": []
+        }
+      ],
+      "missions": [
+        {
+          "id": "mission_general_chat",
+          "num": 1,
+          "aiMode": "chat",
+          "name": "Análise geral",
+          "category": "chat",
+          "desc": "Missão ampla para análise, síntese, interpretação, revisão crítica e estruturação de informação.",
+          "situacao": "Use esta missão quando o time precisar pensar, resumir, comparar, organizar ideias, revisar uma resposta ou transformar material disperso em algo útil para decisão.",
+          "instrucao": "Escreva o pedido livremente e contextualize o objetivo, o destinatário e o formato esperado da resposta. A IA vai atuar como parceira de análise geral.",
+          "placeholder": "Cole seu contexto, pergunta, notas, briefing, resposta de IA ou material bruto. Ex.: \"Preciso transformar estas anotações em um resumo executivo com próximos passos.\"",
+          "acoes": [],
+          "unlocked": true
+        },
+        {
+          "id": "mission_programming_coding",
+          "num": 2,
+          "aiMode": "coding",
+          "name": "Programação",
+          "category": "coding",
+          "desc": "Missão dedicada a código, debugging, arquitetura, refatoração e exemplos práticos.",
+          "situacao": "Use esta missão quando o time precisar programar, depurar, revisar arquitetura, refatorar código ou transformar uma ideia técnica em implementação concreta.",
+          "instrucao": "Descreva o problema técnico, cole código quando existir e diga o resultado esperado. A IA vai responder priorizando implementação, debugging e decisões de engenharia.",
+          "placeholder": "Cole o código, o erro, a arquitetura ou o requisito. Ex.: \"Este componente React renderiza duas vezes e quebra o estado. Quero entender a causa e corrigir com uma solução limpa.\"",
+          "acoes": [],
+          "unlocked": false
+        }
+      ],
+      "execucoes": {
+        "0__mission_general_chat": [
+          {
+            "id": "run_1779999686038",
+            "ts": "2026-05-28T20:21:26.038Z",
+            "input": "tete",
+            "attachments": [],
+            "acao": "__free_instruction__",
+            "actionMode": "free",
+            "isFreeInstruction": true,
+            "output": "Olá! Parece que sua mensagem está incompleta ou não ficou muito clara. Poderia, por favor, reformular ou detalhar melhor o que deseja? Estou aqui para ajudar!",
+            "explicacao": "O prompt enviado foi 'tete', uma palavra isolada sem contexto.",
+            "reasoningSummary": "Responder solicitando reformulação ou detalhamento para entender melhor a intenção.",
+            "reasoningDetails": {
+              "executiveSummary": {
+                "takeaway": "Você enviou um prompt muito curto e pouco claro, o que dificultou a geração de uma resposta específica.",
+                "risk": "A falta de contexto e clareza pode levar a respostas genéricas ou irrelevantes que não atendem às suas expectativas.",
+                "nextMove": "Reformule seu prompt com mais detalhes e informações claras para que a IA possa fornecer uma resposta técnica e didática adequada."
+              },
+              "promptReading": {
+                "explicit": [
+                  "O prompt enviado foi 'tete', uma palavra isolada sem contexto."
+                ],
+                "inferred": [
+                  "Você possivelmente tentou enviar uma mensagem incompleta ou houve um erro de digitação."
+                ],
+                "assumed": [
+                  "Você espera que a IA peça esclarecimentos para continuar a interação."
+                ],
+                "ambiguities": [
+                  "Não há clareza sobre o que 'tete' significa ou qual é a intenção por trás do prompt."
+                ]
+              },
+              "chainOfThought": {
+                "contextConsidered": [
+                  "Ausência de contexto anterior, prompt muito curto e ambíguo."
+                ],
+                "strategyChosen": [
+                  "Responder solicitando reformulação ou detalhamento para entender melhor a intenção."
+                ],
+                "discarded": [
+                  "Tentar interpretar 'tete' como termo técnico ou conteúdo específico, pois não há base para isso."
+                ],
+                "expandedExplanation": "Diante de um prompt incompleto e sem contexto, a melhor abordagem é indicar que a mensagem não foi clara e solicitar que você forneça mais informações para que a IA possa ajudar de forma técnica e didática, conforme a missão."
+              },
+              "responseConstruction": {
+                "toneAndFormat": [
+                  "Tom educado, direto e colaborativo, incentivando o usuário a reformular."
+                ],
+                "conceptsActivated": [
+                  "Clareza na comunicação, solicitação de reformulação, empatia na interação."
+                ],
+                "generationLimitations": [
+                  "Impossibilidade de gerar conteúdo técnico ou didático devido à falta de informações no prompt."
+                ]
+              },
+              "outputEvaluation": {
+                "whatWorked": [
+                  "Resposta clara e direta indicando a necessidade de mais informações."
+                ],
+                "whatStayedGeneric": [
+                  "A resposta não pôde ser técnica ou aprofundada por falta de dados."
+                ],
+                "gapBetweenRequestAndDelivery": [
+                  "O prompt não continha conteúdo suficiente para análise pedagógica técnica, limitando a resposta a um pedido de esclarecimento."
+                ]
+              },
+              "nextStep": {
+                "howToReformulate": [
+                  "Envie um prompt claro, completo e com contexto para que a IA possa analisar e explicar tecnicamente."
+                ],
+                "whatToTestNext": [
+                  "Teste enviar uma pergunta ou solicitação detalhada relacionada à análise pedagógica para avaliar a resposta técnica."
+                ]
+              },
+              "glossary": {
+                "round": [],
+                "accumulated": []
+              },
+              "sourceType": "openai-guided",
+              "sourceLabel": "Análise pedagógica gerada com OpenAI",
+              "analysisTarget": "latest_prompt",
+              "usedHistoryContext": false,
+              "historySignal": "Esta resposta foi gerada como uma primeira rodada desta missao.",
+              "usage": {
+                "inputTokens": 712,
+                "outputTokens": 574,
+                "totalTokens": 1286,
+                "cost": 0.0012032,
+                "model": "gpt-4.1-mini"
+              },
+              "objectiveInterpreted": "O prompt enviado foi 'tete', uma palavra isolada sem contexto.",
+              "strategyUsed": "Responder solicitando reformulação ou detalhamento para entender melhor a intenção.",
+              "promptBreakdown": [
+                {
+                  "segment": "Explícito",
+                  "function": "O prompt enviado foi 'tete', uma palavra isolada sem contexto."
+                },
+                {
+                  "segment": "Inferido",
+                  "function": "Você possivelmente tentou enviar uma mensagem incompleta ou houve um erro de digitação."
+                },
+                {
+                  "segment": "Assumido",
+                  "function": "Você espera que a IA peça esclarecimentos para continuar a interação."
+                },
+                {
+                  "segment": "Ambiguidades",
+                  "function": "Não há clareza sobre o que 'tete' significa ou qual é a intenção por trás do prompt."
+                }
+              ],
+              "conceptsAndTerminologies": [],
+              "constructionProcess": {
+                "explicitRequests": [
+                  "O prompt enviado foi 'tete', uma palavra isolada sem contexto."
+                ],
+                "inferredPoints": [
+                  "Você possivelmente tentou enviar uma mensagem incompleta ou houve um erro de digitação."
+                ],
+                "assumptionsMade": [
+                  "Você espera que a IA peça esclarecimentos para continuar a interação."
+                ],
+                "ambiguities": [
+                  "Não há clareza sobre o que 'tete' significa ou qual é a intenção por trás do prompt."
+                ]
+              },
+              "limitationsAndGaps": [
+                "A resposta não pôde ser técnica ou aprofundada por falta de dados."
+              ],
+              "refinementSuggestions": [
+                "Envie um prompt claro, completo e com contexto para que a IA possa analisar e explicar tecnicamente.",
+                "Teste enviar uma pergunta ou solicitação detalhada relacionada à análise pedagógica para avaliar a resposta técnica."
+              ],
+              "contextUse": "Ausência de contexto anterior, prompt muito curto e ambíguo.",
+              "technicalTerms": [],
+              "mechanismSummary": "Diante de um prompt incompleto e sem contexto, a melhor abordagem é indicar que a mensagem não foi clara e solicitar que você forneça mais informações para que a IA possa ajudar de forma técnica e didática, conforme a missão.",
+              "summary": "Diante de um prompt incompleto e sem contexto, a melhor abordagem é indicar que a mensagem não foi clara e solicitar que você forneça mais informações para que a IA possa ajudar de forma técnica e didática, conforme a missão.",
+              "selectionLogic": "Responder solicitando reformulação ou detalhamento para entender melhor a intenção.",
+              "whyThisAnswer": "Resposta clara e direta indicando a necessidade de mais informações.",
+              "alternativeAnswerPaths": [
+                "Tentar interpretar 'tete' como termo técnico ou conteúdo específico, pois não há base para isso."
+              ],
+              "actionInfluence": "Tom educado, direto e colaborativo, incentivando o usuário a reformular.",
+              "limitations": "Impossibilidade de gerar conteúdo técnico ou didático devido à falta de informações no prompt.",
+              "howToAskBetter": [
+                "Envie um prompt claro, completo e com contexto para que a IA possa analisar e explicar tecnicamente."
+              ],
+              "bestPractices": [
+                "Teste enviar uma pergunta ou solicitação detalhada relacionada à análise pedagógica para avaliar a resposta técnica."
+              ],
+              "takeaway": "Você enviou um prompt muito curto e pouco claro, o que dificultou a geração de uma resposta específica.",
+              "mainRisk": "A falta de contexto e clareza pode levar a respostas genéricas ou irrelevantes que não atendem às suas expectativas.",
+              "recommendedNextMove": "Reformule seu prompt com mais detalhes e informações claras para que a IA possa fornecer uma resposta técnica e didática adequada."
+            },
+            "technicalAnalysis": {
+              "executiveSummary": {
+                "takeaway": "Você enviou um prompt muito curto e pouco claro, o que dificultou a geração de uma resposta específica.",
+                "risk": "A falta de contexto e clareza pode levar a respostas genéricas ou irrelevantes que não atendem às suas expectativas.",
+                "nextMove": "Reformule seu prompt com mais detalhes e informações claras para que a IA possa fornecer uma resposta técnica e didática adequada."
+              },
+              "promptReading": {
+                "explicit": [
+                  "O prompt enviado foi 'tete', uma palavra isolada sem contexto."
+                ],
+                "inferred": [
+                  "Você possivelmente tentou enviar uma mensagem incompleta ou houve um erro de digitação."
+                ],
+                "assumed": [
+                  "Você espera que a IA peça esclarecimentos para continuar a interação."
+                ],
+                "ambiguities": [
+                  "Não há clareza sobre o que 'tete' significa ou qual é a intenção por trás do prompt."
+                ]
+              },
+              "chainOfThought": {
+                "contextConsidered": [
+                  "Ausência de contexto anterior, prompt muito curto e ambíguo."
+                ],
+                "strategyChosen": [
+                  "Responder solicitando reformulação ou detalhamento para entender melhor a intenção."
+                ],
+                "discarded": [
+                  "Tentar interpretar 'tete' como termo técnico ou conteúdo específico, pois não há base para isso."
+                ],
+                "expandedExplanation": "Diante de um prompt incompleto e sem contexto, a melhor abordagem é indicar que a mensagem não foi clara e solicitar que você forneça mais informações para que a IA possa ajudar de forma técnica e didática, conforme a missão."
+              },
+              "responseConstruction": {
+                "toneAndFormat": [
+                  "Tom educado, direto e colaborativo, incentivando o usuário a reformular."
+                ],
+                "conceptsActivated": [
+                  "Clareza na comunicação, solicitação de reformulação, empatia na interação."
+                ],
+                "generationLimitations": [
+                  "Impossibilidade de gerar conteúdo técnico ou didático devido à falta de informações no prompt."
+                ]
+              },
+              "outputEvaluation": {
+                "whatWorked": [
+                  "Resposta clara e direta indicando a necessidade de mais informações."
+                ],
+                "whatStayedGeneric": [
+                  "A resposta não pôde ser técnica ou aprofundada por falta de dados."
+                ],
+                "gapBetweenRequestAndDelivery": [
+                  "O prompt não continha conteúdo suficiente para análise pedagógica técnica, limitando a resposta a um pedido de esclarecimento."
+                ]
+              },
+              "nextStep": {
+                "howToReformulate": [
+                  "Envie um prompt claro, completo e com contexto para que a IA possa analisar e explicar tecnicamente."
+                ],
+                "whatToTestNext": [
+                  "Teste enviar uma pergunta ou solicitação detalhada relacionada à análise pedagógica para avaliar a resposta técnica."
+                ]
+              },
+              "glossary": {
+                "round": [],
+                "accumulated": []
+              },
+              "sourceType": "openai-guided",
+              "sourceLabel": "Análise pedagógica gerada com OpenAI",
+              "analysisTarget": "latest_prompt",
+              "usedHistoryContext": false,
+              "historySignal": "Esta resposta foi gerada como uma primeira rodada desta missao.",
+              "usage": {
+                "inputTokens": 712,
+                "outputTokens": 574,
+                "totalTokens": 1286,
+                "cost": 0.0012032,
+                "model": "gpt-4.1-mini"
+              },
+              "objectiveInterpreted": "O prompt enviado foi 'tete', uma palavra isolada sem contexto.",
+              "strategyUsed": "Responder solicitando reformulação ou detalhamento para entender melhor a intenção.",
+              "promptBreakdown": [
+                {
+                  "segment": "Explícito",
+                  "function": "O prompt enviado foi 'tete', uma palavra isolada sem contexto."
+                },
+                {
+                  "segment": "Inferido",
+                  "function": "Você possivelmente tentou enviar uma mensagem incompleta ou houve um erro de digitação."
+                },
+                {
+                  "segment": "Assumido",
+                  "function": "Você espera que a IA peça esclarecimentos para continuar a interação."
+                },
+                {
+                  "segment": "Ambiguidades",
+                  "function": "Não há clareza sobre o que 'tete' significa ou qual é a intenção por trás do prompt."
+                }
+              ],
+              "conceptsAndTerminologies": [],
+              "constructionProcess": {
+                "explicitRequests": [
+                  "O prompt enviado foi 'tete', uma palavra isolada sem contexto."
+                ],
+                "inferredPoints": [
+                  "Você possivelmente tentou enviar uma mensagem incompleta ou houve um erro de digitação."
+                ],
+                "assumptionsMade": [
+                  "Você espera que a IA peça esclarecimentos para continuar a interação."
+                ],
+                "ambiguities": [
+                  "Não há clareza sobre o que 'tete' significa ou qual é a intenção por trás do prompt."
+                ]
+              },
+              "limitationsAndGaps": [
+                "A resposta não pôde ser técnica ou aprofundada por falta de dados."
+              ],
+              "refinementSuggestions": [
+                "Envie um prompt claro, completo e com contexto para que a IA possa analisar e explicar tecnicamente.",
+                "Teste enviar uma pergunta ou solicitação detalhada relacionada à análise pedagógica para avaliar a resposta técnica."
+              ],
+              "contextUse": "Ausência de contexto anterior, prompt muito curto e ambíguo.",
+              "technicalTerms": [],
+              "mechanismSummary": "Diante de um prompt incompleto e sem contexto, a melhor abordagem é indicar que a mensagem não foi clara e solicitar que você forneça mais informações para que a IA possa ajudar de forma técnica e didática, conforme a missão.",
+              "summary": "Diante de um prompt incompleto e sem contexto, a melhor abordagem é indicar que a mensagem não foi clara e solicitar que você forneça mais informações para que a IA possa ajudar de forma técnica e didática, conforme a missão.",
+              "selectionLogic": "Responder solicitando reformulação ou detalhamento para entender melhor a intenção.",
+              "whyThisAnswer": "Resposta clara e direta indicando a necessidade de mais informações.",
+              "alternativeAnswerPaths": [
+                "Tentar interpretar 'tete' como termo técnico ou conteúdo específico, pois não há base para isso."
+              ],
+              "actionInfluence": "Tom educado, direto e colaborativo, incentivando o usuário a reformular.",
+              "limitations": "Impossibilidade de gerar conteúdo técnico ou didático devido à falta de informações no prompt.",
+              "howToAskBetter": [
+                "Envie um prompt claro, completo e com contexto para que a IA possa analisar e explicar tecnicamente."
+              ],
+              "bestPractices": [
+                "Teste enviar uma pergunta ou solicitação detalhada relacionada à análise pedagógica para avaliar a resposta técnica."
+              ],
+              "takeaway": "Você enviou um prompt muito curto e pouco claro, o que dificultou a geração de uma resposta específica.",
+              "mainRisk": "A falta de contexto e clareza pode levar a respostas genéricas ou irrelevantes que não atendem às suas expectativas.",
+              "recommendedNextMove": "Reformule seu prompt com mais detalhes e informações claras para que a IA possa fornecer uma resposta técnica e didática adequada."
+            },
+            "technicalAnalysisUsage": {
+              "inputTokens": 712,
+              "outputTokens": 574,
+              "totalTokens": 1286,
+              "cost": 0.0012032,
+              "model": "gpt-4.1-mini"
+            },
+            "processingSteps": [],
+            "simulationMode": "openai-live",
+            "promptApplied": "Voce e o assistente de chat do Tech Hall AI Lab, especializado em analise geral: sintetizar, comparar, interpretar, organizar e revisar informacoes com clareza estrutural. Responda de forma util, clara e honesta. Nao invente fatos ausentes e diferencie o que esta explicito do que e inferencia. Se o pedido estiver vago, ajude a melhorar o prompt antes de responder. Responda sempre em portugues do Brasil, qualquer que seja o idioma do pedido, dos anexos ou do historico.\n\nDiretriz da rodada: o time escreveu a propria instrucao livremente, sem usar uma acao rapida predefinida.",
+            "usedHistory": false,
+            "historySignal": "Esta resposta foi gerada como uma primeira rodada desta missao.",
+            "analysisTarget": "latest_prompt",
+            "usedHistoryContext": false,
+            "iterationNumber": 1,
+            "aiMode": "chat",
+            "generatedArtifacts": [],
+            "inputTokens": 154,
+            "outputTokens": 37,
+            "tokens": 191,
+            "custo": 0.00012080000000000001,
+            "selectedModel": "gpt-4.1-mini",
+            "effectiveModel": "gpt-4.1-mini",
+            "codingResponseId": "resp_07a4712840f3789a006a18a3c3c3608196b42caba9f5096cc9",
+            "reasoningText": "",
+            "planningMode": "off",
+            "planningModeReal": false,
+            "planningResolution": "off",
+            "technicalFeedback": {
+              "rating": "down",
+              "reason": "Muito redundante",
+              "comment": "teste\n",
+              "submittedAt": "2026-05-28T20:22:27.745Z"
+            }
+          }
+        ]
+      },
+      "reflexoes": {},
+      "questionariosPendentes": {},
+      "conclusoes": {},
+      "preservedMissionUsage": {},
+      "missionGlossaries": {
+        "0__mission_general_chat": []
+      },
+      "missionTokenPolicies": {},
+      "tokenGrants": [],
+      "tokenOperationalLogs": [],
+      "helpRequests": [],
+      "helpDisabledMap": {},
+      "anamnesisEnabled": false,
+      "anamnesisResponses": {},
+      "trainingRuns": {},
+      "trainingHelpRequests": [],
+      "announcements": [],
+      "sessionTimer": {
+        "active": false,
+        "startedAt": null,
+        "endsAt": null,
+        "durationMs": 0
+      },
+      "sessionTimerNotice": null,
+      "presenceMap": {
+        "0": {
+          "teamIdx": 0,
+          "memberName": "Time 1",
+          "lastSeenAt": "2026-05-28T22:41:54.606Z"
+        }
+      },
+      "screenShare": {
+        "active": false,
+        "roomName": "",
+        "presenterId": "",
+        "startedAt": null,
+        "endedAt": null,
+        "provider": "livekit"
+      },
+      "announcement": null,
+      "legacyMissionArchive": null,
+      "createdAt": "2026-05-28T18:09:15.613Z",
+      "updatedAt": "2026-05-28T22:41:54.606Z"
+    },
+    {
+      "id": "ev_1779964242249",
+      "name": "Lab de teste",
+      "desc": "Ambiente rápido para validar fluxo local",
+      "status": "open",
+      "eventMode": "missions",
+      "missionTemplate": "fixed-v2",
+      "teams": [
+        {
+          "name": "Time 1",
+          "runs": 1,
+          "members": []
+        }
+      ],
+      "missions": [
+        {
+          "id": "mission_general_chat",
+          "num": 1,
+          "aiMode": "chat",
+          "name": "Análise geral",
+          "category": "chat",
+          "desc": "Missão ampla para análise, síntese, interpretação, revisão crítica e estruturação de informação.",
+          "situacao": "Use esta missão quando o time precisar pensar, resumir, comparar, organizar ideias, revisar uma resposta ou transformar material disperso em algo útil para decisão.",
+          "instrucao": "Escreva o pedido livremente e contextualize o objetivo, o destinatário e o formato esperado da resposta. A IA vai atuar como parceira de análise geral.",
+          "placeholder": "Cole seu contexto, pergunta, notas, briefing, resposta de IA ou material bruto. Ex.: \"Preciso transformar estas anotações em um resumo executivo com próximos passos.\"",
+          "acoes": [],
+          "unlocked": true
+        },
+        {
+          "id": "mission_programming_coding",
+          "num": 2,
+          "aiMode": "coding",
+          "name": "Programação",
+          "category": "coding",
+          "desc": "Missão dedicada a código, debugging, arquitetura, refatoração e exemplos práticos.",
+          "situacao": "Use esta missão quando o time precisar programar, depurar, revisar arquitetura, refatorar código ou transformar uma ideia técnica em implementação concreta.",
+          "instrucao": "Descreva o problema técnico, cole código quando existir e diga o resultado esperado. A IA vai responder priorizando implementação, debugging e decisões de engenharia.",
+          "placeholder": "Cole o código, o erro, a arquitetura ou o requisito. Ex.: \"Este componente React renderiza duas vezes e quebra o estado. Quero entender a causa e corrigir com uma solução limpa.\"",
+          "acoes": [],
+          "unlocked": false
+        }
+      ],
+      "execucoes": {
+        "0__mission_general_chat": [
+          {
+            "id": "run_1779999333411",
+            "ts": "2026-05-28T20:15:33.411Z",
+            "input": "rtetete",
+            "attachments": [],
+            "acao": "__free_instruction__",
+            "actionMode": "free",
+            "isFreeInstruction": true,
+            "output": "Sua mensagem ficou incompleta ou não está clara. Poderia, por favor, reformular ou detalhar melhor o que deseja? Estou aqui para ajudar!",
+            "explicacao": "não aplicável nesta rodada",
+            "reasoningSummary": "não aplicável nesta rodada",
+            "reasoningDetails": {
+              "pending": true,
+              "analysisTarget": "latest_prompt",
+              "usedHistoryContext": false,
+              "historySignal": "Esta resposta foi gerada como uma primeira rodada desta missao.",
+              "sourceLabel": "Análise técnica em processamento",
+              "sourceType": "openai-pending",
+              "unavailableReason": "A resposta principal já foi entregue. A análise técnica desta rodada ainda está sendo preparada.",
+              "executiveSummary": {
+                "takeaway": "não aplicável nesta rodada",
+                "risk": "não aplicável nesta rodada",
+                "nextMove": "não aplicável nesta rodada"
+              },
+              "promptReading": {
+                "explicit": [
+                  "não aplicável nesta rodada"
+                ],
+                "inferred": [
+                  "não aplicável nesta rodada"
+                ],
+                "assumed": [
+                  "não aplicável nesta rodada"
+                ],
+                "ambiguities": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "chainOfThought": {
+                "contextConsidered": [
+                  "não aplicável nesta rodada"
+                ],
+                "strategyChosen": [
+                  "não aplicável nesta rodada"
+                ],
+                "discarded": [
+                  "não aplicável nesta rodada"
+                ],
+                "expandedExplanation": "não aplicável nesta rodada"
+              },
+              "responseConstruction": {
+                "toneAndFormat": [
+                  "não aplicável nesta rodada"
+                ],
+                "conceptsActivated": [
+                  "não aplicável nesta rodada"
+                ],
+                "generationLimitations": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "outputEvaluation": {
+                "whatWorked": [
+                  "não aplicável nesta rodada"
+                ],
+                "whatStayedGeneric": [
+                  "não aplicável nesta rodada"
+                ],
+                "gapBetweenRequestAndDelivery": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "nextStep": {
+                "howToReformulate": [
+                  "não aplicável nesta rodada"
+                ],
+                "whatToTestNext": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "glossary": {
+                "round": [],
+                "accumulated": []
+              },
+              "objectiveInterpreted": "não aplicável nesta rodada",
+              "strategyUsed": "não aplicável nesta rodada",
+              "promptBreakdown": [
+                {
+                  "segment": "Explícito",
+                  "function": "não aplicável nesta rodada"
+                },
+                {
+                  "segment": "Inferido",
+                  "function": "não aplicável nesta rodada"
+                },
+                {
+                  "segment": "Assumido",
+                  "function": "não aplicável nesta rodada"
+                },
+                {
+                  "segment": "Ambiguidades",
+                  "function": "não aplicável nesta rodada"
+                }
+              ],
+              "conceptsAndTerminologies": [],
+              "constructionProcess": {
+                "explicitRequests": [
+                  "não aplicável nesta rodada"
+                ],
+                "inferredPoints": [
+                  "não aplicável nesta rodada"
+                ],
+                "assumptionsMade": [
+                  "não aplicável nesta rodada"
+                ],
+                "ambiguities": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "limitationsAndGaps": [
+                "não aplicável nesta rodada"
+              ],
+              "refinementSuggestions": [
+                "não aplicável nesta rodada"
+              ],
+              "contextUse": "não aplicável nesta rodada",
+              "technicalTerms": [],
+              "mechanismSummary": "não aplicável nesta rodada",
+              "summary": "não aplicável nesta rodada",
+              "selectionLogic": "não aplicável nesta rodada",
+              "whyThisAnswer": "não aplicável nesta rodada",
+              "alternativeAnswerPaths": [
+                "não aplicável nesta rodada"
+              ],
+              "actionInfluence": "não aplicável nesta rodada",
+              "limitations": "não aplicável nesta rodada",
+              "howToAskBetter": [
+                "não aplicável nesta rodada"
+              ],
+              "bestPractices": [
+                "não aplicável nesta rodada"
+              ],
+              "takeaway": "não aplicável nesta rodada",
+              "mainRisk": "não aplicável nesta rodada",
+              "recommendedNextMove": "não aplicável nesta rodada"
+            },
+            "technicalAnalysis": {
+              "pending": true,
+              "analysisTarget": "latest_prompt",
+              "usedHistoryContext": false,
+              "historySignal": "Esta resposta foi gerada como uma primeira rodada desta missao.",
+              "sourceLabel": "Análise técnica em processamento",
+              "sourceType": "openai-pending",
+              "unavailableReason": "A resposta principal já foi entregue. A análise técnica desta rodada ainda está sendo preparada.",
+              "executiveSummary": {
+                "takeaway": "não aplicável nesta rodada",
+                "risk": "não aplicável nesta rodada",
+                "nextMove": "não aplicável nesta rodada"
+              },
+              "promptReading": {
+                "explicit": [
+                  "não aplicável nesta rodada"
+                ],
+                "inferred": [
+                  "não aplicável nesta rodada"
+                ],
+                "assumed": [
+                  "não aplicável nesta rodada"
+                ],
+                "ambiguities": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "chainOfThought": {
+                "contextConsidered": [
+                  "não aplicável nesta rodada"
+                ],
+                "strategyChosen": [
+                  "não aplicável nesta rodada"
+                ],
+                "discarded": [
+                  "não aplicável nesta rodada"
+                ],
+                "expandedExplanation": "não aplicável nesta rodada"
+              },
+              "responseConstruction": {
+                "toneAndFormat": [
+                  "não aplicável nesta rodada"
+                ],
+                "conceptsActivated": [
+                  "não aplicável nesta rodada"
+                ],
+                "generationLimitations": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "outputEvaluation": {
+                "whatWorked": [
+                  "não aplicável nesta rodada"
+                ],
+                "whatStayedGeneric": [
+                  "não aplicável nesta rodada"
+                ],
+                "gapBetweenRequestAndDelivery": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "nextStep": {
+                "howToReformulate": [
+                  "não aplicável nesta rodada"
+                ],
+                "whatToTestNext": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "glossary": {
+                "round": [],
+                "accumulated": []
+              },
+              "objectiveInterpreted": "não aplicável nesta rodada",
+              "strategyUsed": "não aplicável nesta rodada",
+              "promptBreakdown": [
+                {
+                  "segment": "Explícito",
+                  "function": "não aplicável nesta rodada"
+                },
+                {
+                  "segment": "Inferido",
+                  "function": "não aplicável nesta rodada"
+                },
+                {
+                  "segment": "Assumido",
+                  "function": "não aplicável nesta rodada"
+                },
+                {
+                  "segment": "Ambiguidades",
+                  "function": "não aplicável nesta rodada"
+                }
+              ],
+              "conceptsAndTerminologies": [],
+              "constructionProcess": {
+                "explicitRequests": [
+                  "não aplicável nesta rodada"
+                ],
+                "inferredPoints": [
+                  "não aplicável nesta rodada"
+                ],
+                "assumptionsMade": [
+                  "não aplicável nesta rodada"
+                ],
+                "ambiguities": [
+                  "não aplicável nesta rodada"
+                ]
+              },
+              "limitationsAndGaps": [
+                "não aplicável nesta rodada"
+              ],
+              "refinementSuggestions": [
+                "não aplicável nesta rodada"
+              ],
+              "contextUse": "não aplicável nesta rodada",
+              "technicalTerms": [],
+              "mechanismSummary": "não aplicável nesta rodada",
+              "summary": "não aplicável nesta rodada",
+              "selectionLogic": "não aplicável nesta rodada",
+              "whyThisAnswer": "não aplicável nesta rodada",
+              "alternativeAnswerPaths": [
+                "não aplicável nesta rodada"
+              ],
+              "actionInfluence": "não aplicável nesta rodada",
+              "limitations": "não aplicável nesta rodada",
+              "howToAskBetter": [
+                "não aplicável nesta rodada"
+              ],
+              "bestPractices": [
+                "não aplicável nesta rodada"
+              ],
+              "takeaway": "não aplicável nesta rodada",
+              "mainRisk": "não aplicável nesta rodada",
+              "recommendedNextMove": "não aplicável nesta rodada"
+            },
+            "technicalAnalysisUsage": {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "cost": 0,
+              "model": "gpt-4.1-mini"
+            },
+            "processingSteps": [],
+            "simulationMode": "openai-live",
+            "promptApplied": "Voce e o assistente de chat do Tech Hall AI Lab, especializado em analise geral: sintetizar, comparar, interpretar, organizar e revisar informacoes com clareza estrutural. Responda de forma util, clara e honesta. Nao invente fatos ausentes e diferencie o que esta explicito do que e inferencia. Se o pedido estiver vago, ajude a melhorar o prompt antes de responder. Responda sempre em portugues do Brasil, qualquer que seja o idioma do pedido, dos anexos ou do historico.\n\nDiretriz da rodada: o time escreveu a propria instrucao livremente, sem usar uma acao rapida predefinida.",
+            "usedHistory": false,
+            "historySignal": "Esta resposta foi gerada como uma primeira rodada desta missao.",
+            "analysisTarget": "latest_prompt",
+            "usedHistoryContext": false,
+            "iterationNumber": 1,
+            "aiMode": "chat",
+            "generatedArtifacts": [],
+            "inputTokens": 155,
+            "outputTokens": 32,
+            "tokens": 187,
+            "custo": 0.0001132,
+            "selectedModel": "gpt-4.1-mini",
+            "effectiveModel": "gpt-4.1-mini",
+            "codingResponseId": "resp_03ce39dec25b3b7a006a18a2639ba48196b9cf310c5c03f395",
+            "reasoningText": "",
+            "planningMode": "off",
+            "planningModeReal": false,
+            "planningResolution": "off",
+            "technicalFeedback": {
+              "rating": "down",
+              "reason": "",
+              "comment": "",
+              "submittedAt": "2026-05-28T20:16:29.709Z"
+            }
+          }
+        ]
+      },
+      "reflexoes": {},
+      "questionariosPendentes": {},
+      "conclusoes": {},
+      "preservedMissionUsage": {},
+      "missionGlossaries": {
+        "0__mission_general_chat": []
+      },
+      "missionTokenPolicies": {},
+      "tokenGrants": [],
+      "tokenOperationalLogs": [],
+      "helpRequests": [],
+      "helpDisabledMap": {},
+      "anamnesisEnabled": false,
+      "anamnesisResponses": {},
+      "trainingRuns": {},
+      "trainingHelpRequests": [],
+      "announcements": [],
+      "sessionTimer": {
+        "active": false,
+        "startedAt": null,
+        "endsAt": null,
+        "durationMs": 0
+      },
+      "sessionTimerNotice": null,
+      "presenceMap": {
+        "0": {
+          "teamIdx": 0,
+          "memberName": "Time 1",
+          "lastSeenAt": "2026-05-28T20:19:48.625Z"
+        }
+      },
+      "screenShare": {
+        "active": false,
+        "roomName": "",
+        "presenterId": "",
+        "startedAt": null,
+        "endedAt": null,
+        "provider": "livekit"
+      },
+      "announcement": null,
+      "legacyMissionArchive": null,
+      "createdAt": "2026-05-28T18:09:15.613Z",
+      "updatedAt": "2026-05-28T20:19:48.625Z"
+    }
+  ],
+  "updatedAt": "2026-05-28T22:41:54.693Z"
+}

@@ -2,7 +2,7 @@ import { useRef, useCallback, useEffect } from "react";
 import { Copy } from "lucide-react";
 import MarkdownMessage from "../../MarkdownMessage.jsx";
 import { getActionLabel } from "../../utils.js";
-import { AttachmentList, ReasoningPanel, ProcessingPipeline, LiveAnswer } from "./ResponseComponents.jsx";
+import { AttachmentList, ReasoningPanel, ProcessingPipeline, LiveAnswer, OperationalStepsPanel, SourceListPanel } from "./ResponseComponents.jsx";
 import { GeneratedArtifactsPanel } from "./ArtifactComponents.jsx";
 
 export function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState, liveAnswerRef, onCopyResponse, planningApproval, onApprovePlanning, onAdjustPlanning }) {
@@ -26,6 +26,7 @@ export function PromptConversation({ execs, pendingPrompt, pendingAttachments = 
     <div className={`prompt-thread${!hasHistory && !hasPending ? " is-empty" : ""}`} ref={threadRef}>
       {execs.map((exec, index) => {
         const key = exec.id || exec.ts || `exec-${index}`;
+        const guidedCodex = exec.aiMode === "coding" && Boolean(exec.behaviorOptions?.guidedMode);
         return (
           <div className="prompt-thread-turn" key={key}>
             <div className="prompt-thread-bubble is-user">
@@ -42,8 +43,15 @@ export function PromptConversation({ execs, pendingPrompt, pendingAttachments = 
                 <span>{exec.tokens?.toLocaleString() || 0} tokens</span>
               </div>
               {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
-              {exec.reasoningText ? <ReasoningPanel text={exec.reasoningText} /> : null}
+              {guidedCodex ? (
+                <OperationalStepsPanel text={exec.reasoningText} />
+              ) : exec.reasoningText ? (
+                <ReasoningPanel text={exec.reasoningText} />
+              ) : null}
               <MarkdownMessage text={exec.output} />
+              {exec.webSearchUsed || exec.citations?.length ? (
+                <SourceListPanel citations={exec.citations || []} used={Boolean(exec.webSearchUsed)} />
+              ) : null}
               <GeneratedArtifactsPanel exec={exec} compact />
               <div className="prompt-thread-response-actions">
                 <button
@@ -76,12 +84,22 @@ export function PromptConversation({ execs, pendingPrompt, pendingAttachments = 
               <span>IA</span>
               <span>{runState?.simulationMode === "openai-live" ? "OpenAI em execução" : "IA simulada em execução"}</span>
             </div>
-            {runState?.processingSteps?.length ? <ProcessingPipeline processingSteps={runState.processingSteps} /> : null}
+            {runState?.simulationMode !== "openai-live" && runState?.processingSteps?.length ? (
+              <ProcessingPipeline processingSteps={runState.processingSteps} />
+            ) : null}
             {runState?.usedHistory ? (
               <div className="context-banner">Esta nova resposta está considerando o histórico anterior desta missão.</div>
             ) : null}
+            {runState?.aiMode === "coding" && runState?.behaviorOptions?.guidedMode ? (
+              <OperationalStepsPanel text={runState?.reasoningText || ""} live />
+            ) : null}
             <div className="prompt-thread-text is-live">
-              <LiveAnswer ref={liveAnswerRef} simulationMode={runState?.simulationMode} onUpdate={scrollToBottom} />
+              <LiveAnswer
+                ref={liveAnswerRef}
+                simulationMode={runState?.simulationMode}
+                onUpdate={scrollToBottom}
+                showReasoningPanel={!(runState?.aiMode === "coding" && runState?.behaviorOptions?.guidedMode)}
+              />
             </div>
           </div>
         </div>

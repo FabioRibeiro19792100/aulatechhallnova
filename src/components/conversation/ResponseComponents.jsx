@@ -1,4 +1,5 @@
 import { forwardRef, useState, useEffect, useRef, useCallback, useImperativeHandle } from "react";
+import { ExternalLink, Newspaper, Sparkles } from "lucide-react";
 import MarkdownMessage from "../../MarkdownMessage.jsx";
 
 export function ProcessingPipeline({ processingSteps }) {
@@ -138,6 +139,92 @@ export function ReasoningPanel({ text, live = false }) {
   );
 }
 
+function normalizeOperationalStep(step) {
+  return `${step || ""}`
+    .trim()
+    .replace(/^[-*]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "");
+}
+
+function extractOperationalSteps(text) {
+  const normalized = `${text || ""}`.trim();
+  if (!normalized) return [];
+  const blocks = normalized
+    .split(/\n\s*\n/g)
+    .flatMap((block) => block.split("\n"))
+    .map(normalizeOperationalStep)
+    .filter(Boolean);
+  const deduped = [];
+  const seen = new Set();
+  blocks.forEach((block) => {
+    const key = block.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(block);
+  });
+  return deduped.slice(0, 6);
+}
+
+export function OperationalStepsPanel({ text, live = false }) {
+  const derivedSteps = extractOperationalSteps(text);
+  const steps = derivedSteps;
+  if (!steps.length) return null;
+
+  return (
+    <div className={`operational-steps-panel${live ? " is-live" : ""}`}>
+      <div className="operational-steps-head">
+        <div className="operational-steps-badge">
+          <Sparkles size={13} strokeWidth={1.8} />
+          <span>{live ? "Etapas em andamento" : "Etapas usadas"}</span>
+        </div>
+      </div>
+      <div className="operational-steps-list">
+        {steps.map((step, index) => (
+          <div className="operational-step-item" key={`${step}-${index}`}>
+            <span className="operational-step-index">{String(index + 1).padStart(2, "0")}</span>
+            <span className="operational-step-copy">{step}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SourceListPanel({ citations = [], used = false, live = false }) {
+  if (!used && !citations.length) return null;
+
+  return (
+    <div className={`source-list-panel${live ? " is-live" : ""}`}>
+      <div className="source-list-head">
+        <div className="source-list-badge">
+          <Newspaper size={13} strokeWidth={1.8} />
+          <span>Busca web usada</span>
+        </div>
+      </div>
+      <div className="source-list-links">
+        {citations.length ? (
+          citations.map((citation, index) => (
+            <a
+              key={`${citation.url}-${index}`}
+              className="source-list-link"
+              href={citation.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span>{citation.title || citation.url}</span>
+              <ExternalLink size={13} strokeWidth={1.8} />
+            </a>
+          ))
+        ) : (
+          <div className="source-list-link is-static">
+            <span>Busca executada sem referências estruturadas nesta rodada.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ThinkingIndicator({ label = "Pensando" }) {
   return (
     <div className="thinking-indicator" role="status" aria-live="polite">
@@ -186,7 +273,7 @@ export function AttachmentList({ attachments = [] }) {
   );
 }
 
-export const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpdate }, ref) {
+export const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpdate, showReasoningPanel = true }, ref) {
   const [answer, setAnswer] = useState("");
   const [reasoning, setReasoning] = useState("");
 
@@ -209,7 +296,7 @@ export const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpd
 
   return (
     <>
-      {reasoning ? <ReasoningPanel text={reasoning} live={!answer} /> : null}
+      {reasoning && showReasoningPanel ? <ReasoningPanel text={reasoning} live /> : null}
       {answer ? (
         <>
           <MarkdownMessage text={answer} />

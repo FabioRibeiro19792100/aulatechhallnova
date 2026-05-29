@@ -1,6 +1,14 @@
 import { createOpenAIResponseStream } from "../../../lib/backend.mjs";
 import { readJsonBody, sendError } from "../../../lib/api-response.mjs";
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "25mb",
+    },
+  },
+};
+
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST") {

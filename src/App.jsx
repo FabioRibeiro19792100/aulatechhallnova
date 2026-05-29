@@ -4548,6 +4548,9 @@ function App() {
     : "";
   const survivalExecs = survivalSelectedMode ? survivalConversations[survivalSelectedMode] || [] : [];
   const survivalDraft = survivalSelectedMode ? survivalDrafts[survivalSelectedMode] || "" : "";
+  const survivalTokenTotal = survivalExecs.reduce((sum, exec) => sum + (exec.tokens || 0), 0);
+  const survivalCostTotal = survivalExecs.reduce((sum, exec) => sum + (exec.custo || 0), 0);
+  const survivalRecentTransactions = [...survivalExecs].slice(-5).reverse();
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";
@@ -8347,6 +8350,41 @@ function App() {
                   >
                     Limpar conversa local
                   </button>
+                  <div className="survival-token-rail">
+                    <div className="survival-token-rail-head">
+                      <span>Extrato local</span>
+                      <strong>{survivalTokenTotal.toLocaleString("pt-BR")} tok</strong>
+                    </div>
+                    <div className="survival-token-rail-value">~{formatBRL(survivalCostTotal * USD_TO_BRL)}</div>
+                    <div className="survival-token-rail-subtitle">Últimas 5 transações</div>
+                    {survivalRecentTransactions.length ? (
+                      <div className="survival-token-list">
+                        {survivalRecentTransactions.map((exec) => (
+                          <div className="survival-token-item" key={exec.id}>
+                            <img
+                              className="survival-token-item-logo"
+                              src={techHallFooterIcon}
+                              alt=""
+                              aria-hidden="true"
+                            />
+                            <div className="survival-token-item-copy">
+                              <strong>
+                                {exec.iterationNumber ? `Rodada ${exec.iterationNumber}` : "Rodada survival"}
+                              </strong>
+                              <span>{formatDateTime(exec.ts)}</span>
+                            </div>
+                            <div className="survival-token-item-total">
+                              <strong>{(exec.tokens || 0).toLocaleString("pt-BR")}</strong>
+                              <span>tok</span>
+                            </div>
+                            <div className="survival-token-item-value">~{formatBRL((exec.custo || 0) * USD_TO_BRL)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="survival-token-empty">Sem consumo ainda.</div>
+                    )}
+                  </div>
                 </aside>
                 <main className="survival-main">
                   <div className="workspace-col-label is-block survival-column-label">

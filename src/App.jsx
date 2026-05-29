@@ -4185,7 +4185,7 @@ function App() {
     setScreen("team");
   }
 
-  function handleEscolherTime(index, memberName = "") {
+  async function handleEscolherTime(index, memberName = "") {
     const selectedEvent = events.find((event) => event.id === timeEventId) || null;
     const eventMode = selectedEvent ? getEventMode(selectedEvent) : MISSIONS_MODE_EVENT;
     const pendingMissionIdx =
@@ -4196,7 +4196,19 @@ function App() {
         : -1;
     const normalizedMemberName = normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "";
 
-    if (selectedEvent && isAnamnesisEnabled(selectedEvent) && !hasCompletedAnamnesis(selectedEvent, index)) {
+    let anamneseAlreadyDone = false;
+    if (selectedEvent && isAnamnesisEnabled(selectedEvent)) {
+      try {
+        const teamState = await getTeamState(selectedEvent.id, index);
+        anamneseAlreadyDone = Boolean(teamState.payload?.anamnese?.submittedAt);
+      } catch (err) {
+        if (err.statusCode !== 404) {
+          console.error(`team_state ${selectedEvent.id}/${index} load for anamnese check:`, err);
+        }
+      }
+    }
+
+    if (selectedEvent && isAnamnesisEnabled(selectedEvent) && !anamneseAlreadyDone) {
       setActiveStudentName(normalizedMemberName);
       setAnamnesisAnswers({});
       setAnamnesisError("");
@@ -4429,15 +4441,34 @@ function App() {
   }
 
   function updateExecutionAnalysis(eventId, teamIdx, missionId, execId, technicalAnalysis, technicalAnalysisUsage) {
+    const isTraining = !missionId;
+    const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
+    const baseEvent = events.find((event) => event.id === eventId) || null;
+    const currentGlossary = baseEvent ? getMissionGlossary(baseEvent, teamIdx, glossaryMissionId, { isTraining }) : [];
+    const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
+      accumulatedGlossary: currentGlossary,
+    });
+    const execPatch = {
+      explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || undefined,
+      reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || undefined,
+      reasoningDetails: normalizedAnalysis,
+      technicalAnalysis: normalizedAnalysis,
+      technicalAnalysisUsage,
+    };
+    void perTeamExecutionsHook.patchPayload(execId, execPatch);
+    void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+      const existing = payload || {};
+      return {
+        ...existing,
+        missionGlossaries: {
+          ...(existing.missionGlossaries || {}),
+          [glossaryMissionId]: normalizedAnalysis.glossary.accumulated,
+        },
+      };
+    });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const isTraining = !missionId;
-        const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
-        const currentGlossary = getMissionGlossary(event, teamIdx, glossaryMissionId, { isTraining });
-        const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
-          accumulatedGlossary: currentGlossary,
-        });
         const missionGlossaries = {
           ...(event.missionGlossaries || {}),
           [getMissionGlossaryKey(teamIdx, glossaryMissionId)]: normalizedAnalysis.glossary.accumulated,
@@ -4446,41 +4477,19 @@ function App() {
           const key = `${teamIdx}__${missionId}`;
           const execucoes = { ...(event.execucoes || {}) };
           execucoes[key] = (execucoes[key] || []).map((exec) =>
-            exec.id !== execId
-              ? exec
-              : {
-                  ...exec,
-                  explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
-                  reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
-                  reasoningDetails: normalizedAnalysis,
-                  technicalAnalysis: normalizedAnalysis,
-                  technicalAnalysisUsage,
-                },
+            exec.id !== execId ? exec : { ...exec, ...execPatch },
           );
           return { ...event, execucoes, missionGlossaries };
         }
-
         const key = `${teamIdx}`;
         const trainingRuns = { ...(event.trainingRuns || {}) };
         trainingRuns[key] = (trainingRuns[key] || []).map((exec) =>
-          exec.id !== execId
-            ? exec
-            : {
-                ...exec,
-                explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
-                reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
-                reasoningDetails: normalizedAnalysis,
-                technicalAnalysis: normalizedAnalysis,
-                technicalAnalysisUsage,
-              },
+          exec.id !== execId ? exec : { ...exec, ...execPatch },
         );
         return { ...event, trainingRuns, missionGlossaries };
       }),
     );
 
-    const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
-      accumulatedGlossary: missionFlow.exec?.technicalAnalysis?.glossary?.accumulated || [],
-    });
     setMissionFlow((current) =>
       current.exec?.id !== execId
         ? current
@@ -4587,29 +4596,37 @@ function App() {
     });
   }
 
+  async function patchTeamStatePerTeamWithFallback(eventId, teamIdx, mergeFn) {
+    let initial = { payload: {}, version: 0 };
+    try {
+      const current = await getTeamState(eventId, teamIdx);
+      initial = { payload: current.payload, version: current.version };
+    } catch (err) {
+      if (err.statusCode !== 404) {
+        console.error(`team_state ${eventId}/${teamIdx} load:`, err);
+        return;
+      }
+    }
+    try {
+      await putTeamStateOCC({ eventId, teamIdx, initial, merge: mergeFn });
+    } catch (err) {
+      console.error(`team_state ${eventId}/${teamIdx} put:`, err);
+    }
+  }
+
   function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
     if (!teamIndexes.length) return;
-    updateCriticalEvents((current) =>
-      current.map((event) => {
-        if (event.id !== eventId) return event;
-        const pendingMap = { ...(event.questionariosPendentes || {}) };
-        teamIndexes.forEach((teamIdx) => {
-          const key = `${teamIdx}__${missionId}`;
-          if (!getConclusaoEntry(event, teamIdx, missionId)) {
-            const openedAt = new Date().toISOString();
-            pendingMap[key] = {
-              openedAt,
-              updatedAt: openedAt,
-              source,
-            };
-          }
-        });
-        return {
-          ...event,
-          questionariosPendentes: pendingMap,
-        };
-      }),
-    );
+    const openedAt = new Date().toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const conclusoes = existing.conclusoes || {};
+        if (conclusoes[missionId]) return existing;
+        const pending = { ...(existing.questionariosPendentes || {}) };
+        pending[missionId] = { openedAt, updatedAt: openedAt, source };
+        return { ...existing, questionariosPendentes: pending };
+      });
+    });
   }
 
   function handleTeamCloseMission() {
@@ -4627,18 +4644,13 @@ function App() {
   function handleCancelTeamMissionClosure() {
     if (!teamEvent || timeTeamIdx === null || !currentMission || isTrainingEvent) return;
     if (getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id) !== "team") return;
-    const key = `${timeTeamIdx}__${currentMission.id}`;
-    updateCriticalEvents((current) =>
-      current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
-        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
-        delete questionariosPendentes[key];
-        return {
-          ...event,
-          questionariosPendentes,
-        };
-      }),
-    );
+    const targetMissionId = currentMission.id;
+    void patchTeamStatePerTeamWithFallback(teamEvent.id, timeTeamIdx, (payload) => {
+      const existing = payload || {};
+      const pending = { ...(existing.questionariosPendentes || {}) };
+      delete pending[targetMissionId];
+      return { ...existing, questionariosPendentes: pending };
+    });
     setReflectionAnswers({});
     setReflectionComment("");
     setReflectionError("");

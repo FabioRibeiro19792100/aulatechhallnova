@@ -19,6 +19,7 @@ import {
   upsertPresence as upsertPresencePerTeam,
   listExecutions as listExecutionsPerTeam,
   insertExecution as insertExecutionPerTeam,
+  patchExecutionPayload as patchExecutionPayloadPerTeam,
   insertTokenLog as insertTokenLogPerTeam,
   listTokenLogs as listTokenLogsPerTeam,
   insertHelpRequest as insertHelpRequestPerTeam,
@@ -182,6 +183,11 @@ function bindPerTeamRoutes(app) {
       created_at: req.body.created_at || new Date().toISOString(),
     });
     res.status(201).json({ ok: true });
+  }));
+
+  app.patch("/api/event/:eventId/team/:teamIdx/executions/:execId", wrap(async (req, res) => {
+    await patchExecutionPayloadPerTeam(req.params.execId, req.body?.payload_patch || {});
+    res.json({ ok: true });
   }));
 
   app.get("/api/event/:eventId/executions", wrap(async (req, res) => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listTeamExecutions, postExecution } from "../api/perTeam.js";
+import { listTeamExecutions, postExecution, patchExecutionPayload } from "../api/perTeam.js";
 import { useTableChange } from "./useRealtime.js";
 
 export function useTeamExecutions(eventId, teamIdx, missionId, { realtimeClient, limit = 50 } = {}) {
@@ -39,6 +39,10 @@ export function useTeamExecutions(eventId, teamIdx, missionId, { realtimeClient,
       (change) => {
         const row = change.new;
         if (!row || row.team_idx !== teamIdx || row.mission_id !== missionId) return;
+        if (change.eventType === "UPDATE") {
+          setExecutions((current) => current.map((item) => (item.id === row.id ? { ...item, ...row } : item)));
+          return;
+        }
         if (seenIdsRef.current.has(row.id)) return;
         seenIdsRef.current.add(row.id);
         setExecutions((current) => [...current, row]);
@@ -58,5 +62,21 @@ export function useTeamExecutions(eventId, teamIdx, missionId, { realtimeClient,
     [eventId, teamIdx],
   );
 
-  return { executions, loading, error, reload, append };
+  const patchPayload = useCallback(
+    async (execId, payloadPatch) => {
+      setExecutions((current) =>
+        current.map((item) =>
+          item.id !== execId ? item : { ...item, payload: { ...(item.payload || {}), ...(payloadPatch || {}) } },
+        ),
+      );
+      try {
+        await patchExecutionPayload(eventId, teamIdx, execId, payloadPatch);
+      } catch (err) {
+        console.error(`patchExecutionPayload ${execId}:`, err);
+      }
+    },
+    [eventId, teamIdx],
+  );
+
+  return { executions, loading, error, reload, append, patchPayload };
 }

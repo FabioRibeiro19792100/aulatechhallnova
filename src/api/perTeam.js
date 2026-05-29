@@ -54,6 +54,13 @@ export function postExecution(eventId, teamIdx, execution) {
   });
 }
 
+export function patchExecutionPayload(eventId, teamIdx, execId, payloadPatch) {
+  return request(`/api/event/${encodeURIComponent(eventId)}/team/${teamIdx}/executions/${encodeURIComponent(execId)}`, {
+    method: "PATCH",
+    body: { payload_patch: payloadPatch },
+  });
+}
+
 export function postPresence(eventId, teamIdx, memberName) {
   return request(`/api/event/${encodeURIComponent(eventId)}/team/${teamIdx}/presence`, {
     method: "POST",

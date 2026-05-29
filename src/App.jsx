@@ -1078,8 +1078,36 @@ function migrateEventToFixedMissions(event) {
   };
 }
 
+function clearPendingAnalysis(exec) {
+  if (!exec?.technicalAnalysis?.pending) return exec;
+  return {
+    ...exec,
+    technicalAnalysis: {
+      ...exec.technicalAnalysis,
+      pending: false,
+      unavailable: true,
+      unavailableReason: "A análise técnica desta rodada não foi concluída.",
+    },
+  };
+}
+
 function normalizeEventsForProduct(events = []) {
-  return events.map((event) => migrateEventToFixedMissions(event));
+  return events.map((event) => {
+    const migrated = migrateEventToFixedMissions(event);
+    if (!migrated.execucoes && !migrated.trainingRuns) return migrated;
+    const clearMap = (map = {}) =>
+      Object.fromEntries(
+        Object.entries(map).map(([key, arr]) => [
+          key,
+          Array.isArray(arr) ? arr.map(clearPendingAnalysis) : arr,
+        ]),
+      );
+    return {
+      ...migrated,
+      execucoes: clearMap(migrated.execucoes),
+      trainingRuns: clearMap(migrated.trainingRuns),
+    };
+  });
 }
 
 function classifyAttachment(file) {
@@ -2536,6 +2564,21 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
+    async function fetchRemoteStateWithRetry(maxAttempts = 3) {
+      let lastError;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+        if (cancelled) return null;
+        try {
+          return await fetchRemoteState();
+        } catch (err) {
+          lastError = err;
+          console.warn(`[state] tentativa ${attempt + 1}/${maxAttempts} falhou:`, err.message);
+        }
+      }
+      throw lastError;
+    }
+
     async function bootstrapStore() {
       try {
         const config = await fetchServerConfig();
@@ -2543,8 +2586,8 @@ function App() {
         setServerConfig(config);
 
         if (config.sharedStateConfigured) {
-          const remoteState = await fetchRemoteState();
-          if (cancelled) return;
+          const remoteState = await fetchRemoteStateWithRetry(3);
+          if (cancelled || !remoteState) return;
           syncServerClock(remoteState.serverNowMs);
           const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
           lastRemoteEventsRef.current = JSON.stringify(normalizedRemoteEvents);
@@ -2554,7 +2597,8 @@ function App() {
           }));
         }
       } catch (error) {
-        console.error(error);
+        console.error("[state] falha ao carregar estado remoto:", error);
+        if (!cancelled) setToastText("Erro ao carregar dados. Recarregue a página.");
       } finally {
         if (!cancelled) setStoreHydrated(true);
       }
@@ -5710,7 +5754,7 @@ function App() {
         }
       }
       const execRecord = {
-        id: `run_${Date.now()}`,
+        id: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         ts: new Date().toISOString(),
         input,
         attachments: sanitizeAttachmentsForStorage(attachments),

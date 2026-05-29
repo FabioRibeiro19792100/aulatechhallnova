@@ -33,12 +33,19 @@ app.get("/api/config", async (_req, res) => {
   res.json(await getRuntimeConfig());
 });
 
-app.get("/api/state", async (_req, res) => {
+app.get("/api/state", async (req, res) => {
   try {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
-    res.json(await getRemoteAppState());
+    const state = await getRemoteAppState();
+    const etag = `"${state.updatedAt}"`;
+    res.setHeader("ETag", etag);
+    if (req.headers["if-none-match"] === etag) {
+      res.status(304).end();
+      return;
+    }
+    res.json(state);
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message || "Falha ao carregar estado remoto.");
   }

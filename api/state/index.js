@@ -7,7 +7,14 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
-      res.status(200).json(await getRemoteAppState());
+      const state = await getRemoteAppState();
+      const etag = `"${state.updatedAt}"`;
+      res.setHeader("ETag", etag);
+      if (req.headers["if-none-match"] === etag) {
+        res.status(304).end();
+        return;
+      }
+      res.status(200).json(state);
       return;
     }
 

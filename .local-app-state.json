@@ -1,0 +1,83 @@
+{
+  "id": "techhall-v1",
+  "events": [
+    {
+      "id": "ev_1780013739460",
+      "name": "Lab de teste",
+      "desc": "Ambiente rápido para validar fluxo local",
+      "status": "open",
+      "eventMode": "missions",
+      "missionTemplate": "fixed-v2",
+      "teams": [
+        {
+          "name": "Time 1",
+          "runs": 0,
+          "members": []
+        }
+      ],
+      "missions": [
+        {
+          "id": "mission_general_chat",
+          "num": 1,
+          "aiMode": "chat",
+          "name": "Análise geral",
+          "category": "chat",
+          "desc": "Missão ampla para análise, síntese, interpretação, revisão crítica e estruturação de informação.",
+          "situacao": "Use esta missão quando o time precisar pensar, resumir, comparar, organizar ideias, revisar uma resposta ou transformar material disperso em algo útil para decisão.",
+          "instrucao": "Escreva o pedido livremente e contextualize o objetivo, o destinatário e o formato esperado da resposta. A IA vai atuar como parceira de análise geral.",
+          "placeholder": "Cole seu contexto, pergunta, notas, briefing, resposta de IA ou material bruto. Ex.: \"Preciso transformar estas anotações em um resumo executivo com próximos passos.\"",
+          "acoes": [],
+          "unlocked": true
+        },
+        {
+          "id": "mission_programming_coding",
+          "num": 2,
+          "aiMode": "coding",
+          "name": "Programação",
+          "category": "coding",
+          "desc": "Missão dedicada a código, debugging, arquitetura, refatoração e exemplos práticos.",
+          "situacao": "Use esta missão quando o time precisar programar, depurar, revisar arquitetura, refatorar código ou transformar uma ideia técnica em implementação concreta.",
+          "instrucao": "Descreva o problema técnico, cole código quando existir e diga o resultado esperado. A IA vai responder priorizando implementação, debugging e decisões de engenharia.",
+          "placeholder": "Cole o código, o erro, a arquitetura ou o requisito. Ex.: \"Este componente React renderiza duas vezes e quebra o estado. Quero entender a causa e corrigir com uma solução limpa.\"",
+          "acoes": [],
+          "unlocked": false
+        }
+      ],
+      "execucoes": {},
+      "reflexoes": {},
+      "questionariosPendentes": {},
+      "conclusoes": {},
+      "preservedMissionUsage": {},
+      "missionGlossaries": {},
+      "missionTokenPolicies": {},
+      "tokenGrants": [],
+      "tokenOperationalLogs": [],
+      "helpRequests": [],
+      "helpDisabledMap": {},
+      "anamnesisEnabled": false,
+      "anamnesisResponses": {},
+      "trainingRuns": {},
+      "trainingHelpRequests": [],
+      "announcements": [],
+      "sessionTimer": {
+        "active": false,
+        "startedAt": null,
+        "endsAt": null,
+        "durationMs": 0
+      },
+      "sessionTimerNotice": null,
+      "presenceMap": {},
+      "screenShare": {
+        "active": false,
+        "roomName": "",
+        "presenterId": "",
+        "startedAt": null,
+        "endedAt": null,
+        "provider": "livekit"
+      },
+      "announcement": null,
+      "legacyMissionArchive": null
+    }
+  ],
+  "updatedAt": "2026-05-29T00:15:39.555Z"
+}

@@ -5,6 +5,11 @@ export default async function handler(req, res) {
   try {
     const { eventId, teamIdx } = req.query;
     const idx = Number.parseInt(teamIdx, 10);
+    if (Number.isNaN(idx)) {
+      const err = new Error("teamIdx invalido.");
+      err.statusCode = 400;
+      throw err;
+    }
     if (req.method === "GET") {
       const limit = Number.parseInt(req.query.limit, 10) || 50;
       const mission_id = req.query.mission_id || undefined;

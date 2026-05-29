@@ -10,6 +10,11 @@ export default async function handler(req, res) {
     }
     const { eventId, teamIdx } = req.query;
     const idx = Number.parseInt(teamIdx, 10);
+    if (Number.isNaN(idx)) {
+      const err = new Error("teamIdx invalido.");
+      err.statusCode = 400;
+      throw err;
+    }
     const body = (await readJsonBody(req)) || {};
     await upsertPresence({
       event_id: eventId,

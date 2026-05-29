@@ -40,7 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
-import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, deleteAllEventData, deleteTeamScopedData, deleteTeamExecutions } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, postHelpRequest, deleteAllEventData, deleteTeamScopedData, deleteTeamExecutions } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -3159,9 +3159,19 @@ function App() {
       return;
     }
     const createdAt = new Date(getSyncedNowMs()).toISOString();
+    const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
+    const matchingOpenRequests = (perTeamHelpHook.items || []).filter(
+      (request) =>
+        request.payload?.kind === "tokens" &&
+        request.status === "open" &&
+        request.mission_id === tokenMissionId &&
+        (scope === "turma" || request.team_idx === teamIdx),
+    );
+    matchingOpenRequests.forEach((request) => {
+      void putHelpRequest(eventId, request.id, { status: "resolved" });
+    });
     const nextEvents = (currentEventsRef.current || []).map((event) => {
       if (event.id !== eventId) return event;
-      const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
       const nextEvent = {
         ...event,
         tokenGrants: [
@@ -3221,29 +3231,24 @@ function App() {
     }
 
     const createdAt = new Date(getSyncedNowMs()).toISOString();
-    const nextEvents = (currentEventsRef.current || []).map((event) =>
-      event.id !== teamEvent.id
-        ? event
-        : {
-            ...event,
-            helpRequests: [
-              ...(event.helpRequests || []),
-              {
-                id: `token_help_${Date.now()}`,
-                kind: "tokens",
-                teamIdx: timeTeamIdx,
-                missionId: currentTokenBudget.missionId,
-                message: "Solicitação de liberação de tokens.",
-                status: "open",
-                createdAt,
-                updatedAt: createdAt,
-                currentUsage: currentTokenBudget.usage.totalTokens,
-                currentLimit: currentTokenBudget.effectiveLimit,
-              },
-            ],
-          },
-    );
-    commitCriticalEventsDirect(nextEvents);
+    const requestId = `token_help_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const requestEntry = {
+      id: requestId,
+      team_idx: timeTeamIdx,
+      mission_id: currentTokenBudget.missionId,
+      status: "open",
+      payload: {
+        kind: "tokens",
+        teamIdx: timeTeamIdx,
+        missionId: currentTokenBudget.missionId,
+        message: "Solicitação de liberação de tokens.",
+        memberName: activeStudentName || "",
+        currentUsage: currentTokenBudget.usage.totalTokens,
+        currentLimit: currentTokenBudget.effectiveLimit,
+      },
+      created_at: createdAt,
+    };
+    void postHelpRequest(teamEvent.id, requestEntry).catch((err) => console.error("token request:", err));
     showToast("Solicitação enviada ao facilitador.");
   }
 

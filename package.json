@@ -11,6 +11,7 @@
     "survival:load": "node scripts/load-survival.mjs",
     "platform:load": "node scripts/load-platform.mjs",
     "prod:load": "node scripts/load-prod.mjs",
+    "stress:state": "node scripts/stress-state-concurrency.mjs",
     "test": "node --test"
   },
   "dependencies": {

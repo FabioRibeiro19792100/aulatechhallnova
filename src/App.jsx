@@ -2324,7 +2324,19 @@ function App() {
         if (config.sharedStateConfigured) {
           const eventList = await listEventsPerTeam();
           if (cancelled) return;
-          setStore((current) => ({ ...current, eventList }));
+          const events = (
+            await Promise.all(
+              eventList.map(async (item) => {
+                try {
+                  const detail = await getEventState(item.event_id);
+                  return { id: item.event_id, ...(detail.payload || {}) };
+                } catch {
+                  return null;
+                }
+              }),
+            )
+          ).filter(Boolean);
+          setStore((current) => ({ ...current, eventList, events }));
         }
       } catch (error) {
         console.error("[state] falha ao carregar estado remoto:", error);

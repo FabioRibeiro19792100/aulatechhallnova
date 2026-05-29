@@ -595,7 +595,18 @@ function getEventAnnouncements(evento) {
 
 function getUnreadAnnouncementsForTeam(evento, teamIdx) {
   if (teamIdx === null || teamIdx === undefined) return [];
-  return getEventAnnouncements(evento).filter((announcement) => !announcement.readBy?.[teamIdx]);
+  let dismissedList = [];
+  if (typeof window !== "undefined") {
+    try {
+      dismissedList = JSON.parse(localStorage.getItem(`dismissed_announcements__${evento.id}__${teamIdx}`) || "[]");
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  return getEventAnnouncements(evento).filter((announcement) => {
+    if (dismissedList.includes(announcement.id)) return false;
+    return !announcement.readBy?.[teamIdx];
+  });
 }
 
 function getLatestUnreadAnnouncementForTeam(evento, teamIdx) {
@@ -605,6 +616,14 @@ function getLatestUnreadAnnouncementForTeam(evento, teamIdx) {
 
 function isAnnouncementDismissedForTeam(evento, teamIdx, announcementId) {
   if (teamIdx === null || teamIdx === undefined || !announcementId) return false;
+  if (typeof window !== "undefined") {
+    try {
+      const dismissedList = JSON.parse(localStorage.getItem(`dismissed_announcements__${evento.id}__${teamIdx}`) || "[]");
+      if (dismissedList.includes(announcementId)) return true;
+    } catch (e) {
+      console.error(e);
+    }
+  }
   const announcement = getEventAnnouncements(evento).find((item) => item.id === announcementId);
   if (!announcement) return false;
   return Boolean(announcement.dismissedBy?.[teamIdx]);
@@ -2225,6 +2244,21 @@ function App() {
     supabaseAnonKey: "",
   });
   const [storeHydrated, setStoreHydrated] = useState(false);
+  const supabaseRealtimeClient = useMemo(() => {
+    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
+    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storage: {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {},
+        },
+      },
+    });
+  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
   const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
   const currentEventsRef = useRef(initialLocalStore.events || []);
@@ -2324,18 +2358,20 @@ function App() {
         if (config.sharedStateConfigured) {
           const eventList = await listEventsPerTeam();
           if (cancelled) return;
-          const events = (
-            await Promise.all(
-              eventList.map(async (item) => {
-                try {
-                  const detail = await getEventState(item.event_id);
-                  return { id: item.event_id, ...(detail.payload || {}) };
-                } catch {
-                  return null;
-                }
-              }),
-            )
-          ).filter(Boolean);
+          const events = normalizeEventsForProduct(
+            (
+              await Promise.all(
+                eventList.map(async (item) => {
+                  try {
+                    const detail = await getEventState(item.event_id);
+                    return { id: item.event_id, ...(detail.payload || {}) };
+                  } catch {
+                    return null;
+                  }
+                }),
+              )
+            ).filter(Boolean)
+          );
           setStore((current) => ({ ...current, eventList, events }));
         }
       } catch (error) {
@@ -2377,6 +2413,7 @@ function App() {
           const nextEvents = replaced
             ? events.map((event) => (event.id === row.event_id ? nextEvent : event))
             : [...events, nextEvent];
+          const normalizedNextEvents = normalizeEventsForProduct(nextEvents);
           const eventList = current.eventList || [];
           const nextListItem = {
             event_id: row.event_id,
@@ -2388,7 +2425,7 @@ function App() {
           const nextList = eventList.some((item) => item.event_id === row.event_id)
             ? eventList.map((item) => (item.event_id === row.event_id ? nextListItem : item))
             : [...eventList, nextListItem];
-          return { ...current, eventList: nextList, events: nextEvents };
+          return { ...current, eventList: nextList, events: normalizedNextEvents };
         });
       })
       .subscribe();
@@ -2419,16 +2456,6 @@ function App() {
     if (!studentResourcePreview?.href) return;
     window.open(studentResourcePreview.href, "_blank", "noopener,noreferrer");
   }
-
-  const supabaseRealtimeClient = useMemo(() => {
-    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
-    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now() + serverClockOffsetRef.current), 1000);
@@ -2489,17 +2516,7 @@ function App() {
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
-  const teamScreenShareSessionId =
-    teamEventScreenShare?.active && teamEvent
-      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
-      : "";
-  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
 
-  useEffect(() => {
-    if (!teamScreenShareSessionId) {
-      setDismissedScreenShareSession("");
-    }
-  }, [teamScreenShareSessionId]);
 
   useEffect(() => {
     if (!storeHydrated) return;
@@ -2564,8 +2581,8 @@ function App() {
     const reshapedExecs = execKey ? perTeamExecutionsHook.executions.map(reshapeExec) : [];
     const isTraining = perTeamMissionId === "__training__";
     return {
-      ...teamEvent,
       ...eventPayload,
+      ...teamEvent,
       execucoes: execKey && !isTraining
         ? { ...(teamEvent.execucoes || {}), [execKey]: reshapedExecs }
         : teamEvent.execucoes || {},
@@ -2576,9 +2593,23 @@ function App() {
       preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
       trainingRuns: isTraining ? { [perTeamTeamIdx]: reshapedExecs } : {},
       anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
-      helpRequests: (perTeamHelpHook.items || []).filter(
-        (item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id),
-      ),
+      helpRequests: (perTeamHelpHook.items || [])
+        .filter((item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id))
+        .map((row) => ({
+          id: row.id,
+          teamIdx: row.team_idx,
+          missionId: row.mission_id,
+          status: row.status,
+          kind: row.payload?.kind || row.kind || null,
+          createdAt: row.created_at,
+          message: row.payload?.message || "",
+          missionName: row.payload?.missionName || "",
+          teamName: row.payload?.teamName || row.payload?.memberName || "",
+          studentName: row.payload?.memberName || row.payload?.teamName || "",
+          timerRemainingMs: row.payload?.timerRemainingMs || null,
+          currentUsage: row.payload?.currentUsage || null,
+          currentLimit: row.payload?.currentLimit || null,
+        })),
       tokenOperationalLogs: perTeamTokenLogHook.items || [],
     };
   }, [
@@ -2651,7 +2682,21 @@ function App() {
         });
         return groups;
       })(),
-      helpRequests: dash.helpRequests || [],
+      helpRequests: (dash.helpRequests || []).map((row) => ({
+        id: row.id,
+        teamIdx: row.team_idx,
+        missionId: row.mission_id,
+        status: row.status,
+        kind: row.payload?.kind || row.kind || null,
+        createdAt: row.created_at,
+        message: row.payload?.message || "",
+        missionName: row.payload?.missionName || "",
+        teamName: row.payload?.teamName || row.payload?.memberName || "",
+        studentName: row.payload?.memberName || row.payload?.teamName || "",
+        timerRemainingMs: row.payload?.timerRemainingMs || null,
+        currentUsage: row.payload?.currentUsage || null,
+        currentLimit: row.payload?.currentLimit || null,
+      })),
       tokenOperationalLogs: dash.tokenLogs || [],
       presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
     };
@@ -2677,6 +2722,17 @@ function App() {
   const teamTimerLockActive = isSessionTimerLockActive(teamEventForRead, clockNow);
   const selectedEventScreenShare = selectedEventForRead ? getScreenShareState(selectedEventForRead) : null;
   const teamEventScreenShare = teamEventForRead ? getScreenShareState(teamEventForRead) : null;
+  const teamScreenShareSessionId =
+    teamEventScreenShare?.active && teamEvent
+      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
+      : "";
+  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
+
+  useEffect(() => {
+    if (!teamScreenShareSessionId) {
+      setDismissedScreenShareSession("");
+    }
+  }, [teamScreenShareSessionId]);
 
   const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
     ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission
@@ -3211,12 +3267,16 @@ function App() {
     }
     const createdAt = new Date(getSyncedNowMs()).toISOString();
     const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
-    const matchingOpenRequests = (perTeamHelpHook.items || []).filter(
+    const allHelpRequests = [
+      ...(perTeamHelpHook.items || []),
+      ...(perTeamDashboardHook.data?.helpRequests || []),
+    ];
+    const matchingOpenRequests = allHelpRequests.filter(
       (request) =>
-        request.payload?.kind === "tokens" &&
+        (request.payload?.kind === "tokens" || request.kind === "tokens") &&
         request.status === "open" &&
-        request.mission_id === tokenMissionId &&
-        (scope === "turma" || request.team_idx === teamIdx),
+        (request.mission_id === tokenMissionId || request.missionId === tokenMissionId) &&
+        (scope === "turma" || (request.team_idx ?? request.teamIdx) === teamIdx),
     );
     matchingOpenRequests.forEach((request) => {
       void putHelpRequest(eventId, request.id, { status: "resolved" });
@@ -5167,6 +5227,18 @@ function App() {
       setTeamAnnouncementOpen(false);
       return;
     }
+    if (typeof window !== "undefined") {
+      try {
+        const storageKey = `dismissed_announcements__${teamEvent.id}__${timeTeamIdx}`;
+        const dismissedList = JSON.parse(localStorage.getItem(storageKey) || "[]");
+        if (!dismissedList.includes(latestUnreadAnnouncement.id)) {
+          dismissedList.push(latestUnreadAnnouncement.id);
+          localStorage.setItem(storageKey, JSON.stringify(dismissedList));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
     const nowIso = new Date(getSyncedNowMs()).toISOString();
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== teamEvent.id
@@ -5201,6 +5273,20 @@ function App() {
       setTeamAnnouncementInboxOpen(true);
       return;
     }
+    if (typeof window !== "undefined") {
+      try {
+        const storageKey = `dismissed_announcements__${teamEvent.id}__${timeTeamIdx}`;
+        const dismissedList = JSON.parse(localStorage.getItem(storageKey) || "[]");
+        teamEventAnnouncements.forEach((announcement) => {
+          if (!dismissedList.includes(announcement.id)) {
+            dismissedList.push(announcement.id);
+          }
+        });
+        localStorage.setItem(storageKey, JSON.stringify(dismissedList));
+      } catch (e) {
+        console.error(e);
+      }
+    }
     const nowIso = new Date(getSyncedNowMs()).toISOString();
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== teamEvent.id
@@ -5233,6 +5319,8 @@ function App() {
     if (!message) return;
     if (currentOpenHelpRequest) return;
     const requestId = `hr_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const helpTeamName = teamEvent.teams?.[timeTeamIdx]?.name || `Time ${(timeTeamIdx ?? 0) + 1}`;
+    const helpTimerRemainingMs = getSessionTimerRemainingMs(teamEvent, getSyncedNowMs()) || null;
     void perTeamHelpHook.create({
       id: requestId,
       team_idx: timeTeamIdx,
@@ -5242,6 +5330,8 @@ function App() {
         message,
         missionName: currentMission?.name || "",
         memberName: activeStudentName || "",
+        teamName: helpTeamName,
+        timerRemainingMs: helpTimerRemainingMs,
       },
       created_at: new Date().toISOString(),
     });
@@ -5508,13 +5598,7 @@ function App() {
       simulationMode: apiConfigured ? "openai-live" : "mock-stream",
     });
 
-    const previewWindow =
-      shouldAutoOpenPreview && typeof window !== "undefined"
-        ? window.open("", "_blank")
-        : null;
-    if (previewWindow) {
-      renderPreviewWindowPlaceholder(previewWindow, "Preview em preparação", "A IA já começou a montar a instância HTML desta rodada.");
-    }
+    const previewWindow = null;
 
     try {
       if (!apiConfigured) {
@@ -5641,19 +5725,8 @@ function App() {
         ? extractGeneratedArtifacts(result.output, `rodada-${iterationNumber}`)
         : [];
       const htmlArtifact = generatedArtifacts.find((artifact) => artifact.previewMode === "html");
-      if (previewWindow) {
-        if (htmlArtifact) {
-          writePreviewWindowDocument(
-            previewWindow,
-            buildPreviewWindowHtmlDocument(htmlArtifact.content, htmlArtifact.fileName || "Preview HTML"),
-          );
-        } else {
-          renderPreviewWindowPlaceholder(
-            previewWindow,
-            "Sem preview executável",
-            "Esta rodada terminou, mas a IA não devolveu um arquivo HTML completo para abrir automaticamente.",
-          );
-        }
+      if (htmlArtifact) {
+        openHtmlPreviewWindow(htmlArtifact.content, htmlArtifact.fileName || "Preview HTML");
       }
       const execRecord = {
         id: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -5732,8 +5805,6 @@ function App() {
       showToast(wasPlanningOn ? "Plano concluído" : apiConfigured ? "Execução concluída" : "Execução simulada");
 
       if (wasPlanningOn) {
-        setStore((current) => ({ ...current, planningMode: "off" }));
-        setConfigForm((current) => ({ ...current, planningMode: "off" }));
         setPlanningApprovalState({
           open: true,
           input,

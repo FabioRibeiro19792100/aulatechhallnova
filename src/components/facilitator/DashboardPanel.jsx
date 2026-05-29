@@ -1,5 +1,5 @@
 import { BookOpen, LifeBuoy, ListChecks, Users } from "lucide-react";
-import { formatDateTime, formatTokenLimitLabel, getReflectionTopicShortLabel, TOKEN_MISSION_TRAINING_ID } from "../../utils.js";
+import { formatDateTime, formatTokenLimitLabel, formatCountdown, getReflectionTopicShortLabel, TOKEN_MISSION_TRAINING_ID } from "../../utils.js";
 
 const TRAINING_MODE_EVENT = "training";
 const DEFAULT_TOKEN_GRANT_AMOUNT = 15000;
@@ -273,13 +273,17 @@ export function DashboardPanel({
                   {openHelpRequests.map((request) => {
                     const requestTeam = evento.teams[request.teamIdx];
                     const isTokenRequest = request.kind === "tokens";
+                    const displayName = request.teamName || requestTeam?.name || `Time ${(request.teamIdx ?? -1) + 1}`;
+                    const displayStudent = request.studentName && request.studentName !== displayName ? request.studentName : null;
                     return (
                       <div className={`help-item${isTokenRequest ? " is-token-request" : ""}`} key={request.id}>
                         <div className="help-item-header">
                           <div>
-                            <div className="help-item-title">{requestTeam?.name || `Time ${request.teamIdx + 1}`}</div>
+                            <div className="help-item-title">{displayName}{displayStudent ? ` · ${displayStudent}` : ""}</div>
                             <div className="help-item-meta">
-                              {isTokenRequest ? "Solicitação de tokens" : "Modo treino"} · {formatDateTime(request.createdAt)}
+                              {isTokenRequest ? "Solicitação de tokens" : "Modo treino"}
+                              {request.timerRemainingMs ? ` · ⏱ ${formatCountdown(request.timerRemainingMs)}` : ""}
+                              {" · "}{formatDateTime(request.createdAt)}
                             </div>
                           </div>
                           <span className="team-inline-pill is-alert">aberto</span>
@@ -756,13 +760,17 @@ export function DashboardPanel({
                   const requestMission = evento.missions.find((mission) => mission.id === request.missionId);
                   const requestTeam = evento.teams[request.teamIdx];
                   const isTokenRequest = request.kind === "tokens";
+                  const displayName = request.teamName || requestTeam?.name || `Time ${(request.teamIdx ?? -1) + 1}`;
+                  const displayStudent = request.studentName && request.studentName !== displayName ? request.studentName : null;
                   return (
                     <div className={`help-item${isTokenRequest ? " is-token-request" : ""}`} key={request.id}>
                       <div className="help-item-header">
                         <div>
-                          <div className="help-item-title">{requestTeam?.name || `Time ${request.teamIdx + 1}`}</div>
+                          <div className="help-item-title">{displayName}{displayStudent ? ` · ${displayStudent}` : ""}</div>
                           <div className="help-item-meta">
-                            {requestMission?.name || (request.missionId === TOKEN_MISSION_TRAINING_ID ? "Modo treino" : request.missionId)} · {formatDateTime(request.createdAt)}
+                            {requestMission?.name || (request.missionId === TOKEN_MISSION_TRAINING_ID ? "Modo treino" : request.missionId)}
+                            {request.timerRemainingMs ? ` · ⏱ ${formatCountdown(request.timerRemainingMs)}` : ""}
+                            {" · "}{formatDateTime(request.createdAt)}
                           </div>
                         </div>
                         <span className="team-inline-pill is-alert">aberto</span>

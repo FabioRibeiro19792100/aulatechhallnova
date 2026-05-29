@@ -13,7 +13,8 @@
     "prod:load": "node scripts/load-prod.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "migrate:per-team": "node scripts/migrate-app-state-to-per-team.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

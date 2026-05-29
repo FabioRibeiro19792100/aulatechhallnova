@@ -2489,17 +2489,6 @@ function App() {
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
-  const teamScreenShareSessionId =
-    teamEventScreenShare?.active && teamEvent
-      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
-      : "";
-  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
-
-  useEffect(() => {
-    if (!teamScreenShareSessionId) {
-      setDismissedScreenShareSession("");
-    }
-  }, [teamScreenShareSessionId]);
 
   useEffect(() => {
     if (!storeHydrated) return;
@@ -2738,6 +2727,17 @@ function App() {
   const teamTimerLockActive = isSessionTimerLockActive(teamEventForRead, clockNow);
   const selectedEventScreenShare = selectedEventForRead ? getScreenShareState(selectedEventForRead) : null;
   const teamEventScreenShare = teamEventForRead ? getScreenShareState(teamEventForRead) : null;
+  const teamScreenShareSessionId =
+    teamEventScreenShare?.active && teamEvent
+      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
+      : "";
+  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
+
+  useEffect(() => {
+    if (!teamScreenShareSessionId) {
+      setDismissedScreenShareSession("");
+    }
+  }, [teamScreenShareSessionId]);
 
   const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
     ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission

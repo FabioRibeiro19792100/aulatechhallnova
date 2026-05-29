@@ -4862,6 +4862,28 @@ function App() {
       return;
     }
     const resetAt = new Date(getSyncedNowMs()).toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void deleteTeamExecutions(eventId, teamIdx, { missionId }).catch((err) =>
+        console.error(`handleFacilitatorReopenMission delete:`, err),
+      );
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const reflexoes = { ...(existing.reflexoes || {}) };
+        delete reflexoes[missionId];
+        return {
+          ...existing,
+          reflexoes,
+          questionariosPendentes: {
+            ...(existing.questionariosPendentes || {}),
+            [missionId]: { source: "reopened", updatedAt: resetAt },
+          },
+          conclusoes: {
+            ...(existing.conclusoes || {}),
+            [missionId]: { source: "reopened", updatedAt: resetAt },
+          },
+        };
+      });
+    });
     const nextEvents = (currentEventsRef.current || []).map((item) => {
       if (item.id !== eventId) return item;
       const questionariosPendentes = { ...(item.questionariosPendentes || {}) };

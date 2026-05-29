@@ -40,6 +40,14 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC } from "./api/perTeam.js";
+import { useEventState } from "./hooks/useEventState.js";
+import { useTeamState } from "./hooks/useTeamState.js";
+import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
+import { useHelpRequests } from "./hooks/useHelpRequests.js";
+import { useTokenLogs } from "./hooks/useTokenLogs.js";
+import { usePresence } from "./hooks/usePresence.js";
+import { useDashboard } from "./hooks/useDashboard.js";
 
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
@@ -2585,7 +2593,7 @@ function App() {
         if (cancelled) return;
         setServerConfig(config);
 
-        if (config.sharedStateConfigured) {
+        if (config.sharedStateConfigured && !config.usePerTeamBackend) {
           const remoteState = await fetchRemoteStateWithRetry(3);
           if (cancelled || !remoteState) return;
           syncServerClock(remoteState.serverNowMs);
@@ -2595,6 +2603,12 @@ function App() {
             ...current,
             events: normalizedRemoteEvents,
           }));
+        }
+
+        if (config.sharedStateConfigured && config.usePerTeamBackend) {
+          const eventList = await listEventsPerTeam();
+          if (cancelled) return;
+          setStore((current) => ({ ...current, eventList }));
         }
       } catch (error) {
         console.error("[state] falha ao carregar estado remoto:", error);
@@ -2650,6 +2664,7 @@ function App() {
 
   useEffect(() => {
     if (!storeHydrated) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     const serializedEvents = JSON.stringify(store.events || []);
     if (serializedEvents === lastRemoteEventsRef.current) return undefined;
@@ -2681,10 +2696,11 @@ function App() {
     }, REMOTE_SYNC_SAVE_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [serverConfig.sharedStateConfigured, store.events, storeHydrated]);
+  }, [serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend, store.events, storeHydrated]);
 
   useEffect(() => {
     if (!storeHydrated || !supabaseRealtimeClient || !serverConfig.remoteStateKey) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     const activeEventId = timeEventId || facSelectedId;
     const activeStateKey = activeEventId ? `event-${activeEventId}` : serverConfig.remoteStateKey;
@@ -2724,7 +2740,7 @@ function App() {
     return () => {
       supabaseRealtimeClient.removeChannel(channel);
     };
-  }, [serverConfig.remoteStateKey, storeHydrated, supabaseRealtimeClient, timeEventId, facSelectedId]);
+  }, [serverConfig.remoteStateKey, serverConfig.usePerTeamBackend, storeHydrated, supabaseRealtimeClient, timeEventId, facSelectedId]);
 
   // Poll config at a low frequency — it rarely changes and doesn't need realtime cadence
   useEffect(() => {
@@ -2745,6 +2761,7 @@ function App() {
   // Poll state as fallback — slower when Realtime is active, faster when it's not
   useEffect(() => {
     if (!["workspace", "facilitador", "team", "entry"].includes(screen)) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     const interval = supabaseRealtimeClient ? STATE_POLL_MS_WITH_REALTIME : STATE_POLL_MS_WITHOUT_REALTIME;
 
@@ -2787,11 +2804,12 @@ function App() {
     }, interval);
 
     return () => window.clearInterval(timer);
-  }, [screen, serverConfig.sharedStateConfigured, supabaseRealtimeClient]);
+  }, [screen, serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend, supabaseRealtimeClient]);
 
   useEffect(() => {
     if (!["workspace", "facilitador", "team"].includes(screen)) return undefined;
     if (!serverConfig.sharedStateConfigured) return undefined;
+    if (serverConfig.usePerTeamBackend) return undefined;
 
     let cancelled = false;
     const syncImmediately = async () => {
@@ -2828,7 +2846,7 @@ function App() {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [screen, serverConfig.sharedStateConfigured]);
+  }, [screen, serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend]);
 
   useEffect(() => {
     if (!storeHydrated || !isLocalDev) return;
@@ -2920,49 +2938,160 @@ function App() {
     }
   }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
+
+  const usePerTeamBackend = Boolean(serverConfig?.usePerTeamBackend);
+  const workspaceActive = usePerTeamBackend && screen === "workspace";
+  const perTeamEventId = workspaceActive ? timeEventId : null;
+  const perTeamTeamIdx = workspaceActive ? timeTeamIdx : null;
+  const perTeamMissionId = workspaceActive ? currentMission?.id ?? null : null;
+
+  const perTeamEventStateHook = useEventState(perTeamEventId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamTeamStateHook = useTeamState(perTeamEventId, perTeamTeamIdx, { realtimeClient: supabaseRealtimeClient });
+  const perTeamExecutionsHook = useTeamExecutions(perTeamEventId, perTeamTeamIdx, perTeamMissionId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamHelpHook = useHelpRequests(perTeamEventId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamTokenLogHook = useTokenLogs(perTeamEventId, { realtimeClient: supabaseRealtimeClient, teamIdx: perTeamTeamIdx });
+  usePresence({
+    eventId: perTeamEventId,
+    teamIdx: perTeamTeamIdx,
+    memberName: activeStudentName,
+    enabled: workspaceActive,
+  });
+
+  const effectiveTeamEvent = useMemo(() => {
+    if (!usePerTeamBackend || !teamEvent) return teamEvent;
+    const execKey = perTeamMissionId ? `${perTeamTeamIdx}__${perTeamMissionId}` : null;
+    const eventPayload = perTeamEventStateHook.state?.payload || {};
+    const teamPayload = perTeamTeamStateHook.state?.payload || {};
+    const reKey = (map) =>
+      Object.fromEntries(Object.entries(map || {}).map(([mid, val]) => [`${perTeamTeamIdx}__${mid}`, val]));
+    return {
+      ...teamEvent,
+      ...eventPayload,
+      execucoes: execKey
+        ? { ...(teamEvent.execucoes || {}), [execKey]: perTeamExecutionsHook.executions }
+        : teamEvent.execucoes || {},
+      reflexoes: reKey(teamPayload.reflexoes),
+      conclusoes: reKey(teamPayload.conclusoes),
+      questionariosPendentes: reKey(teamPayload.questionariosPendentes),
+      missionGlossaries: reKey(teamPayload.missionGlossaries),
+      preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
+      trainingRuns: teamPayload.trainingRuns ? { [perTeamTeamIdx]: teamPayload.trainingRuns } : {},
+      anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
+      helpRequests: (perTeamHelpHook.items || []).filter(
+        (item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id),
+      ),
+      tokenOperationalLogs: perTeamTokenLogHook.items || [],
+    };
+  }, [
+    usePerTeamBackend,
+    teamEvent,
+    perTeamMissionId,
+    perTeamTeamIdx,
+    perTeamEventStateHook.state,
+    perTeamTeamStateHook.state,
+    perTeamExecutionsHook.executions,
+    perTeamHelpHook.items,
+    perTeamTokenLogHook.items,
+  ]);
+
+  const facilitadorEventIdActive = usePerTeamBackend && screen === "facilitador" ? facSelectedId : null;
+  const perTeamDashboardHook = useDashboard(facilitadorEventIdActive, {
+    realtimeClient: supabaseRealtimeClient,
+    refreshMs: 5000,
+  });
+
+  const facilitadorBaseEvent = useMemo(
+    () => store.events?.find((event) => event.id === facSelectedId) || null,
+    [store.events, facSelectedId],
+  );
+
+  const effectiveFacilitadorEvent = useMemo(() => {
+    if (!usePerTeamBackend || !facilitadorBaseEvent) return facilitadorBaseEvent;
+    const dash = perTeamDashboardHook.data;
+    if (!dash) return facilitadorBaseEvent;
+    const eventPayload = dash.event?.payload || {};
+    const teamRows = dash.teams || [];
+    const reKeyAllTeams = (selector) => {
+      const out = {};
+      teamRows.forEach((row) => {
+        const payload = row.payload || {};
+        const map = selector(payload) || {};
+        Object.entries(map).forEach(([missionId, val]) => {
+          out[`${row.team_idx}__${missionId}`] = val;
+        });
+      });
+      return out;
+    };
+    return {
+      ...facilitadorBaseEvent,
+      ...eventPayload,
+      reflexoes: reKeyAllTeams((p) => p.reflexoes),
+      conclusoes: reKeyAllTeams((p) => p.conclusoes),
+      questionariosPendentes: reKeyAllTeams((p) => p.questionariosPendentes),
+      missionGlossaries: reKeyAllTeams((p) => p.missionGlossaries),
+      preservedMissionUsage: reKeyAllTeams((p) => p.preservedMissionUsage),
+      anamnesisResponses: Object.fromEntries(
+        teamRows
+          .filter((row) => row.payload?.anamnese)
+          .map((row) => [row.team_idx, row.payload.anamnese]),
+      ),
+      execucoes: (() => {
+        const groups = {};
+        (dash.recentExecutions || []).forEach((row) => {
+          const key = `${row.team_idx}__${row.mission_id}`;
+          (groups[key] ||= []).push(row.payload || row);
+        });
+        return groups;
+      })(),
+      helpRequests: dash.helpRequests || [],
+      tokenOperationalLogs: dash.tokenLogs || [],
+      presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
+    };
+  }, [usePerTeamBackend, facilitadorBaseEvent, perTeamDashboardHook.data]);
+
   const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
-  const currentExecs = currentMission && teamEvent
+  const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
-      ? getTrainingRuns(teamEvent, timeTeamIdx)
-      : getExecucoes(teamEvent, timeTeamIdx, currentMission.id)
+      ? getTrainingRuns(effectiveTeamEvent, timeTeamIdx)
+      : getExecucoes(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : [];
-  const currentReflexao = currentMission && teamEvent && !isTrainingEvent ? getReflexao(teamEvent, timeTeamIdx, currentMission.id) : null;
-  const currentQuestionarioPendente = currentMission && teamEvent && !isTrainingEvent ? isQuestionarioPendente(teamEvent, timeTeamIdx, currentMission.id) : false;
-  const currentQuestionarioPendenteSource = currentMission && teamEvent && !isTrainingEvent
-    ? getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id)
+  const currentReflexao = currentMission && effectiveTeamEvent && !isTrainingEvent ? getReflexao(effectiveTeamEvent, timeTeamIdx, currentMission.id) : null;
+  const currentQuestionarioPendente = currentMission && effectiveTeamEvent && !isTrainingEvent ? isQuestionarioPendente(effectiveTeamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentQuestionarioPendenteSource = currentMission && effectiveTeamEvent && !isTrainingEvent
+    ? getQuestionarioPendenteSource(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : null;
-  const currentConcluida = currentMission && teamEvent && !isTrainingEvent ? isConcluida(teamEvent, timeTeamIdx, currentMission.id) : false;
-  const currentConclusaoSource = currentMission && teamEvent && !isTrainingEvent
-    ? getConclusaoSource(teamEvent, timeTeamIdx, currentMission.id)
+  const currentConcluida = currentMission && effectiveTeamEvent && !isTrainingEvent ? isConcluida(effectiveTeamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentConclusaoSource = currentMission && effectiveTeamEvent && !isTrainingEvent
+    ? getConclusaoSource(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : null;
-  const currentMissionStatus = currentMission && teamEvent && !isTrainingEvent ? getMissionClosureStatus(teamEvent, timeTeamIdx, currentMission.id) : "aberta";
+  const currentMissionStatus = currentMission && effectiveTeamEvent && !isTrainingEvent ? getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, currentMission.id) : "aberta";
   const latestCurrentExec = currentExecs.length ? currentExecs[currentExecs.length - 1] : null;
   const readingExec = missionFlow.exec || latestCurrentExec || null;
   const readingStage = Boolean(readingExec);
-  const hasMissionHistory = currentMission && teamEvent
+  const hasMissionHistory = currentMission && effectiveTeamEvent
     ? isTrainingEvent
       ? currentExecs.length > 0
       : currentExecs.length > 0 || Boolean(currentReflexao) || currentQuestionarioPendente || currentConcluida
     : false;
-  const preservedUsage = currentMission && teamEvent && !isTrainingEvent ? getPreservedMissionUsage(teamEvent, timeTeamIdx, currentMission.id) : null;
-  const currentHelpRequests = currentMission && teamEvent
+  const preservedUsage = currentMission && effectiveTeamEvent && !isTrainingEvent ? getPreservedMissionUsage(effectiveTeamEvent, timeTeamIdx, currentMission.id) : null;
+  const currentHelpRequests = currentMission && effectiveTeamEvent
     ? isTrainingEvent
-      ? [...getTrainingHelpRequests(teamEvent, timeTeamIdx), ...getTrainingTokenRequests(teamEvent, timeTeamIdx)]
-      : getHelpRequests(teamEvent, timeTeamIdx, currentMission.id)
+      ? [...getTrainingHelpRequests(effectiveTeamEvent, timeTeamIdx), ...getTrainingTokenRequests(effectiveTeamEvent, timeTeamIdx)]
+      : getHelpRequests(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : [];
   const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open" && request.kind !== "tokens").length;
   const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open" && request.kind !== "tokens") || null;
   const currentTokenMissionId = currentMission ? getTokenMissionId(currentMission.id, { isTraining: isTrainingEvent }) : null;
-  const currentTokenBudget = currentMission && teamEvent && timeTeamIdx !== null
-    ? getEffectiveMissionTokenBudget(teamEvent, timeTeamIdx, currentMission.id, { isTraining: isTrainingEvent })
+  const currentTokenBudget = currentMission && effectiveTeamEvent && timeTeamIdx !== null
+    ? getEffectiveMissionTokenBudget(effectiveTeamEvent, timeTeamIdx, currentMission.id, { isTraining: isTrainingEvent })
     : null;
   const currentOpenTokenRequest =
-    currentMission && teamEvent
+    currentMission && effectiveTeamEvent
       ? currentHelpRequests.find((request) => request.status === "open" && request.kind === "tokens") || null
       : null;
   const currentMissionOperationalLogs =
-    currentMission && teamEvent && timeTeamIdx !== null
-      ? getMissionTokenOperationalLogs(teamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
+    currentMission && effectiveTeamEvent && timeTeamIdx !== null
+      ? getMissionTokenOperationalLogs(effectiveTeamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
       : [];
   const facilitatorTabs = selectedEvent && isAnamnesisEnabled(selectedEvent)
     ? ["dashboard", "missoes", "prompts", "anamnese"]
@@ -2972,7 +3101,7 @@ function App() {
         isTraining: tokenGrantTargetMissionId === TOKEN_MISSION_TRAINING_ID,
       })
     : null;
-  const teamHelpDisabled = teamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(teamEvent, timeTeamIdx) : false;
+  const teamHelpDisabled = effectiveTeamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(effectiveTeamEvent, timeTeamIdx) : false;
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
   const anamnesisTargetEvent = anamnesisContext ? events.find((event) => event.id === anamnesisContext.eventId) || null : null;
   const answeredAnamnesisCount = countAnsweredAnamnesisQuestions(anamnesisAnswers);
@@ -3092,18 +3221,18 @@ function App() {
   }, [currentMission?.id, currentQuestionarioPendente, isTrainingEvent]);
 
   useEffect(() => {
-    if (!teamEvent || timeTeamIdx === null || isTrainingEvent) return;
-    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
+    if (!effectiveTeamEvent || timeTeamIdx === null || isTrainingEvent) return;
+    const pendingMissionIdx = getFirstPendingMissionIndex(effectiveTeamEvent, timeTeamIdx);
     if (pendingMissionIdx >= 0 && timeMissionIdx !== pendingMissionIdx) {
       setTimeMissionIdx(pendingMissionIdx);
     }
-  }, [isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
+  }, [isTrainingEvent, effectiveTeamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
-    if (!teamEvent || timeTeamIdx === null || isTrainingEvent || !currentMissionLocked) return;
+    if (!effectiveTeamEvent || timeTeamIdx === null || isTrainingEvent || !currentMissionLocked) return;
 
-    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
-    const firstUnlockedMissionIdx = teamEvent.missions.findIndex((mission) => mission.unlocked);
+    const pendingMissionIdx = getFirstPendingMissionIndex(effectiveTeamEvent, timeTeamIdx);
+    const firstUnlockedMissionIdx = effectiveTeamEvent.missions.findIndex((mission) => mission.unlocked);
     const fallbackMissionIdx = pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null;
 
     if (fallbackMissionIdx !== timeMissionIdx) {
@@ -3115,7 +3244,7 @@ function App() {
     setMissionInput("");
     setMissionAttachments([]);
     setRunError("Esta missão foi bloqueada pelo facilitador.");
-  }, [currentMissionLocked, isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
+  }, [currentMissionLocked, isTrainingEvent, effectiveTeamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
     if (!selectedEvent) {
@@ -3272,6 +3401,9 @@ function App() {
   }
 
   function markTeamPresence(eventId, teamIdx, memberName) {
+    if (usePerTeamBackend) {
+      return;
+    }
     if (!eventId || teamIdx === null || teamIdx === undefined) return;
     const normalizedName = normalizeStudentName(memberName || "");
     const now = Date.now();
@@ -3315,7 +3447,69 @@ function App() {
     }
   }
 
+  const sliceEventStatePayload = useCallback((event) => {
+    if (!event) return {};
+    const {
+      id: _id,
+      execucoes: _execucoes,
+      trainingRuns: _trainingRuns,
+      reflexoes: _reflexoes,
+      conclusoes: _conclusoes,
+      questionariosPendentes: _questionariosPendentes,
+      missionGlossaries: _missionGlossaries,
+      preservedMissionUsage: _preservedMissionUsage,
+      anamnesisResponses: _anamnesisResponses,
+      helpRequests: _helpRequests,
+      tokenOperationalLogs: _tokenOperationalLogs,
+      presenceMap: _presenceMap,
+      trainingHelpRequests: _trainingHelpRequests,
+      ...eventWide
+    } = event;
+    return eventWide;
+  }, []);
+
+  const pushEventStateChange = useCallback(async (eventId, nextEventObject) => {
+    if (!eventId || !nextEventObject) return;
+    const payload = sliceEventStatePayload(nextEventObject);
+    try {
+      const current = await getEventState(eventId);
+      const result = await putEventStateOCC({
+        eventId,
+        initial: { payload: current.payload, version: current.version },
+        merge: () => payload,
+      });
+      if (!result.ok) {
+        console.warn(`pushEventStateChange ${eventId}: conflict, drop local change`);
+      }
+    } catch (err) {
+      if (err.statusCode === 404) {
+        try {
+          await putEventStateOCC({
+            eventId,
+            initial: { payload: {}, version: 0 },
+            merge: () => payload,
+          });
+        } catch (err2) {
+          console.error(`pushEventStateChange ${eventId} (initial): ${err2.message}`);
+        }
+        return;
+      }
+      console.error(`pushEventStateChange ${eventId}: ${err.message}`);
+    }
+  }, [sliceEventStatePayload]);
+
   async function flushCriticalEvents(nextEvents) {
+    if (usePerTeamBackend) {
+      const previousEvents = currentEventsRef.current || [];
+      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+      (nextEvents || []).forEach((event) => {
+        if (previousById.get(event.id) !== event) {
+          void pushEventStateChange(event.id, event);
+        }
+      });
+      currentEventsRef.current = nextEvents || [];
+      return;
+    }
     if (!serverConfig.sharedStateConfigured) return;
     try {
       const remoteState = await fetchRemoteState();
@@ -3346,11 +3540,22 @@ function App() {
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     const serializedEvents = JSON.stringify(stampedEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = serializedEvents;
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = serializedEvents;
     setStore((current) => ({
       ...current,
       events: stampedEvents,
     }));
+
+    if (usePerTeamBackend) {
+      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+      stampedEvents.forEach((event) => {
+        if (previousById.get(event.id) !== event) {
+          void pushEventStateChange(event.id, event);
+        }
+      });
+      return;
+    }
+
     void flushCriticalEvents(stampedEvents);
   }
 
@@ -3369,10 +3574,21 @@ function App() {
   }
 
   function commitCriticalEventsDirect(nextEvents) {
-    const stampedEvents = stampUpdatedEvents(currentEventsRef.current || [], nextEvents);
+    const previousEvents = currentEventsRef.current || [];
+    const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
+
+    if (usePerTeamBackend) {
+      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+      stampedEvents.forEach((event) => {
+        if (previousById.get(event.id) !== event) {
+          void pushEventStateChange(event.id, event);
+        }
+      });
+      return;
+    }
 
     if (serverConfig.sharedStateConfigured) {
       void saveRemoteState(stampedEvents)
@@ -4197,7 +4413,10 @@ function App() {
     }
 
     try {
-      if (serverConfig.supabaseConfigured) {
+      if (usePerTeamBackend) {
+        const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
+        normalizedEvents.forEach((event) => void pushEventStateChange(event.id, event));
+      } else if (serverConfig.supabaseConfigured) {
         const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
         lastRemoteEventsRef.current = JSON.stringify(normalizedEvents);
         await saveRemoteState(normalizedEvents);
@@ -4373,11 +4592,13 @@ function App() {
     const updatedEvents = stampUpdatedEvents(previousEvents, nextEvents);
 
     currentEventsRef.current = updatedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(updatedEvents);
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(updatedEvents);
     setStore((current) => ({ ...current, events: updatedEvents }));
 
     try {
-      if (serverConfig.sharedStateConfigured) {
+      if (usePerTeamBackend) {
+        updatedEvents.forEach((event) => void pushEventStateChange(event.id, event));
+      } else if (serverConfig.sharedStateConfigured) {
         const saveResult = await saveRemoteState(updatedEvents);
         syncServerClock(saveResult.serverNowMs);
       }
@@ -4401,7 +4622,7 @@ function App() {
           ),
         );
         currentEventsRef.current = revertedEvents;
-        lastRemoteEventsRef.current = "__out_of_sync__";
+        if (!usePerTeamBackend) lastRemoteEventsRef.current = "__out_of_sync__";
         return { ...current, events: revertedEvents };
       });
       showToast(error.message || "Falha ao salvar a missão");
@@ -4697,6 +4918,19 @@ function App() {
   }
 
   function saveExecution(eventId, teamIdx, missionId, execData) {
+    if (usePerTeamBackend) {
+      const executionId = `${execData.id || `${teamIdx}_${missionId}_${execData.ts || Date.now()}`}`;
+      void perTeamExecutionsHook.append({
+        id: executionId,
+        mission_id: missionId,
+        kind: execData.aiMode === CODING_AI_MODE ? "coding" : "chat",
+        payload: execData,
+        tokens: execData.usage || execData.tokens || {},
+        custo: execData.cost ?? execData.custo ?? null,
+        created_at: execData.ts || new Date().toISOString(),
+      });
+      return;
+    }
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -4710,6 +4944,19 @@ function App() {
   }
 
   function saveTrainingExecution(eventId, teamIdx, execData) {
+    if (usePerTeamBackend) {
+      const executionId = `${execData.id || `training_${teamIdx}_${execData.ts || Date.now()}`}`;
+      void perTeamExecutionsHook.append({
+        id: executionId,
+        mission_id: "__training__",
+        kind: "training",
+        payload: execData,
+        tokens: execData.usage || execData.tokens || {},
+        custo: execData.cost ?? execData.custo ?? null,
+        created_at: execData.ts || new Date().toISOString(),
+      });
+      return;
+    }
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -4849,6 +5096,39 @@ function App() {
   }
 
   function saveReflection(eventId, teamIdx, missionId, missionName, respostas, comment) {
+    if (usePerTeamBackend) {
+      const submittedAt = new Date().toISOString();
+      const reflexao = {
+        key: `${teamIdx}__${missionId}`,
+        teamIdx,
+        missionId,
+        missionName,
+        respostas,
+        comment: comment || "",
+        submittedAt,
+        ts: submittedAt,
+      };
+      void perTeamTeamStateHook.update((payload) => {
+        const pendingMap = { ...(payload?.questionariosPendentes || {}) };
+        const pendingEntry = pendingMap[missionId];
+        delete pendingMap[missionId];
+        const pendingSource = typeof pendingEntry === "object" && pendingEntry ? pendingEntry.source : "team";
+        return {
+          ...(payload || {}),
+          reflexoes: { ...(payload?.reflexoes || {}), [missionId]: reflexao },
+          questionariosPendentes: pendingMap,
+          conclusoes: {
+            ...(payload?.conclusoes || {}),
+            [missionId]: {
+              closedAt: submittedAt,
+              updatedAt: submittedAt,
+              source: pendingSource === "team" ? "team" : "facilitator",
+            },
+          },
+        };
+      });
+      return;
+    }
     updateCriticalEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -5345,6 +5625,25 @@ function App() {
     const message = helpMessage.trim();
     if (!message) return;
     if (currentOpenHelpRequest) return;
+    if (usePerTeamBackend) {
+      const requestId = `hr_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+      void perTeamHelpHook.create({
+        id: requestId,
+        team_idx: timeTeamIdx,
+        mission_id: currentMission?.id || null,
+        status: "open",
+        payload: {
+          message,
+          missionName: currentMission?.name || "",
+          memberName: activeStudentName || "",
+        },
+        created_at: new Date().toISOString(),
+      });
+      setHelpOpen(false);
+      setHelpMessage("");
+      showToast("Pedido de ajuda enviado ao facilitador");
+      return;
+    }
     const nowIso = new Date(getSyncedNowMs()).toISOString();
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== teamEvent.id
@@ -5475,11 +5774,12 @@ function App() {
     );
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
 
-    // Save directly without fetch-merge cycle — only facilitator writes screenShare
-    if (serverConfig.sharedStateConfigured) {
+    if (usePerTeamBackend) {
+      stampedEvents.forEach((event) => void pushEventStateChange(event.id, event));
+    } else if (serverConfig.sharedStateConfigured) {
       saveRemoteState(stampedEvents)
         .then((saveResult) => {
           syncServerClock(saveResult.serverNowMs);
@@ -6345,8 +6645,8 @@ function App() {
                   <span className={`topbar-api-pill${apiConfigured ? " is-connected" : ""}`}>
                     {apiConfigured ? "API ligada" : "API não configurada"}
                   </span>
-                  {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
-                    <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
+                  {effectiveFacilitadorEvent && getOpenHelpRequests(effectiveFacilitadorEvent).length > 0 ? (
+                    <span className="topbar-help-pill">{getOpenHelpRequests(effectiveFacilitadorEvent).length} ajuda(s)</span>
                   ) : null}
                   {selectedEventTimerRunning ? (
                     <span className="topbar-live-pill">
@@ -6527,7 +6827,7 @@ function App() {
 
                   {facTab === "dashboard" && (
                     <DashboardPanel
-                      evento={selectedEvent}
+                      evento={effectiveFacilitadorEvent}
                       dashboardView={dashboardView}
                       setDashboardView={setDashboardView}
                       openConfirm={openConfirm}
@@ -6544,7 +6844,7 @@ function App() {
 
                   {facTab === "missoes" && (
                     <MissionsPanel
-                      evento={selectedEvent}
+                      evento={effectiveFacilitadorEvent}
                       eventMode={selectedEventMode}
                       missionTogglePending={missionTogglePending}
                       missionFeedbackOpen={missionFeedbackOpen}
@@ -6562,9 +6862,9 @@ function App() {
                     />
                   )}
 
-                  {facTab === "prompts" && <PromptInsightsPanel evento={selectedEvent} />}
+                  {facTab === "prompts" && <PromptInsightsPanel evento={effectiveFacilitadorEvent} />}
 
-                  {facTab === "anamnese" && <AnamnesisInsightsPanel evento={selectedEvent} />}
+                  {facTab === "anamnese" && <AnamnesisInsightsPanel evento={effectiveFacilitadorEvent} />}
 
                 </>
               )}
@@ -6671,7 +6971,7 @@ function App() {
               <div className="topbar-context-strip">
                 <span className="topbar-context-item">
                   <CalendarDays size={16} strokeWidth={1.8} aria-hidden="true" />
-                  <span className="topbar-context-value">{teamEvent.name}</span>
+                  <span className="topbar-context-value">{effectiveTeamEvent.name}</span>
                 </span>
                 <span className="topbar-context-item">
                   <Users size={16} strokeWidth={1.8} aria-hidden="true" />
@@ -6785,16 +7085,16 @@ function App() {
                       </button>
                     ) : null}
                   </div>
-                ) : !teamEvent.missions.length ? (
+                ) : !effectiveTeamEvent.missions.length ? (
                   <div className="empty-list-text">Nenhuma missão disponível.</div>
                 ) : (
                   <div className="ws-mission-list">
-                    {teamEvent.missions.map((mission, index) => {
+                    {effectiveTeamEvent.missions.map((mission, index) => {
                       const locked = !mission.unlocked;
-                      const missionStatus = getMissionClosureStatus(teamEvent, timeTeamIdx, mission.id);
+                      const missionStatus = getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const concluida = missionStatus === "concluida";
                       const aguardandoQuestionario = missionStatus === "aguardando_questionario";
-                      const execs = getExecucoes(teamEvent, timeTeamIdx, mission.id);
+                      const execs = getExecucoes(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const meta = concluida
                         ? "feito"
                         : aguardandoQuestionario

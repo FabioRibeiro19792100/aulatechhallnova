@@ -55,8 +55,8 @@ const SURVIVAL_THEME_LIGHT = "light";
 const BRAND_LOADER_DURATION_MS = 700;
 const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
 const CONFIG_POLL_MS = 30000;
-const STATE_POLL_MS_WITH_REALTIME = 5000;
-const STATE_POLL_MS_WITHOUT_REALTIME = 3000;
+const STATE_POLL_MS_WITH_REALTIME = 15000;
+const STATE_POLL_MS_WITHOUT_REALTIME = 8000;
 const TIMER_NOTICE_TTL_MS = 30000;
 const TIMER_LOCK_TTL_MS = 15000;
 const MAX_ATTACHMENT_COUNT = 3;
@@ -181,15 +181,30 @@ async function copyTextToClipboard(text) {
   return successful;
 }
 
+let lastRemoteStatePayload = null;
+let lastRemoteStateEtag = null;
+
 async function fetchRemoteState() {
+  const headers = {};
+  if (lastRemoteStateEtag) headers["If-None-Match"] = lastRemoteStateEtag;
   const response = await fetch(`/api/state?ts=${Date.now()}`, {
     cache: "no-store",
+    headers,
   });
+  if (response.status === 304 && lastRemoteStatePayload) {
+    return {
+      ...lastRemoteStatePayload,
+      serverNowMs: Date.now(),
+    };
+  }
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(errorText || "Falha ao carregar estado remoto.");
   }
+  const etag = response.headers.get("ETag");
+  if (etag) lastRemoteStateEtag = etag;
   const data = await response.json();
+  lastRemoteStatePayload = data;
   return {
     ...data,
     serverNowMs: data?.serverNow ? new Date(data.serverNow).getTime() : null,

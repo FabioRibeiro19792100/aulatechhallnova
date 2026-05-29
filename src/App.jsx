@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Newspaper, Paperclip, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, MessageSquareText, Monitor, Newspaper, Paperclip, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -40,7 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
-import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -2324,7 +2324,19 @@ function App() {
         if (config.sharedStateConfigured) {
           const eventList = await listEventsPerTeam();
           if (cancelled) return;
-          setStore((current) => ({ ...current, eventList }));
+          const events = (
+            await Promise.all(
+              eventList.map(async (item) => {
+                try {
+                  const detail = await getEventState(item.event_id);
+                  return { id: item.event_id, ...(detail.payload || {}) };
+                } catch {
+                  return null;
+                }
+              }),
+            )
+          ).filter(Boolean);
+          setStore((current) => ({ ...current, eventList, events }));
         }
       } catch (error) {
         console.error("[state] falha ao carregar estado remoto:", error);
@@ -2933,14 +2945,17 @@ function App() {
   ) : null;
 
   function updateEvents(updater) {
-    setStore((current) => {
-      const previousEvents = current.events || [];
-      const nextEvents = updater(previousEvents);
-      if (nextEvents === previousEvents) return current;
-      return {
-        ...current,
-        events: stampUpdatedEvents(previousEvents, nextEvents),
-      };
+    const previousEvents = currentEventsRef.current || [];
+    const nextEvents = updater(previousEvents);
+    if (nextEvents === previousEvents) return;
+    const stamped = stampUpdatedEvents(previousEvents, nextEvents);
+    currentEventsRef.current = stamped;
+    setStore((current) => ({ ...current, events: stamped }));
+    const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+    stamped.forEach((event) => {
+      if (previousById.get(event.id) !== event) {
+        void pushEventStateChange(event.id, event);
+      }
     });
   }
 
@@ -4315,6 +4330,13 @@ function App() {
     }, {});
     const submittedAt = new Date().toISOString();
 
+    const anamneseEntry = {
+      teamIdx: anamnesisContext.teamIdx,
+      memberName: anamnesisContext.memberName,
+      answers: normalizedAnswers,
+      submittedAt,
+      updatedAt: submittedAt,
+    };
     updateEvents((current) =>
       current.map((event) =>
         event.id !== anamnesisContext.eventId
@@ -4323,17 +4345,35 @@ function App() {
               ...event,
               anamnesisResponses: {
                 ...(event.anamnesisResponses || {}),
-                [anamnesisContext.teamIdx]: {
-                  teamIdx: anamnesisContext.teamIdx,
-                  memberName: anamnesisContext.memberName,
-                  answers: normalizedAnswers,
-                  submittedAt,
-                  updatedAt: submittedAt,
-                },
+                [anamnesisContext.teamIdx]: anamneseEntry,
               },
             },
       ),
     );
+    void (async () => {
+      const eventId = anamnesisContext.eventId;
+      const teamIdx = anamnesisContext.teamIdx;
+      let initial = { payload: {}, version: 0 };
+      try {
+        const current = await getTeamState(eventId, teamIdx);
+        initial = { payload: current.payload, version: current.version };
+      } catch (err) {
+        if (err.statusCode !== 404) {
+          console.error("submit anamnese (load team_state):", err);
+          return;
+        }
+      }
+      try {
+        await putTeamStateOCC({
+          eventId,
+          teamIdx,
+          initial,
+          merge: (payload) => ({ ...(payload || {}), anamnese: anamneseEntry }),
+        });
+      } catch (err) {
+        console.error("submit anamnese (put team_state):", err);
+      }
+    })();
 
     setAnamnesisOpen(false);
     setAnamnesisAnswers({});

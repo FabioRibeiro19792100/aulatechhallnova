@@ -40,7 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
-import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, deleteAllEventData, deleteTeamScopedData, deleteTeamExecutions } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -3939,6 +3939,17 @@ function App() {
   }
 
   function applyImportedTeams(eventId, teams) {
+    const baseEvent = events.find((event) => event.id === eventId);
+    const oldTeamCount = baseEvent?.teams?.length || 0;
+    void (async () => {
+      for (let teamIdx = 0; teamIdx < oldTeamCount; teamIdx += 1) {
+        try {
+          await deleteTeamScopedData(eventId, teamIdx);
+        } catch (err) {
+          console.error(`applyImportedTeams delete ${teamIdx}:`, err);
+        }
+      }
+    })();
     updateEvents((current) =>
       current.map((event) =>
         event.id !== eventId
@@ -3998,6 +4009,37 @@ function App() {
   }
 
   function handleRemoveTeam(eventId, index) {
+    const baseEvent = events.find((event) => event.id === eventId);
+    const totalTeams = baseEvent?.teams?.length || 0;
+    void (async () => {
+      const collected = [];
+      for (let oldIdx = index + 1; oldIdx < totalTeams; oldIdx += 1) {
+        try {
+          const state = await getTeamState(eventId, oldIdx).catch((err) => (err.statusCode === 404 ? null : Promise.reject(err)));
+          collected.push({ oldIdx, payload: state?.payload || null });
+        } catch (err) {
+          console.error(`handleRemoveTeam capture ${oldIdx}:`, err);
+          collected.push({ oldIdx, payload: null });
+        }
+      }
+      try {
+        await deleteTeamScopedData(eventId, index);
+        for (const { oldIdx } of collected) {
+          await deleteTeamScopedData(eventId, oldIdx).catch((err) => console.error(`delete shift ${oldIdx}:`, err));
+        }
+        for (const { oldIdx, payload } of collected) {
+          if (!payload) continue;
+          await putTeamStateOCC({
+            eventId,
+            teamIdx: oldIdx - 1,
+            initial: { payload: {}, version: 0 },
+            merge: () => payload,
+          }).catch((err) => console.error(`reinsert ${oldIdx}→${oldIdx - 1}:`, err));
+        }
+      } catch (err) {
+        console.error(`handleRemoveTeam ${eventId}/${index}:`, err);
+      }
+    })();
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -5236,16 +5278,21 @@ function App() {
 
   function handleResetTrainingConversation() {
     if (!teamEvent || timeTeamIdx === null) return;
+    const eventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+    void deleteTeamExecutions(eventId, targetTeamIdx, { missionId: "__training__" }).catch((err) =>
+      console.error(`handleResetTrainingConversation:`, err),
+    );
 
     updateEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== eventId) return event;
         const trainingRuns = { ...(event.trainingRuns || {}) };
-        delete trainingRuns[`${timeTeamIdx}`];
+        delete trainingRuns[`${targetTeamIdx}`];
         return {
           ...event,
           trainingRuns,
-          trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== timeTeamIdx),
+          trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== targetTeamIdx),
         };
       }),
     );

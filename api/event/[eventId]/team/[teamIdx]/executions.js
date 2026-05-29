@@ -1,4 +1,4 @@
-import { listExecutions, insertExecution } from "../../../../../lib/per-team-backend.mjs";
+import { listExecutions, insertExecution, deleteTeamExecutions } from "../../../../../lib/per-team-backend.mjs";
 import { readJsonBody, sendError } from "../../../../../lib/api-response.mjs";
 
 export default async function handler(req, res) {
@@ -38,7 +38,13 @@ export default async function handler(req, res) {
       res.status(201).json({ ok: true });
       return;
     }
-    res.setHeader("Allow", "GET, POST");
+    if (req.method === "DELETE") {
+      const mission_id = req.query.mission_id || undefined;
+      await deleteTeamExecutions(eventId, idx, mission_id);
+      res.status(204).end();
+      return;
+    }
+    res.setHeader("Allow", "GET, POST, DELETE");
     res.status(405).send("Metodo nao permitido.");
   } catch (err) {
     sendError(res, err);

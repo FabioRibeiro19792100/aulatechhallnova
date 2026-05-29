@@ -20,6 +20,9 @@ import {
   listExecutions as listExecutionsPerTeam,
   insertExecution as insertExecutionPerTeam,
   patchExecutionPayload as patchExecutionPayloadPerTeam,
+  deleteTeamScopedData as deleteTeamScopedDataPerTeam,
+  deleteAllEventData as deleteAllEventDataPerTeam,
+  deleteTeamExecutions as deleteTeamExecutionsPerTeam,
   insertTokenLog as insertTokenLogPerTeam,
   listTokenLogs as listTokenLogsPerTeam,
   insertHelpRequest as insertHelpRequestPerTeam,
@@ -137,6 +140,11 @@ function bindPerTeamRoutes(app) {
     res.json(await putEventStatePerTeam(req.params.eventId, req.body));
   }));
 
+  app.delete("/api/event/:eventId", wrap(async (req, res) => {
+    await deleteAllEventDataPerTeam(req.params.eventId);
+    res.status(204).end();
+  }));
+
   app.get("/api/event/:eventId/dashboard", wrap(async (req, res) => {
     res.json(await getDashboardPerTeam(req.params.eventId));
   }));
@@ -147,6 +155,16 @@ function bindPerTeamRoutes(app) {
 
   app.put("/api/event/:eventId/team/:teamIdx", wrap(async (req, res) => {
     res.json(await putTeamStatePerTeam(req.params.eventId, Number(req.params.teamIdx), req.body));
+  }));
+
+  app.delete("/api/event/:eventId/team/:teamIdx", wrap(async (req, res) => {
+    await deleteTeamScopedDataPerTeam(req.params.eventId, Number(req.params.teamIdx));
+    res.status(204).end();
+  }));
+
+  app.delete("/api/event/:eventId/team/:teamIdx/executions", wrap(async (req, res) => {
+    await deleteTeamExecutionsPerTeam(req.params.eventId, Number(req.params.teamIdx), req.query.mission_id || undefined);
+    res.status(204).end();
   }));
 
   app.post("/api/event/:eventId/team/:teamIdx/presence", wrap(async (req, res) => {

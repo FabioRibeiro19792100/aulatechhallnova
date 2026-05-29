@@ -2444,24 +2444,6 @@ function App() {
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
-  const selectedEventAnnouncements = getEventAnnouncements(selectedEvent);
-  const selectedEventLatestAnnouncement = selectedEventAnnouncements.length ? selectedEventAnnouncements[selectedEventAnnouncements.length - 1] : null;
-  const teamEventAnnouncements = getEventAnnouncements(teamEvent);
-  const teamUnreadAnnouncements = teamEvent && timeTeamIdx !== null ? getUnreadAnnouncementsForTeam(teamEvent, timeTeamIdx) : [];
-  const teamUnreadAnnouncementCount = teamUnreadAnnouncements.length;
-  const latestUnreadAnnouncement = teamEvent && timeTeamIdx !== null ? getLatestUnreadAnnouncementForTeam(teamEvent, timeTeamIdx) : null;
-  const selectedEventTimer = getSessionTimer(selectedEvent);
-  const selectedEventTimerRemainingMs = getSessionTimerRemainingMs(selectedEvent, clockNow);
-  const selectedEventTimerRunning = isSessionTimerRunning(selectedEvent, clockNow);
-  const selectedEventTimerNotice = getSessionTimerNotice(selectedEvent, clockNow);
-  const teamEventTimer = getSessionTimer(teamEvent);
-  const teamEventTimerRemainingMs = getSessionTimerRemainingMs(teamEvent, clockNow);
-  const teamEventTimerRunning = isSessionTimerRunning(teamEvent, clockNow);
-  const teamEventTimerNotice = getSessionTimerNotice(teamEvent, clockNow);
-  const teamTimerExpired = isSessionTimerExpired(teamEvent, clockNow);
-  const teamTimerLockActive = isSessionTimerLockActive(teamEvent, clockNow);
-  const selectedEventScreenShare = selectedEvent ? getScreenShareState(selectedEvent) : null;
-  const teamEventScreenShare = teamEvent ? getScreenShareState(teamEvent) : null;
   const teamScreenShareSessionId =
     teamEventScreenShare?.active && teamEvent
       ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
@@ -2630,7 +2612,31 @@ function App() {
     };
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 
-  const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
+  const selectedEventForRead = effectiveFacilitadorEvent || selectedEvent;
+  const teamEventForRead = effectiveTeamEvent || teamEvent;
+  const selectedEventAnnouncements = getEventAnnouncements(selectedEventForRead);
+  const selectedEventLatestAnnouncement = selectedEventAnnouncements.length ? selectedEventAnnouncements[selectedEventAnnouncements.length - 1] : null;
+  const teamEventAnnouncements = getEventAnnouncements(teamEventForRead);
+  const teamUnreadAnnouncements = teamEventForRead && timeTeamIdx !== null ? getUnreadAnnouncementsForTeam(teamEventForRead, timeTeamIdx) : [];
+  const teamUnreadAnnouncementCount = teamUnreadAnnouncements.length;
+  const latestUnreadAnnouncement = teamEventForRead && timeTeamIdx !== null ? getLatestUnreadAnnouncementForTeam(teamEventForRead, timeTeamIdx) : null;
+  const selectedEventTimer = getSessionTimer(selectedEventForRead);
+  const selectedEventTimerRemainingMs = getSessionTimerRemainingMs(selectedEventForRead, clockNow);
+  const selectedEventTimerRunning = isSessionTimerRunning(selectedEventForRead, clockNow);
+  const selectedEventTimerNotice = getSessionTimerNotice(selectedEventForRead, clockNow);
+  const teamEventTimer = getSessionTimer(teamEventForRead);
+  const teamEventTimerRemainingMs = getSessionTimerRemainingMs(teamEventForRead, clockNow);
+  const teamEventTimerRunning = isSessionTimerRunning(teamEventForRead, clockNow);
+  const teamEventTimerNotice = getSessionTimerNotice(teamEventForRead, clockNow);
+  const teamTimerExpired = isSessionTimerExpired(teamEventForRead, clockNow);
+  const teamTimerLockActive = isSessionTimerLockActive(teamEventForRead, clockNow);
+  const selectedEventScreenShare = selectedEventForRead ? getScreenShareState(selectedEventForRead) : null;
+  const teamEventScreenShare = teamEventForRead ? getScreenShareState(teamEventForRead) : null;
+
+  const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
+    ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission
+    : currentMission;
+  const currentMissionLocked = Boolean(!isTrainingEvent && liveCurrentMission && !liveCurrentMission.unlocked);
   const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
       ? getTrainingRuns(effectiveTeamEvent, timeTeamIdx)

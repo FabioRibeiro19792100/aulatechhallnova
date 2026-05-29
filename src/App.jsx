@@ -2686,18 +2686,29 @@ function App() {
   useEffect(() => {
     if (!storeHydrated || !supabaseRealtimeClient || !serverConfig.remoteStateKey) return undefined;
 
+    const activeEventId = timeEventId || facSelectedId;
+    const activeStateKey = activeEventId ? `event-${activeEventId}` : serverConfig.remoteStateKey;
+
     const channel = supabaseRealtimeClient
-      .channel(`app-state-${serverConfig.remoteStateKey}`)
+      .channel(`app-state-${activeStateKey}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "app_state",
-          filter: `id=eq.${serverConfig.remoteStateKey}`,
+          filter: `id=eq.${activeStateKey}`,
         },
         (payload) => {
-          const nextEvents = normalizeEventsForProduct(payload.new?.payload?.events || []);
+          const nextData = payload.new?.payload;
+          let nextEvents = [];
+          if (nextData) {
+            if (Array.isArray(nextData.events)) {
+              nextEvents = normalizeEventsForProduct(nextData.events);
+            } else if (typeof nextData === "object" && nextData.id) {
+              nextEvents = normalizeEventsForProduct([nextData]);
+            }
+          }
           setStore((current) => {
             const mergedEvents = normalizeEventsForProduct(mergeEventCollections(nextEvents, current.events || []));
             lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
@@ -2713,7 +2724,7 @@ function App() {
     return () => {
       supabaseRealtimeClient.removeChannel(channel);
     };
-  }, [serverConfig.remoteStateKey, storeHydrated, supabaseRealtimeClient]);
+  }, [serverConfig.remoteStateKey, storeHydrated, supabaseRealtimeClient, timeEventId, facSelectedId]);
 
   // Poll config at a low frequency — it rarely changes and doesn't need realtime cadence
   useEffect(() => {

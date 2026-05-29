@@ -2353,6 +2353,39 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!toastText) return undefined;
+    const timer = window.setTimeout(() => setToastText(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [toastText]);
+
+  function handleOpenStudentResource(item, sectionTitle) {
+    if (!item?.href) return;
+    setStudentResourcePreview({
+      id: item.id,
+      title: item.title,
+      sectionTitle,
+      href: item.href,
+      previewHref: getStudentResourcePreviewUrl(item.href),
+      description: item.description || "",
+    });
+  }
+
+  function handleOpenStudentResourceInNewTab() {
+    if (!studentResourcePreview?.href) return;
+    window.open(studentResourcePreview.href, "_blank", "noopener,noreferrer");
+  }
+
+  const supabaseRealtimeClient = useMemo(() => {
+    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
+    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
+
+  useEffect(() => {
     if (!storeHydrated || !supabaseRealtimeClient) return undefined;
     const channel = supabaseRealtimeClient
       .channel("event_state__list")
@@ -2396,39 +2429,6 @@ function App() {
       supabaseRealtimeClient.removeChannel(channel);
     };
   }, [storeHydrated, supabaseRealtimeClient]);
-
-  useEffect(() => {
-    if (!toastText) return undefined;
-    const timer = window.setTimeout(() => setToastText(""), 2200);
-    return () => window.clearTimeout(timer);
-  }, [toastText]);
-
-  function handleOpenStudentResource(item, sectionTitle) {
-    if (!item?.href) return;
-    setStudentResourcePreview({
-      id: item.id,
-      title: item.title,
-      sectionTitle,
-      href: item.href,
-      previewHref: getStudentResourcePreviewUrl(item.href),
-      description: item.description || "",
-    });
-  }
-
-  function handleOpenStudentResourceInNewTab() {
-    if (!studentResourcePreview?.href) return;
-    window.open(studentResourcePreview.href, "_blank", "noopener,noreferrer");
-  }
-
-  const supabaseRealtimeClient = useMemo(() => {
-    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
-    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now() + serverClockOffsetRef.current), 1000);
@@ -2489,17 +2489,6 @@ function App() {
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
-  const teamScreenShareSessionId =
-    teamEventScreenShare?.active && teamEvent
-      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
-      : "";
-  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
-
-  useEffect(() => {
-    if (!teamScreenShareSessionId) {
-      setDismissedScreenShareSession("");
-    }
-  }, [teamScreenShareSessionId]);
 
   useEffect(() => {
     if (!storeHydrated) return;
@@ -2562,6 +2551,28 @@ function App() {
       };
     };
     const reshapedExecs = execKey ? perTeamExecutionsHook.executions.map(reshapeExec) : [];
+    const reshapeHelpRequest = (row) => {
+      const payload = row?.payload || {};
+      return {
+        ...payload,
+        id: row.id,
+        teamIdx: row.team_idx,
+        missionId: row.mission_id,
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    };
+    const reshapeTokenLog = (row) => {
+      const payload = row?.payload || {};
+      return {
+        ...payload,
+        id: row.id,
+        teamIdx: row.team_idx,
+        missionId: row.mission_id,
+        createdAt: row.created_at,
+      };
+    };
     const isTraining = perTeamMissionId === "__training__";
     return {
       ...teamEvent,
@@ -2576,10 +2587,13 @@ function App() {
       preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
       trainingRuns: isTraining ? { [perTeamTeamIdx]: reshapedExecs } : {},
       anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
-      helpRequests: (perTeamHelpHook.items || []).filter(
-        (item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id),
-      ),
-      tokenOperationalLogs: perTeamTokenLogHook.items || [],
+      helpRequests: (perTeamHelpHook.items || [])
+        .filter((item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id))
+        .map(reshapeHelpRequest),
+      trainingHelpRequests: (perTeamHelpHook.items || [])
+        .filter((item) => item.team_idx === perTeamTeamIdx && item.mission_id === "__training__")
+        .map(reshapeHelpRequest),
+      tokenOperationalLogs: (perTeamTokenLogHook.items || []).map(reshapeTokenLog),
     };
   }, [
     teamEvent,
@@ -2636,6 +2650,7 @@ function App() {
       execucoes: (() => {
         const groups = {};
         (dash.recentExecutions || []).forEach((row) => {
+          if (row.mission_id === "__training__") return;
           const key = `${row.team_idx}__${row.mission_id}`;
           const payload = row.payload || {};
           (groups[key] ||= []).push({
@@ -2651,9 +2666,61 @@ function App() {
         });
         return groups;
       })(),
-      helpRequests: dash.helpRequests || [],
-      tokenOperationalLogs: dash.tokenLogs || [],
+      trainingRuns: (() => {
+        const groups = {};
+        (dash.recentExecutions || []).forEach((row) => {
+          if (row.mission_id !== "__training__") return;
+          const payload = row.payload || {};
+          (groups[`${row.team_idx}`] ||= []).push({
+            ...payload,
+            id: row.id,
+            ts: payload.ts || row.created_at,
+            tokens: payload.tokens ?? row.tokens?.total ?? 0,
+            inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+            outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+            custo: payload.custo ?? row.custo ?? 0,
+            aiMode: payload.aiMode || CHAT_AI_MODE,
+          });
+        });
+        return groups;
+      })(),
+      helpRequests: (dash.helpRequests || []).map((row) => {
+        const payload = row?.payload || {};
+        return {
+          ...payload,
+          id: row.id,
+          teamIdx: row.team_idx,
+          missionId: row.mission_id,
+          status: row.status,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      }),
+      tokenOperationalLogs: (dash.tokenLogs || []).map((row) => {
+        const payload = row?.payload || {};
+        return {
+          ...payload,
+          id: row.id,
+          teamIdx: row.team_idx,
+          missionId: row.mission_id,
+          createdAt: row.created_at,
+        };
+      }),
       presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
+      trainingHelpRequests: (dash.helpRequests || [])
+        .filter((row) => row.mission_id === "__training__")
+        .map((row) => {
+          const payload = row?.payload || {};
+          return {
+            ...payload,
+            id: row.id,
+            teamIdx: row.team_idx,
+            missionId: row.mission_id,
+            status: row.status,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          };
+        }),
     };
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 
@@ -2677,6 +2744,17 @@ function App() {
   const teamTimerLockActive = isSessionTimerLockActive(teamEventForRead, clockNow);
   const selectedEventScreenShare = selectedEventForRead ? getScreenShareState(selectedEventForRead) : null;
   const teamEventScreenShare = teamEventForRead ? getScreenShareState(teamEventForRead) : null;
+  const teamScreenShareSessionId =
+    teamEventScreenShare?.active && teamEvent
+      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
+      : "";
+  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
+
+  useEffect(() => {
+    if (!teamScreenShareSessionId) {
+      setDismissedScreenShareSession("");
+    }
+  }, [teamScreenShareSessionId]);
 
   const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
     ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission

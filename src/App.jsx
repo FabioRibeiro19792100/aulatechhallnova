@@ -40,7 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
-import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -4330,6 +4330,13 @@ function App() {
     }, {});
     const submittedAt = new Date().toISOString();
 
+    const anamneseEntry = {
+      teamIdx: anamnesisContext.teamIdx,
+      memberName: anamnesisContext.memberName,
+      answers: normalizedAnswers,
+      submittedAt,
+      updatedAt: submittedAt,
+    };
     updateEvents((current) =>
       current.map((event) =>
         event.id !== anamnesisContext.eventId
@@ -4338,17 +4345,35 @@ function App() {
               ...event,
               anamnesisResponses: {
                 ...(event.anamnesisResponses || {}),
-                [anamnesisContext.teamIdx]: {
-                  teamIdx: anamnesisContext.teamIdx,
-                  memberName: anamnesisContext.memberName,
-                  answers: normalizedAnswers,
-                  submittedAt,
-                  updatedAt: submittedAt,
-                },
+                [anamnesisContext.teamIdx]: anamneseEntry,
               },
             },
       ),
     );
+    void (async () => {
+      const eventId = anamnesisContext.eventId;
+      const teamIdx = anamnesisContext.teamIdx;
+      let initial = { payload: {}, version: 0 };
+      try {
+        const current = await getTeamState(eventId, teamIdx);
+        initial = { payload: current.payload, version: current.version };
+      } catch (err) {
+        if (err.statusCode !== 404) {
+          console.error("submit anamnese (load team_state):", err);
+          return;
+        }
+      }
+      try {
+        await putTeamStateOCC({
+          eventId,
+          teamIdx,
+          initial,
+          merge: (payload) => ({ ...(payload || {}), anamnese: anamneseEntry }),
+        });
+      } catch (err) {
+        console.error("submit anamnese (put team_state):", err);
+      }
+    })();
 
     setAnamnesisOpen(false);
     setAnamnesisAnswers({});

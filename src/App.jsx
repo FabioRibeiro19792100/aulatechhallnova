@@ -3540,7 +3540,7 @@ function App() {
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     const serializedEvents = JSON.stringify(stampedEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = serializedEvents;
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = serializedEvents;
     setStore((current) => ({
       ...current,
       events: stampedEvents,
@@ -3577,7 +3577,7 @@ function App() {
     const previousEvents = currentEventsRef.current || [];
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
 
     if (usePerTeamBackend) {
@@ -4592,7 +4592,7 @@ function App() {
     const updatedEvents = stampUpdatedEvents(previousEvents, nextEvents);
 
     currentEventsRef.current = updatedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(updatedEvents);
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(updatedEvents);
     setStore((current) => ({ ...current, events: updatedEvents }));
 
     try {
@@ -4622,7 +4622,7 @@ function App() {
           ),
         );
         currentEventsRef.current = revertedEvents;
-        lastRemoteEventsRef.current = "__out_of_sync__";
+        if (!usePerTeamBackend) lastRemoteEventsRef.current = "__out_of_sync__";
         return { ...current, events: revertedEvents };
       });
       showToast(error.message || "Falha ao salvar a missão");
@@ -5774,7 +5774,7 @@ function App() {
     );
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
+    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
 
     if (usePerTeamBackend) {

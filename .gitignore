@@ -16,3 +16,9 @@ dist
 # Stress / load test outputs
 stress-baseline-*.json
 stress-report-*.json
+
+# Claude / AI tooling artifacts
+CLAUDE.md
+.claude/
+.claude
+.mcp.json

@@ -61,10 +61,7 @@ const SURVIVAL_STORE = "techhall:survival:v1";
 const SURVIVAL_THEME_DARK = "dark";
 const SURVIVAL_THEME_LIGHT = "light";
 const BRAND_LOADER_DURATION_MS = 700;
-const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
 const CONFIG_POLL_MS = 30000;
-const STATE_POLL_MS_WITH_REALTIME = 5000;
-const STATE_POLL_MS_WITHOUT_REALTIME = 3000;
 const TIMER_NOTICE_TTL_MS = 30000;
 const TIMER_LOCK_TTL_MS = 15000;
 const MAX_ATTACHMENT_COUNT = 3;
@@ -189,39 +186,6 @@ async function copyTextToClipboard(text) {
   return successful;
 }
 
-async function fetchRemoteState() {
-  const response = await fetch(`/api/state?ts=${Date.now()}`, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "Falha ao carregar estado remoto.");
-  }
-  const data = await response.json();
-  return {
-    ...data,
-    serverNowMs: data?.serverNow ? new Date(data.serverNow).getTime() : null,
-  };
-}
-
-async function saveRemoteState(events) {
-  const response = await fetch("/api/state", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ events }),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "Falha ao salvar estado remoto.");
-  }
-  const data = await response.json();
-  return {
-    ...data,
-    serverNowMs: data?.serverNow ? new Date(data.serverNow).getTime() : null,
-  };
-}
 
 function estimateCost(pricingMap, model, inputTokens, outputTokens) {
   const price = pricingMap?.[model] || pricingMap?.[DEFAULT_CHAT_MODEL] || { input: 0, output: 0 };
@@ -768,219 +732,6 @@ function toTimestamp(value) {
   if (!value) return 0;
   const time = new Date(value).getTime();
   return Number.isFinite(time) ? time : 0;
-}
-
-function mergeRecordArraysById(remoteItems = [], localItems = [], candidateFields = ["updatedAt", "submittedAt", "resolvedAt", "cancelledAt", "createdAt", "ts"]) {
-  const merged = new globalThis.Map();
-  [...remoteItems, ...localItems].forEach((item) => {
-    if (!item?.id) return;
-    const previous = merged.get(item.id);
-    if (!previous) {
-      merged.set(item.id, item);
-      return;
-    }
-    merged.set(item.id, pickLatestByTimestamp(previous, item, candidateFields));
-  });
-  return [...merged.values()];
-}
-
-function mergeObjectMaps(remoteMap = {}, localMap = {}, pickValue) {
-  const keys = new Set([...Object.keys(remoteMap || {}), ...Object.keys(localMap || {})]);
-  return Object.fromEntries(
-    [...keys].map((key) => {
-      const remoteValue = remoteMap?.[key];
-      const localValue = localMap?.[key];
-      return [key, pickValue ? pickValue(remoteValue, localValue) : localValue ?? remoteValue];
-    }),
-  );
-}
-
-function mergeExecucaoMaps(remoteMap = {}, localMap = {}) {
-  const keys = new Set([...Object.keys(remoteMap || {}), ...Object.keys(localMap || {})]);
-  return Object.fromEntries(
-    [...keys].map((key) => {
-      const mergedRuns = mergeRecordArraysById(remoteMap?.[key] || [], localMap?.[key] || [], ["ts"]);
-      mergedRuns.sort((a, b) => toTimestamp(a.ts) - toTimestamp(b.ts));
-      return [key, mergedRuns];
-    }),
-  );
-}
-
-function pickLatestByTimestamp(remoteValue, localValue, candidateFields = []) {
-  if (!remoteValue) return localValue;
-  if (!localValue) return remoteValue;
-
-  const remoteTs = Math.max(...candidateFields.map((field) => toTimestamp(remoteValue?.[field])), 0);
-  const localTs = Math.max(...candidateFields.map((field) => toTimestamp(localValue?.[field])), 0);
-
-  if (localTs >= remoteTs) return { ...remoteValue, ...localValue };
-  return { ...localValue, ...remoteValue };
-}
-
-function mergePresenceMaps(remoteMap = {}, localMap = {}) {
-  return mergeObjectMaps(remoteMap, localMap, (remoteValue, localValue) =>
-    pickLatestByTimestamp(remoteValue, localValue, ["lastSeenAt"]),
-  );
-}
-
-function mergeAnnouncements(remoteItems = [], localItems = []) {
-  const merged = new globalThis.Map();
-  [...remoteItems, ...localItems].forEach((item) => {
-    if (!item?.id) return;
-    const previous = merged.get(item.id) || {};
-    const remoteLike = previous;
-    const localLike = item;
-    const newestBase = pickLatestByTimestamp(remoteLike, localLike, ["updatedAt", "createdAt"]);
-    merged.set(item.id, {
-      ...previous,
-      ...newestBase,
-      dismissedBy: {
-        ...(previous.dismissedBy || {}),
-        ...(item.dismissedBy || {}),
-      },
-      readBy: {
-        ...(previous.readBy || {}),
-        ...(item.readBy || {}),
-      },
-    });
-  });
-  return [...merged.values()].sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeHelpRequestArrays(remoteItems = [], localItems = []) {
-  const merged = mergeRecordArraysById(remoteItems, localItems, ["resolvedAt", "cancelledAt", "updatedAt", "createdAt"]);
-  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeTokenPolicies(remotePolicies = {}, localPolicies = {}) {
-  return mergeObjectMaps(remotePolicies, localPolicies, (remoteValue, localValue) =>
-    pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
-  );
-}
-
-function mergeTokenGrants(remoteItems = [], localItems = []) {
-  const merged = mergeRecordArraysById(remoteItems, localItems, ["updatedAt", "createdAt"]);
-  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeTokenOperationalLogs(remoteItems = [], localItems = []) {
-  const merged = mergeRecordArraysById(remoteItems, localItems, ["createdAt", "updatedAt"]);
-  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeMissionGlossaries(remoteGlossaries = {}, localGlossaries = {}) {
-  const keys = new Set([...Object.keys(remoteGlossaries || {}), ...Object.keys(localGlossaries || {})]);
-  const merged = {};
-  keys.forEach((key) => {
-    merged[key] = mergeGlossaryEntries(remoteGlossaries?.[key] || [], localGlossaries?.[key] || []);
-  });
-  return merged;
-}
-
-function mergeScreenShareState(remoteState = {}, localState = {}) {
-  return pickLatestByTimestamp(remoteState, localState, ["startedAt", "endedAt"]);
-}
-
-function mergeSessionTimerState(remoteTimer = {}, localTimer = {}) {
-  const remoteUpdatedAt = toTimestamp(remoteTimer?.updatedAt);
-  const localUpdatedAt = toTimestamp(localTimer?.updatedAt);
-
-  if (remoteUpdatedAt || localUpdatedAt) {
-    return remoteUpdatedAt >= localUpdatedAt
-      ? { ...localTimer, ...remoteTimer }
-      : { ...remoteTimer, ...localTimer };
-  }
-
-  return pickLatestByTimestamp(remoteTimer, localTimer, ["startedAt", "endsAt"]);
-}
-
-function mergeTimerNotice(remoteNotice, localNotice) {
-  return pickLatestByTimestamp(remoteNotice, localNotice, ["createdAt"]);
-}
-
-function mergeMissions(remoteMissions = [], localMissions = []) {
-  const mergedById = new globalThis.Map();
-
-  [...remoteMissions, ...localMissions].forEach((mission, index) => {
-    const missionId = mission?.id || `__index_${index}`;
-    const previous = mergedById.get(missionId);
-    if (!previous) {
-      mergedById.set(missionId, mission);
-      return;
-    }
-    mergedById.set(missionId, pickLatestByTimestamp(previous, mission, ["updatedAt"]));
-  });
-
-  return [...mergedById.values()];
-}
-
-function mergeEventEntity(remoteEvent, localEvent) {
-  if (!remoteEvent) return localEvent;
-  if (!localEvent) return remoteEvent;
-
-  const remoteUpdatedAt = toTimestamp(remoteEvent.updatedAt || remoteEvent.createdAt);
-  const localUpdatedAt = toTimestamp(localEvent.updatedAt || localEvent.createdAt);
-  const newestEvent = localUpdatedAt >= remoteUpdatedAt ? localEvent : remoteEvent;
-  const oldestEvent = newestEvent === localEvent ? remoteEvent : localEvent;
-
-  return {
-    ...oldestEvent,
-    ...newestEvent,
-    teams: newestEvent.teams || oldestEvent.teams || [],
-    missions: mergeMissions(remoteEvent.missions || [], localEvent.missions || []),
-    execucoes: mergeExecucaoMaps(remoteEvent.execucoes, localEvent.execucoes),
-    reflexoes: mergeObjectMaps(remoteEvent.reflexoes, localEvent.reflexoes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "ts"]),
-    ),
-    questionariosPendentes: mergeObjectMaps(remoteEvent.questionariosPendentes, localEvent.questionariosPendentes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt", "openedAt"]),
-    ),
-    conclusoes: mergeObjectMaps(remoteEvent.conclusoes, localEvent.conclusoes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt", "closedAt", "concludedAt"]),
-    ),
-    preservedMissionUsage: {
-      ...(remoteEvent.preservedMissionUsage || {}),
-      ...(localEvent.preservedMissionUsage || {}),
-    },
-    missionGlossaries: mergeMissionGlossaries(remoteEvent.missionGlossaries, localEvent.missionGlossaries),
-    missionTokenPolicies: mergeTokenPolicies(remoteEvent.missionTokenPolicies, localEvent.missionTokenPolicies),
-    tokenGrants: mergeTokenGrants(remoteEvent.tokenGrants, localEvent.tokenGrants),
-    tokenOperationalLogs: mergeTokenOperationalLogs(remoteEvent.tokenOperationalLogs, localEvent.tokenOperationalLogs),
-    helpRequests: mergeHelpRequestArrays(remoteEvent.helpRequests, localEvent.helpRequests),
-    helpDisabledMap: mergeObjectMaps(remoteEvent.helpDisabledMap, localEvent.helpDisabledMap, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
-    ),
-    anamnesisEnabled: newestEvent.anamnesisEnabled ?? oldestEvent.anamnesisEnabled ?? false,
-    anamnesisResponses: mergeObjectMaps(
-      remoteEvent.anamnesisResponses,
-      localEvent.anamnesisResponses,
-      (remoteValue, localValue) => pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "updatedAt"]),
-    ),
-    missionResets: mergeObjectMaps(remoteEvent.missionResets, localEvent.missionResets, (r, l) => {
-      if (!r) return l;
-      if (!l) return r;
-      return r >= l ? r : l;
-    }),
-    trainingRuns: mergeExecucaoMaps(remoteEvent.trainingRuns, localEvent.trainingRuns),
-    trainingHelpRequests: mergeHelpRequestArrays(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
-    announcements: mergeAnnouncements(getEventAnnouncements(remoteEvent), getEventAnnouncements(localEvent)),
-    presenceMap: mergePresenceMaps(remoteEvent.presenceMap, localEvent.presenceMap),
-    sessionTimer: mergeSessionTimerState(remoteEvent.sessionTimer, localEvent.sessionTimer),
-    sessionTimerNotice: mergeTimerNotice(remoteEvent.sessionTimerNotice, localEvent.sessionTimerNotice),
-    screenShare: mergeScreenShareState(remoteEvent.screenShare, localEvent.screenShare),
-    updatedAt: newestEvent.updatedAt || oldestEvent.updatedAt || new Date().toISOString(),
-    createdAt: remoteEvent.createdAt || localEvent.createdAt || newestEvent.createdAt || oldestEvent.createdAt || new Date().toISOString(),
-  };
-}
-
-function mergeEventCollections(remoteEvents = [], localEvents = []) {
-  const mergedById = new globalThis.Map();
-  [...remoteEvents, ...localEvents].forEach((event) => {
-    if (!event?.id) return;
-    const previous = mergedById.get(event.id);
-    mergedById.set(event.id, mergeEventEntity(previous, event));
-  });
-  return [...mergedById.values()].sort((a, b) => toTimestamp(a.createdAt || a.updatedAt) - toTimestamp(b.createdAt || b.updatedAt));
 }
 
 function stampUpdatedEvents(previousEvents = [], nextEvents = []) {
@@ -2472,12 +2223,10 @@ function App() {
     sharedStateConfigured: false,
     supabaseUrl: "",
     supabaseAnonKey: "",
-    remoteStateKey: "techhall-v1",
   });
   const [storeHydrated, setStoreHydrated] = useState(false);
   const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
-  const lastRemoteEventsRef = useRef(JSON.stringify(initialLocalStore.events || []));
   const currentEventsRef = useRef(initialLocalStore.events || []);
   const brandLoaderTimerRef = useRef(null);
 
@@ -2500,12 +2249,6 @@ function App() {
   useEffect(() => {
     saveStore(store);
   }, [store]);
-
-  function syncServerClock(serverNowMs) {
-    if (!Number.isFinite(serverNowMs) || serverNowMs <= 0) return;
-    serverClockOffsetRef.current = serverNowMs - Date.now();
-    setClockNow(Date.now() + serverClockOffsetRef.current);
-  }
 
   function getSyncedNowMs() {
     return Date.now() + serverClockOffsetRef.current;
@@ -2572,40 +2315,13 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    async function fetchRemoteStateWithRetry(maxAttempts = 3) {
-      let lastError;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
-        if (cancelled) return null;
-        try {
-          return await fetchRemoteState();
-        } catch (err) {
-          lastError = err;
-          console.warn(`[state] tentativa ${attempt + 1}/${maxAttempts} falhou:`, err.message);
-        }
-      }
-      throw lastError;
-    }
-
     async function bootstrapStore() {
       try {
         const config = await fetchServerConfig();
         if (cancelled) return;
         setServerConfig(config);
 
-        if (config.sharedStateConfigured && !config.usePerTeamBackend) {
-          const remoteState = await fetchRemoteStateWithRetry(3);
-          if (cancelled || !remoteState) return;
-          syncServerClock(remoteState.serverNowMs);
-          const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          lastRemoteEventsRef.current = JSON.stringify(normalizedRemoteEvents);
-          setStore((current) => ({
-            ...current,
-            events: normalizedRemoteEvents,
-          }));
-        }
-
-        if (config.sharedStateConfigured && config.usePerTeamBackend) {
+        if (config.sharedStateConfigured) {
           const eventList = await listEventsPerTeam();
           if (cancelled) return;
           setStore((current) => ({ ...current, eventList }));
@@ -2662,86 +2378,6 @@ function App() {
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!storeHydrated) return undefined;
-    if (serverConfig.usePerTeamBackend) return undefined;
-
-    const serializedEvents = JSON.stringify(store.events || []);
-    if (serializedEvents === lastRemoteEventsRef.current) return undefined;
-
-    if (!serverConfig.sharedStateConfigured) return undefined;
-
-    const timer = window.setTimeout(() => {
-      (async () => {
-        try {
-          const remoteState = await fetchRemoteState();
-          syncServerClock(remoteState.serverNowMs);
-          const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          const mergedEvents = normalizeEventsForProduct(mergeEventCollections(normalizedRemoteEvents, store.events || []));
-          const saveResult = await saveRemoteState(mergedEvents);
-          syncServerClock(saveResult.serverNowMs);
-          // Re-merge with current state to preserve any updates that happened during the async fetch
-          setStore((current) => {
-            const safeMerged = normalizeEventsForProduct(mergeEventCollections(mergedEvents, current.events || []));
-            const safeSerialized = JSON.stringify(safeMerged);
-            lastRemoteEventsRef.current = safeSerialized;
-            return JSON.stringify(current.events || []) === safeSerialized
-              ? current
-              : { ...current, events: safeMerged };
-          });
-        } catch (error) {
-          console.error(error);
-        }
-      })();
-    }, REMOTE_SYNC_SAVE_DEBOUNCE_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend, store.events, storeHydrated]);
-
-  useEffect(() => {
-    if (!storeHydrated || !supabaseRealtimeClient || !serverConfig.remoteStateKey) return undefined;
-    if (serverConfig.usePerTeamBackend) return undefined;
-
-    const activeEventId = timeEventId || facSelectedId;
-    const activeStateKey = activeEventId ? `event-${activeEventId}` : serverConfig.remoteStateKey;
-
-    const channel = supabaseRealtimeClient
-      .channel(`app-state-${activeStateKey}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "app_state",
-          filter: `id=eq.${activeStateKey}`,
-        },
-        (payload) => {
-          const nextData = payload.new?.payload;
-          let nextEvents = [];
-          if (nextData) {
-            if (Array.isArray(nextData.events)) {
-              nextEvents = normalizeEventsForProduct(nextData.events);
-            } else if (typeof nextData === "object" && nextData.id) {
-              nextEvents = normalizeEventsForProduct([nextData]);
-            }
-          }
-          setStore((current) => {
-            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(nextEvents, current.events || []));
-            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-            return {
-              ...current,
-              events: mergedEvents,
-            };
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabaseRealtimeClient.removeChannel(channel);
-    };
-  }, [serverConfig.remoteStateKey, serverConfig.usePerTeamBackend, storeHydrated, supabaseRealtimeClient, timeEventId, facSelectedId]);
-
   // Poll config at a low frequency — it rarely changes and doesn't need realtime cadence
   useEffect(() => {
     if (!["workspace", "facilitador", "team", "entry"].includes(screen)) return undefined;
@@ -2757,96 +2393,6 @@ function App() {
 
     return () => window.clearInterval(timer);
   }, [screen]);
-
-  // Poll state as fallback — slower when Realtime is active, faster when it's not
-  useEffect(() => {
-    if (!["workspace", "facilitador", "team", "entry"].includes(screen)) return undefined;
-    if (serverConfig.usePerTeamBackend) return undefined;
-
-    const interval = supabaseRealtimeClient ? STATE_POLL_MS_WITH_REALTIME : STATE_POLL_MS_WITHOUT_REALTIME;
-
-    const timer = window.setInterval(async () => {
-      try {
-        if (serverConfig.sharedStateConfigured) {
-          const remoteState = await fetchRemoteState();
-          syncServerClock(remoteState.serverNowMs);
-          const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          setStore((current) => {
-            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
-            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-            return { ...current, events: mergedEvents };
-          });
-          return;
-        }
-        // Bootstrap may have failed — try to recover config so next tick fetches remote
-        const recoveredConfig = await fetchServerConfig();
-        setServerConfig(recoveredConfig);
-        if (recoveredConfig.sharedStateConfigured) {
-          const remoteState = await fetchRemoteState();
-          syncServerClock(remoteState.serverNowMs);
-          const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          setStore((current) => {
-            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
-            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-            return { ...current, events: mergedEvents };
-          });
-          return;
-        }
-      } catch (error) {
-        console.error(error);
-      }
-
-      setStore((current) => {
-        const normalizedCurrentEvents = normalizeEventsForProduct(current.events || []);
-        lastRemoteEventsRef.current = JSON.stringify(normalizedCurrentEvents);
-        return { ...current, events: normalizedCurrentEvents };
-      });
-    }, interval);
-
-    return () => window.clearInterval(timer);
-  }, [screen, serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend, supabaseRealtimeClient]);
-
-  useEffect(() => {
-    if (!["workspace", "facilitador", "team"].includes(screen)) return undefined;
-    if (!serverConfig.sharedStateConfigured) return undefined;
-    if (serverConfig.usePerTeamBackend) return undefined;
-
-    let cancelled = false;
-    const syncImmediately = async () => {
-      if (cancelled) return;
-      try {
-        const remoteState = await fetchRemoteState();
-        if (cancelled) return;
-        syncServerClock(remoteState.serverNowMs);
-        const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
-        setStore((current) => {
-          const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
-          lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-          return { ...current, events: mergedEvents };
-        });
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void syncImmediately();
-      }
-    };
-
-    const handleFocus = () => {
-      void syncImmediately();
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [screen, serverConfig.sharedStateConfigured, serverConfig.usePerTeamBackend]);
 
   useEffect(() => {
     if (!storeHydrated || !isLocalDev) return;
@@ -2939,8 +2485,7 @@ function App() {
   }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
 
-  const usePerTeamBackend = Boolean(serverConfig?.usePerTeamBackend);
-  const workspaceActive = usePerTeamBackend && screen === "workspace";
+  const workspaceActive = screen === "workspace";
   const perTeamEventId = workspaceActive ? timeEventId : null;
   const perTeamTeamIdx = workspaceActive ? timeTeamIdx : null;
   const perTeamMissionId = workspaceActive ? currentMission?.id ?? null : null;
@@ -2958,7 +2503,7 @@ function App() {
   });
 
   const effectiveTeamEvent = useMemo(() => {
-    if (!usePerTeamBackend || !teamEvent) return teamEvent;
+    if (!teamEvent) return teamEvent;
     const execKey = perTeamMissionId ? `${perTeamTeamIdx}__${perTeamMissionId}` : null;
     const eventPayload = perTeamEventStateHook.state?.payload || {};
     const teamPayload = perTeamTeamStateHook.state?.payload || {};
@@ -2983,7 +2528,6 @@ function App() {
       tokenOperationalLogs: perTeamTokenLogHook.items || [],
     };
   }, [
-    usePerTeamBackend,
     teamEvent,
     perTeamMissionId,
     perTeamTeamIdx,
@@ -2994,7 +2538,7 @@ function App() {
     perTeamTokenLogHook.items,
   ]);
 
-  const facilitadorEventIdActive = usePerTeamBackend && screen === "facilitador" ? facSelectedId : null;
+  const facilitadorEventIdActive = screen === "facilitador" ? facSelectedId : null;
   const perTeamDashboardHook = useDashboard(facilitadorEventIdActive, {
     realtimeClient: supabaseRealtimeClient,
     refreshMs: 5000,
@@ -3006,7 +2550,7 @@ function App() {
   );
 
   const effectiveFacilitadorEvent = useMemo(() => {
-    if (!usePerTeamBackend || !facilitadorBaseEvent) return facilitadorBaseEvent;
+    if (!facilitadorBaseEvent) return facilitadorBaseEvent;
     const dash = perTeamDashboardHook.data;
     if (!dash) return facilitadorBaseEvent;
     const eventPayload = dash.event?.payload || {};
@@ -3047,7 +2591,7 @@ function App() {
       tokenOperationalLogs: dash.tokenLogs || [],
       presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
     };
-  }, [usePerTeamBackend, facilitadorBaseEvent, perTeamDashboardHook.data]);
+  }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 
   const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
   const currentExecs = currentMission && effectiveTeamEvent
@@ -3400,34 +2944,7 @@ function App() {
     });
   }
 
-  function markTeamPresence(eventId, teamIdx, memberName) {
-    if (usePerTeamBackend) {
-      return;
-    }
-    if (!eventId || teamIdx === null || teamIdx === undefined) return;
-    const normalizedName = normalizeStudentName(memberName || "");
-    const now = Date.now();
-    updateEvents((current) => {
-      let changed = false;
-      const next = current.map((event) => {
-        if (event.id !== eventId) return event;
-        const existing = event.presenceMap?.[teamIdx];
-        const nextName = normalizedName || event.teams?.[teamIdx]?.name || `Time ${Number(teamIdx) + 1}`;
-        if (existing && existing.memberName === nextName && now - new Date(existing.lastSeenAt).getTime() < 10000) {
-          return event;
-        }
-        changed = true;
-        return {
-          ...event,
-          presenceMap: {
-            ...(event.presenceMap || {}),
-            [teamIdx]: { teamIdx, memberName: nextName, lastSeenAt: new Date(now).toISOString() },
-          },
-        };
-      });
-      return changed ? next : current;
-    });
-  }
+  function markTeamPresence() {}
 
   function showToast(message) {
     setToastText(message);
@@ -3498,65 +3015,22 @@ function App() {
     }
   }, [sliceEventStatePayload]);
 
-  async function flushCriticalEvents(nextEvents) {
-    if (usePerTeamBackend) {
-      const previousEvents = currentEventsRef.current || [];
-      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
-      (nextEvents || []).forEach((event) => {
-        if (previousById.get(event.id) !== event) {
-          void pushEventStateChange(event.id, event);
-        }
-      });
-      currentEventsRef.current = nextEvents || [];
-      return;
-    }
-    if (!serverConfig.sharedStateConfigured) return;
-    try {
-      const remoteState = await fetchRemoteState();
-      const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
-      const mergedEvents = normalizeEventsForProduct(mergeEventCollections(normalizedRemoteEvents, nextEvents || []));
-      const mergedSerialized = JSON.stringify(mergedEvents);
-      lastRemoteEventsRef.current = mergedSerialized;
-      currentEventsRef.current = mergedEvents;
-      await saveRemoteState(mergedEvents);
-      setStore((current) =>
-        JSON.stringify(current.events || []) === mergedSerialized
-          ? current
-          : {
-              ...current,
-              events: mergedEvents,
-            },
-      );
-    } catch (error) {
-      lastRemoteEventsRef.current = "__out_of_sync__";
-      console.error(error);
-    }
-  }
-
   function updateCriticalEvents(updater) {
     const previousEvents = currentEventsRef.current || [];
     const nextEvents = updater(previousEvents);
     if (nextEvents === previousEvents) return;
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
-    const serializedEvents = JSON.stringify(stampedEvents);
     currentEventsRef.current = stampedEvents;
-    if (!usePerTeamBackend) lastRemoteEventsRef.current = serializedEvents;
     setStore((current) => ({
       ...current,
       events: stampedEvents,
     }));
-
-    if (usePerTeamBackend) {
-      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
-      stampedEvents.forEach((event) => {
-        if (previousById.get(event.id) !== event) {
-          void pushEventStateChange(event.id, event);
-        }
-      });
-      return;
-    }
-
-    void flushCriticalEvents(stampedEvents);
+    const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+    stampedEvents.forEach((event) => {
+      if (previousById.get(event.id) !== event) {
+        void pushEventStateChange(event.id, event);
+      }
+    });
   }
 
   function appendTokenOperationalLog(event, entry) {
@@ -3577,29 +3051,13 @@ function App() {
     const previousEvents = currentEventsRef.current || [];
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
-
-    if (usePerTeamBackend) {
-      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
-      stampedEvents.forEach((event) => {
-        if (previousById.get(event.id) !== event) {
-          void pushEventStateChange(event.id, event);
-        }
-      });
-      return;
-    }
-
-    if (serverConfig.sharedStateConfigured) {
-      void saveRemoteState(stampedEvents)
-        .then((saveResult) => {
-          syncServerClock(saveResult.serverNowMs);
-        })
-        .catch((error) => {
-          lastRemoteEventsRef.current = "__out_of_sync__";
-          console.error("Failed to save critical event state:", error);
-        });
-    }
+    const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+    stampedEvents.forEach((event) => {
+      if (previousById.get(event.id) !== event) {
+        void pushEventStateChange(event.id, event);
+      }
+    });
   }
 
   function handleUpdateMissionTokenPolicy(eventId, missionId, nextPolicyInput) {
@@ -4413,14 +3871,8 @@ function App() {
     }
 
     try {
-      if (usePerTeamBackend) {
-        const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
-        normalizedEvents.forEach((event) => void pushEventStateChange(event.id, event));
-      } else if (serverConfig.supabaseConfigured) {
-        const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
-        lastRemoteEventsRef.current = JSON.stringify(normalizedEvents);
-        await saveRemoteState(normalizedEvents);
-      }
+      const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
+      normalizedEvents.forEach((event) => void pushEventStateChange(event.id, event));
       showToast(archive ? "Evento ocultado e histórico salvo" : "Evento ocultado da lista ativa");
     } catch (error) {
       console.error(error);
@@ -4592,16 +4044,10 @@ function App() {
     const updatedEvents = stampUpdatedEvents(previousEvents, nextEvents);
 
     currentEventsRef.current = updatedEvents;
-    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(updatedEvents);
     setStore((current) => ({ ...current, events: updatedEvents }));
 
     try {
-      if (usePerTeamBackend) {
-        updatedEvents.forEach((event) => void pushEventStateChange(event.id, event));
-      } else if (serverConfig.sharedStateConfigured) {
-        const saveResult = await saveRemoteState(updatedEvents);
-        syncServerClock(saveResult.serverNowMs);
-      }
+      updatedEvents.forEach((event) => void pushEventStateChange(event.id, event));
       showToast(unlocked ? "Missão liberada" : "Missão bloqueada");
     } catch (error) {
       console.error("Failed to save mission toggle:", error);
@@ -4622,7 +4068,6 @@ function App() {
           ),
         );
         currentEventsRef.current = revertedEvents;
-        if (!usePerTeamBackend) lastRemoteEventsRef.current = "__out_of_sync__";
         return { ...current, events: revertedEvents };
       });
       showToast(error.message || "Falha ao salvar a missão");
@@ -4918,55 +4363,29 @@ function App() {
   }
 
   function saveExecution(eventId, teamIdx, missionId, execData) {
-    if (usePerTeamBackend) {
-      const executionId = `${execData.id || `${teamIdx}_${missionId}_${execData.ts || Date.now()}`}`;
-      void perTeamExecutionsHook.append({
-        id: executionId,
-        mission_id: missionId,
-        kind: execData.aiMode === CODING_AI_MODE ? "coding" : "chat",
-        payload: execData,
-        tokens: execData.usage || execData.tokens || {},
-        custo: execData.cost ?? execData.custo ?? null,
-        created_at: execData.ts || new Date().toISOString(),
-      });
-      return;
-    }
-    updateEvents((current) =>
-      current.map((event) => {
-        if (event.id !== eventId) return event;
-        const key = `${teamIdx}__${missionId}`;
-        const execucoes = { ...(event.execucoes || {}) };
-        execucoes[key] = [...(execucoes[key] || []), execData];
-        const teams = event.teams.map((item, index) => (index === teamIdx ? { ...item, runs: (item.runs || 0) + 1 } : item));
-        return { ...event, execucoes, teams };
-      }),
-    );
+    const executionId = `${execData.id || `${teamIdx}_${missionId}_${execData.ts || Date.now()}`}`;
+    void perTeamExecutionsHook.append({
+      id: executionId,
+      mission_id: missionId,
+      kind: execData.aiMode === CODING_AI_MODE ? "coding" : "chat",
+      payload: execData,
+      tokens: execData.usage || execData.tokens || {},
+      custo: execData.cost ?? execData.custo ?? null,
+      created_at: execData.ts || new Date().toISOString(),
+    });
   }
 
   function saveTrainingExecution(eventId, teamIdx, execData) {
-    if (usePerTeamBackend) {
-      const executionId = `${execData.id || `training_${teamIdx}_${execData.ts || Date.now()}`}`;
-      void perTeamExecutionsHook.append({
-        id: executionId,
-        mission_id: "__training__",
-        kind: "training",
-        payload: execData,
-        tokens: execData.usage || execData.tokens || {},
-        custo: execData.cost ?? execData.custo ?? null,
-        created_at: execData.ts || new Date().toISOString(),
-      });
-      return;
-    }
-    updateEvents((current) =>
-      current.map((event) => {
-        if (event.id !== eventId) return event;
-        const key = `${teamIdx}`;
-        const trainingRuns = { ...(event.trainingRuns || {}) };
-        trainingRuns[key] = [...(trainingRuns[key] || []), execData];
-        const teams = event.teams.map((item, index) => (index === teamIdx ? { ...item, runs: (item.runs || 0) + 1 } : item));
-        return { ...event, trainingRuns, teams };
-      }),
-    );
+    const executionId = `${execData.id || `training_${teamIdx}_${execData.ts || Date.now()}`}`;
+    void perTeamExecutionsHook.append({
+      id: executionId,
+      mission_id: "__training__",
+      kind: "training",
+      payload: execData,
+      tokens: execData.usage || execData.tokens || {},
+      custo: execData.cost ?? execData.custo ?? null,
+      created_at: execData.ts || new Date().toISOString(),
+    });
   }
 
   function updateExecutionAnalysis(eventId, teamIdx, missionId, execId, technicalAnalysis, technicalAnalysisUsage) {
@@ -5096,77 +4515,36 @@ function App() {
   }
 
   function saveReflection(eventId, teamIdx, missionId, missionName, respostas, comment) {
-    if (usePerTeamBackend) {
-      const submittedAt = new Date().toISOString();
-      const reflexao = {
-        key: `${teamIdx}__${missionId}`,
-        teamIdx,
-        missionId,
-        missionName,
-        respostas,
-        comment: comment || "",
-        submittedAt,
-        ts: submittedAt,
+    const submittedAt = new Date().toISOString();
+    const reflexao = {
+      key: `${teamIdx}__${missionId}`,
+      teamIdx,
+      missionId,
+      missionName,
+      respostas,
+      comment: comment || "",
+      submittedAt,
+      ts: submittedAt,
+    };
+    void perTeamTeamStateHook.update((payload) => {
+      const pendingMap = { ...(payload?.questionariosPendentes || {}) };
+      const pendingEntry = pendingMap[missionId];
+      delete pendingMap[missionId];
+      const pendingSource = typeof pendingEntry === "object" && pendingEntry ? pendingEntry.source : "team";
+      return {
+        ...(payload || {}),
+        reflexoes: { ...(payload?.reflexoes || {}), [missionId]: reflexao },
+        questionariosPendentes: pendingMap,
+        conclusoes: {
+          ...(payload?.conclusoes || {}),
+          [missionId]: {
+            closedAt: submittedAt,
+            updatedAt: submittedAt,
+            source: pendingSource === "team" ? "team" : "facilitator",
+          },
+        },
       };
-      void perTeamTeamStateHook.update((payload) => {
-        const pendingMap = { ...(payload?.questionariosPendentes || {}) };
-        const pendingEntry = pendingMap[missionId];
-        delete pendingMap[missionId];
-        const pendingSource = typeof pendingEntry === "object" && pendingEntry ? pendingEntry.source : "team";
-        return {
-          ...(payload || {}),
-          reflexoes: { ...(payload?.reflexoes || {}), [missionId]: reflexao },
-          questionariosPendentes: pendingMap,
-          conclusoes: {
-            ...(payload?.conclusoes || {}),
-            [missionId]: {
-              closedAt: submittedAt,
-              updatedAt: submittedAt,
-              source: pendingSource === "team" ? "team" : "facilitator",
-            },
-          },
-        };
-      });
-      return;
-    }
-    updateCriticalEvents((current) =>
-      current.map((event) => {
-        if (event.id !== eventId) return event;
-        const key = `${teamIdx}__${missionId}`;
-        const submittedAt = new Date().toISOString();
-        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
-        const pendingSource =
-          typeof questionariosPendentes[key] === "object" && questionariosPendentes[key]
-            ? questionariosPendentes[key].source
-            : "team";
-        delete questionariosPendentes[key];
-        return {
-          ...event,
-          reflexoes: {
-            ...(event.reflexoes || {}),
-            [key]: {
-              key,
-              teamIdx,
-              missionId,
-              missionName,
-              respostas,
-              comment: comment || "",
-              submittedAt,
-              ts: submittedAt,
-            },
-          },
-          questionariosPendentes,
-          conclusoes: {
-            ...(event.conclusoes || {}),
-            [key]: {
-              closedAt: submittedAt,
-              updatedAt: submittedAt,
-              source: pendingSource === "team" ? "team" : "facilitator",
-            },
-          },
-        };
-      }),
-    );
+    });
   }
 
   function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
@@ -5625,63 +5003,19 @@ function App() {
     const message = helpMessage.trim();
     if (!message) return;
     if (currentOpenHelpRequest) return;
-    if (usePerTeamBackend) {
-      const requestId = `hr_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-      void perTeamHelpHook.create({
-        id: requestId,
-        team_idx: timeTeamIdx,
-        mission_id: currentMission?.id || null,
-        status: "open",
-        payload: {
-          message,
-          missionName: currentMission?.name || "",
-          memberName: activeStudentName || "",
-        },
-        created_at: new Date().toISOString(),
-      });
-      setHelpOpen(false);
-      setHelpMessage("");
-      showToast("Pedido de ajuda enviado ao facilitador");
-      return;
-    }
-    const nowIso = new Date(getSyncedNowMs()).toISOString();
-    const nextEvents = (currentEventsRef.current || []).map((event) =>
-      event.id !== teamEvent.id
-        ? event
-        : {
-            ...event,
-            ...(isTrainingEvent
-              ? {
-                  trainingHelpRequests: [
-                    ...(event.trainingHelpRequests || []),
-                    {
-                      id: `help_${Date.now()}`,
-                      teamIdx: timeTeamIdx,
-                      message,
-                      status: "open",
-                      createdAt: nowIso,
-                      updatedAt: nowIso,
-                    },
-                  ],
-                }
-              : {
-                  helpRequests: [
-                    ...(event.helpRequests || []),
-                    {
-                      id: `help_${Date.now()}`,
-                      teamIdx: timeTeamIdx,
-                      missionId: currentMission.id,
-                      message,
-                      status: "open",
-                      createdAt: nowIso,
-                      updatedAt: nowIso,
-                    },
-                  ],
-                }),
-          },
-    );
-    commitCriticalEventsDirect(nextEvents);
-
+    const requestId = `hr_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    void perTeamHelpHook.create({
+      id: requestId,
+      team_idx: timeTeamIdx,
+      mission_id: currentMission?.id || null,
+      status: "open",
+      payload: {
+        message,
+        missionName: currentMission?.name || "",
+        memberName: activeStudentName || "",
+      },
+      created_at: new Date().toISOString(),
+    });
     setHelpOpen(false);
     setHelpMessage("");
     showToast("Pedido de ajuda enviado ao facilitador");
@@ -5774,20 +5108,8 @@ function App() {
     );
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    if (!usePerTeamBackend) lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
-
-    if (usePerTeamBackend) {
-      stampedEvents.forEach((event) => void pushEventStateChange(event.id, event));
-    } else if (serverConfig.sharedStateConfigured) {
-      saveRemoteState(stampedEvents)
-        .then((saveResult) => {
-          syncServerClock(saveResult.serverNowMs);
-        })
-        .catch((error) => {
-          console.error("Failed to save screen share state:", error);
-        });
-    }
+    stampedEvents.forEach((event) => void pushEventStateChange(event.id, event));
   }
 
   function handleResetMissionFromZero() {

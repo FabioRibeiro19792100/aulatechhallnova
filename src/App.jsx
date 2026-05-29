@@ -2704,6 +2704,20 @@ function App() {
         };
       }),
       presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
+      trainingHelpRequests: (dash.helpRequests || [])
+        .filter((row) => row.mission_id === "__training__")
+        .map((row) => {
+          const payload = row?.payload || {};
+          return {
+            ...payload,
+            id: row.id,
+            teamIdx: row.team_idx,
+            missionId: row.mission_id,
+            status: row.status,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          };
+        }),
     };
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 

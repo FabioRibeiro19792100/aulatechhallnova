@@ -40,7 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
-import { listEvents as listEventsPerTeam } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -3447,7 +3447,69 @@ function App() {
     }
   }
 
+  const sliceEventStatePayload = useCallback((event) => {
+    if (!event) return {};
+    const {
+      id: _id,
+      execucoes: _execucoes,
+      trainingRuns: _trainingRuns,
+      reflexoes: _reflexoes,
+      conclusoes: _conclusoes,
+      questionariosPendentes: _questionariosPendentes,
+      missionGlossaries: _missionGlossaries,
+      preservedMissionUsage: _preservedMissionUsage,
+      anamnesisResponses: _anamnesisResponses,
+      helpRequests: _helpRequests,
+      tokenOperationalLogs: _tokenOperationalLogs,
+      presenceMap: _presenceMap,
+      trainingHelpRequests: _trainingHelpRequests,
+      ...eventWide
+    } = event;
+    return eventWide;
+  }, []);
+
+  const pushEventStateChange = useCallback(async (eventId, nextEventObject) => {
+    if (!eventId || !nextEventObject) return;
+    const payload = sliceEventStatePayload(nextEventObject);
+    try {
+      const current = await getEventState(eventId);
+      const result = await putEventStateOCC({
+        eventId,
+        initial: { payload: current.payload, version: current.version },
+        merge: () => payload,
+      });
+      if (!result.ok) {
+        console.warn(`pushEventStateChange ${eventId}: conflict, drop local change`);
+      }
+    } catch (err) {
+      if (err.statusCode === 404) {
+        try {
+          await putEventStateOCC({
+            eventId,
+            initial: { payload: {}, version: 0 },
+            merge: () => payload,
+          });
+        } catch (err2) {
+          console.error(`pushEventStateChange ${eventId} (initial): ${err2.message}`);
+        }
+        return;
+      }
+      console.error(`pushEventStateChange ${eventId}: ${err.message}`);
+    }
+  }, [sliceEventStatePayload]);
+
   async function flushCriticalEvents(nextEvents) {
+    if (usePerTeamBackend) {
+      const previousEvents = currentEventsRef.current || [];
+      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+      (nextEvents || []).forEach((event) => {
+        if (previousById.get(event.id) !== event) {
+          void pushEventStateChange(event.id, event);
+        }
+      });
+      currentEventsRef.current = nextEvents || [];
+      return;
+    }
     if (!serverConfig.sharedStateConfigured) return;
     try {
       const remoteState = await fetchRemoteState();
@@ -3483,6 +3545,17 @@ function App() {
       ...current,
       events: stampedEvents,
     }));
+
+    if (usePerTeamBackend) {
+      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+      stampedEvents.forEach((event) => {
+        if (previousById.get(event.id) !== event) {
+          void pushEventStateChange(event.id, event);
+        }
+      });
+      return;
+    }
+
     void flushCriticalEvents(stampedEvents);
   }
 
@@ -3501,10 +3574,21 @@ function App() {
   }
 
   function commitCriticalEventsDirect(nextEvents) {
-    const stampedEvents = stampUpdatedEvents(currentEventsRef.current || [], nextEvents);
+    const previousEvents = currentEventsRef.current || [];
+    const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
     lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
+
+    if (usePerTeamBackend) {
+      const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+      stampedEvents.forEach((event) => {
+        if (previousById.get(event.id) !== event) {
+          void pushEventStateChange(event.id, event);
+        }
+      });
+      return;
+    }
 
     if (serverConfig.sharedStateConfigured) {
       void saveRemoteState(stampedEvents)
@@ -4329,7 +4413,10 @@ function App() {
     }
 
     try {
-      if (serverConfig.supabaseConfigured) {
+      if (usePerTeamBackend) {
+        const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
+        normalizedEvents.forEach((event) => void pushEventStateChange(event.id, event));
+      } else if (serverConfig.supabaseConfigured) {
         const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
         lastRemoteEventsRef.current = JSON.stringify(normalizedEvents);
         await saveRemoteState(normalizedEvents);
@@ -4509,7 +4596,9 @@ function App() {
     setStore((current) => ({ ...current, events: updatedEvents }));
 
     try {
-      if (serverConfig.sharedStateConfigured) {
+      if (usePerTeamBackend) {
+        updatedEvents.forEach((event) => void pushEventStateChange(event.id, event));
+      } else if (serverConfig.sharedStateConfigured) {
         const saveResult = await saveRemoteState(updatedEvents);
         syncServerClock(saveResult.serverNowMs);
       }
@@ -5688,8 +5777,9 @@ function App() {
     lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
 
-    // Save directly without fetch-merge cycle — only facilitator writes screenShare
-    if (serverConfig.sharedStateConfigured) {
+    if (usePerTeamBackend) {
+      stampedEvents.forEach((event) => void pushEventStateChange(event.id, event));
+    } else if (serverConfig.sharedStateConfigured) {
       saveRemoteState(stampedEvents)
         .then((saveResult) => {
           syncServerClock(saveResult.serverNowMs);

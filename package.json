@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "survival:load": "node scripts/load-survival.mjs",
     "platform:load": "node scripts/load-platform.mjs",
-    "prod:load": "node scripts/load-prod.mjs"
+    "prod:load": "node scripts/load-prod.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
@@ -31,6 +34,8 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.10"
+    "@vitest/coverage-v8": "^4.1.7",
+    "vite": "^5.4.10",
+    "vitest": "^4.1.7"
   }
 }

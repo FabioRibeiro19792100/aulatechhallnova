@@ -54,6 +54,26 @@ export function postExecution(eventId, teamIdx, execution) {
   });
 }
 
+export function patchExecutionPayload(eventId, teamIdx, execId, payloadPatch) {
+  return request(`/api/event/${encodeURIComponent(eventId)}/team/${teamIdx}/executions/${encodeURIComponent(execId)}`, {
+    method: "PATCH",
+    body: { payload_patch: payloadPatch },
+  });
+}
+
+export function deleteAllEventData(eventId) {
+  return request(`/api/event/${encodeURIComponent(eventId)}`, { method: "DELETE" });
+}
+
+export function deleteTeamScopedData(eventId, teamIdx) {
+  return request(`/api/event/${encodeURIComponent(eventId)}/team/${teamIdx}`, { method: "DELETE" });
+}
+
+export function deleteTeamExecutions(eventId, teamIdx, { missionId } = {}) {
+  const qs = missionId ? `?mission_id=${encodeURIComponent(missionId)}` : "";
+  return request(`/api/event/${encodeURIComponent(eventId)}/team/${teamIdx}/executions${qs}`, { method: "DELETE" });
+}
+
 export function postPresence(eventId, teamIdx, memberName) {
   return request(`/api/event/${encodeURIComponent(eventId)}/team/${teamIdx}/presence`, {
     method: "POST",

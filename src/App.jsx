@@ -40,7 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
-import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, postHelpRequest, deleteAllEventData, deleteTeamScopedData, deleteTeamExecutions } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -2353,6 +2353,51 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!storeHydrated || !supabaseRealtimeClient) return undefined;
+    const channel = supabaseRealtimeClient
+      .channel("event_state__list")
+      .on("postgres_changes", { event: "*", schema: "public", table: "event_state" }, (change) => {
+        if (change.eventType === "DELETE") {
+          const removedId = change.old?.event_id;
+          if (!removedId) return;
+          setStore((current) => ({
+            ...current,
+            eventList: (current.eventList || []).filter((item) => item.event_id !== removedId),
+            events: (current.events || []).filter((event) => event.id !== removedId),
+          }));
+          return;
+        }
+        const row = change.new;
+        if (!row) return;
+        setStore((current) => {
+          const payload = row.payload || {};
+          const nextEvent = { id: row.event_id, ...payload };
+          const events = current.events || [];
+          const replaced = events.some((event) => event.id === row.event_id);
+          const nextEvents = replaced
+            ? events.map((event) => (event.id === row.event_id ? nextEvent : event))
+            : [...events, nextEvent];
+          const eventList = current.eventList || [];
+          const nextListItem = {
+            event_id: row.event_id,
+            name: payload.name || row.event_id,
+            status: payload.status || "draft",
+            mode: payload.mode || "missions",
+            updated_at: row.updated_at,
+          };
+          const nextList = eventList.some((item) => item.event_id === row.event_id)
+            ? eventList.map((item) => (item.event_id === row.event_id ? nextListItem : item))
+            : [...eventList, nextListItem];
+          return { ...current, eventList: nextList, events: nextEvents };
+        });
+      })
+      .subscribe();
+    return () => {
+      supabaseRealtimeClient.removeChannel(channel);
+    };
+  }, [storeHydrated, supabaseRealtimeClient]);
+
+  useEffect(() => {
     if (!toastText) return undefined;
     const timer = window.setTimeout(() => setToastText(""), 2200);
     return () => window.clearTimeout(timer);
@@ -2444,24 +2489,6 @@ function App() {
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
-  const selectedEventAnnouncements = getEventAnnouncements(selectedEvent);
-  const selectedEventLatestAnnouncement = selectedEventAnnouncements.length ? selectedEventAnnouncements[selectedEventAnnouncements.length - 1] : null;
-  const teamEventAnnouncements = getEventAnnouncements(teamEvent);
-  const teamUnreadAnnouncements = teamEvent && timeTeamIdx !== null ? getUnreadAnnouncementsForTeam(teamEvent, timeTeamIdx) : [];
-  const teamUnreadAnnouncementCount = teamUnreadAnnouncements.length;
-  const latestUnreadAnnouncement = teamEvent && timeTeamIdx !== null ? getLatestUnreadAnnouncementForTeam(teamEvent, timeTeamIdx) : null;
-  const selectedEventTimer = getSessionTimer(selectedEvent);
-  const selectedEventTimerRemainingMs = getSessionTimerRemainingMs(selectedEvent, clockNow);
-  const selectedEventTimerRunning = isSessionTimerRunning(selectedEvent, clockNow);
-  const selectedEventTimerNotice = getSessionTimerNotice(selectedEvent, clockNow);
-  const teamEventTimer = getSessionTimer(teamEvent);
-  const teamEventTimerRemainingMs = getSessionTimerRemainingMs(teamEvent, clockNow);
-  const teamEventTimerRunning = isSessionTimerRunning(teamEvent, clockNow);
-  const teamEventTimerNotice = getSessionTimerNotice(teamEvent, clockNow);
-  const teamTimerExpired = isSessionTimerExpired(teamEvent, clockNow);
-  const teamTimerLockActive = isSessionTimerLockActive(teamEvent, clockNow);
-  const selectedEventScreenShare = selectedEvent ? getScreenShareState(selectedEvent) : null;
-  const teamEventScreenShare = teamEvent ? getScreenShareState(teamEvent) : null;
   const teamScreenShareSessionId =
     teamEventScreenShare?.active && teamEvent
       ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
@@ -2521,18 +2548,33 @@ function App() {
     const teamPayload = perTeamTeamStateHook.state?.payload || {};
     const reKey = (map) =>
       Object.fromEntries(Object.entries(map || {}).map(([mid, val]) => [`${perTeamTeamIdx}__${mid}`, val]));
+    const reshapeExec = (row) => {
+      const payload = row?.payload || {};
+      return {
+        ...payload,
+        id: row.id,
+        ts: payload.ts || row.created_at,
+        tokens: payload.tokens ?? row.tokens?.total ?? 0,
+        inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+        outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+        custo: payload.custo ?? row.custo ?? 0,
+        aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+      };
+    };
+    const reshapedExecs = execKey ? perTeamExecutionsHook.executions.map(reshapeExec) : [];
+    const isTraining = perTeamMissionId === "__training__";
     return {
       ...teamEvent,
       ...eventPayload,
-      execucoes: execKey
-        ? { ...(teamEvent.execucoes || {}), [execKey]: perTeamExecutionsHook.executions }
+      execucoes: execKey && !isTraining
+        ? { ...(teamEvent.execucoes || {}), [execKey]: reshapedExecs }
         : teamEvent.execucoes || {},
       reflexoes: reKey(teamPayload.reflexoes),
       conclusoes: reKey(teamPayload.conclusoes),
       questionariosPendentes: reKey(teamPayload.questionariosPendentes),
       missionGlossaries: reKey(teamPayload.missionGlossaries),
       preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
-      trainingRuns: teamPayload.trainingRuns ? { [perTeamTeamIdx]: teamPayload.trainingRuns } : {},
+      trainingRuns: isTraining ? { [perTeamTeamIdx]: reshapedExecs } : {},
       anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
       helpRequests: (perTeamHelpHook.items || []).filter(
         (item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id),
@@ -2595,7 +2637,17 @@ function App() {
         const groups = {};
         (dash.recentExecutions || []).forEach((row) => {
           const key = `${row.team_idx}__${row.mission_id}`;
-          (groups[key] ||= []).push(row.payload || row);
+          const payload = row.payload || {};
+          (groups[key] ||= []).push({
+            ...payload,
+            id: row.id,
+            ts: payload.ts || row.created_at,
+            tokens: payload.tokens ?? row.tokens?.total ?? 0,
+            inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+            outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+            custo: payload.custo ?? row.custo ?? 0,
+            aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+          });
         });
         return groups;
       })(),
@@ -2605,7 +2657,31 @@ function App() {
     };
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 
-  const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
+  const selectedEventForRead = effectiveFacilitadorEvent || selectedEvent;
+  const teamEventForRead = effectiveTeamEvent || teamEvent;
+  const selectedEventAnnouncements = getEventAnnouncements(selectedEventForRead);
+  const selectedEventLatestAnnouncement = selectedEventAnnouncements.length ? selectedEventAnnouncements[selectedEventAnnouncements.length - 1] : null;
+  const teamEventAnnouncements = getEventAnnouncements(teamEventForRead);
+  const teamUnreadAnnouncements = teamEventForRead && timeTeamIdx !== null ? getUnreadAnnouncementsForTeam(teamEventForRead, timeTeamIdx) : [];
+  const teamUnreadAnnouncementCount = teamUnreadAnnouncements.length;
+  const latestUnreadAnnouncement = teamEventForRead && timeTeamIdx !== null ? getLatestUnreadAnnouncementForTeam(teamEventForRead, timeTeamIdx) : null;
+  const selectedEventTimer = getSessionTimer(selectedEventForRead);
+  const selectedEventTimerRemainingMs = getSessionTimerRemainingMs(selectedEventForRead, clockNow);
+  const selectedEventTimerRunning = isSessionTimerRunning(selectedEventForRead, clockNow);
+  const selectedEventTimerNotice = getSessionTimerNotice(selectedEventForRead, clockNow);
+  const teamEventTimer = getSessionTimer(teamEventForRead);
+  const teamEventTimerRemainingMs = getSessionTimerRemainingMs(teamEventForRead, clockNow);
+  const teamEventTimerRunning = isSessionTimerRunning(teamEventForRead, clockNow);
+  const teamEventTimerNotice = getSessionTimerNotice(teamEventForRead, clockNow);
+  const teamTimerExpired = isSessionTimerExpired(teamEventForRead, clockNow);
+  const teamTimerLockActive = isSessionTimerLockActive(teamEventForRead, clockNow);
+  const selectedEventScreenShare = selectedEventForRead ? getScreenShareState(selectedEventForRead) : null;
+  const teamEventScreenShare = teamEventForRead ? getScreenShareState(teamEventForRead) : null;
+
+  const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
+    ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission
+    : currentMission;
+  const currentMissionLocked = Boolean(!isTrainingEvent && liveCurrentMission && !liveCurrentMission.unlocked);
   const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
       ? getTrainingRuns(effectiveTeamEvent, timeTeamIdx)
@@ -3049,15 +3125,20 @@ function App() {
   }
 
   function appendTokenOperationalLog(event, entry) {
+    const logId = `token_log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    void postTokenLog(event.id, {
+      id: logId,
+      team_idx: entry.teamIdx ?? null,
+      mission_id: entry.missionId || null,
+      payload: { ...entry, id: logId, createdAt },
+      created_at: createdAt,
+    });
     return {
       ...event,
       tokenOperationalLogs: [
         ...(event.tokenOperationalLogs || []),
-        {
-          id: `token_log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          createdAt: new Date().toISOString(),
-          ...entry,
-        },
+        { id: logId, createdAt, ...entry },
       ],
     };
   }
@@ -3129,9 +3210,19 @@ function App() {
       return;
     }
     const createdAt = new Date(getSyncedNowMs()).toISOString();
+    const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
+    const matchingOpenRequests = (perTeamHelpHook.items || []).filter(
+      (request) =>
+        request.payload?.kind === "tokens" &&
+        request.status === "open" &&
+        request.mission_id === tokenMissionId &&
+        (scope === "turma" || request.team_idx === teamIdx),
+    );
+    matchingOpenRequests.forEach((request) => {
+      void putHelpRequest(eventId, request.id, { status: "resolved" });
+    });
     const nextEvents = (currentEventsRef.current || []).map((event) => {
       if (event.id !== eventId) return event;
-      const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
       const nextEvent = {
         ...event,
         tokenGrants: [
@@ -3191,29 +3282,24 @@ function App() {
     }
 
     const createdAt = new Date(getSyncedNowMs()).toISOString();
-    const nextEvents = (currentEventsRef.current || []).map((event) =>
-      event.id !== teamEvent.id
-        ? event
-        : {
-            ...event,
-            helpRequests: [
-              ...(event.helpRequests || []),
-              {
-                id: `token_help_${Date.now()}`,
-                kind: "tokens",
-                teamIdx: timeTeamIdx,
-                missionId: currentTokenBudget.missionId,
-                message: "Solicitação de liberação de tokens.",
-                status: "open",
-                createdAt,
-                updatedAt: createdAt,
-                currentUsage: currentTokenBudget.usage.totalTokens,
-                currentLimit: currentTokenBudget.effectiveLimit,
-              },
-            ],
-          },
-    );
-    commitCriticalEventsDirect(nextEvents);
+    const requestId = `token_help_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const requestEntry = {
+      id: requestId,
+      team_idx: timeTeamIdx,
+      mission_id: currentTokenBudget.missionId,
+      status: "open",
+      payload: {
+        kind: "tokens",
+        teamIdx: timeTeamIdx,
+        missionId: currentTokenBudget.missionId,
+        message: "Solicitação de liberação de tokens.",
+        memberName: activeStudentName || "",
+        currentUsage: currentTokenBudget.usage.totalTokens,
+        currentLimit: currentTokenBudget.effectiveLimit,
+      },
+      created_at: createdAt,
+    };
+    void postHelpRequest(teamEvent.id, requestEntry).catch((err) => console.error("token request:", err));
     showToast("Solicitação enviada ao facilitador.");
   }
 
@@ -3934,6 +4020,17 @@ function App() {
   }
 
   function applyImportedTeams(eventId, teams) {
+    const baseEvent = events.find((event) => event.id === eventId);
+    const oldTeamCount = baseEvent?.teams?.length || 0;
+    void (async () => {
+      for (let teamIdx = 0; teamIdx < oldTeamCount; teamIdx += 1) {
+        try {
+          await deleteTeamScopedData(eventId, teamIdx);
+        } catch (err) {
+          console.error(`applyImportedTeams delete ${teamIdx}:`, err);
+        }
+      }
+    })();
     updateEvents((current) =>
       current.map((event) =>
         event.id !== eventId
@@ -3993,6 +4090,37 @@ function App() {
   }
 
   function handleRemoveTeam(eventId, index) {
+    const baseEvent = events.find((event) => event.id === eventId);
+    const totalTeams = baseEvent?.teams?.length || 0;
+    void (async () => {
+      const collected = [];
+      for (let oldIdx = index + 1; oldIdx < totalTeams; oldIdx += 1) {
+        try {
+          const state = await getTeamState(eventId, oldIdx).catch((err) => (err.statusCode === 404 ? null : Promise.reject(err)));
+          collected.push({ oldIdx, payload: state?.payload || null });
+        } catch (err) {
+          console.error(`handleRemoveTeam capture ${oldIdx}:`, err);
+          collected.push({ oldIdx, payload: null });
+        }
+      }
+      try {
+        await deleteTeamScopedData(eventId, index);
+        for (const { oldIdx } of collected) {
+          await deleteTeamScopedData(eventId, oldIdx).catch((err) => console.error(`delete shift ${oldIdx}:`, err));
+        }
+        for (const { oldIdx, payload } of collected) {
+          if (!payload) continue;
+          await putTeamStateOCC({
+            eventId,
+            teamIdx: oldIdx - 1,
+            initial: { payload: {}, version: 0 },
+            merge: () => payload,
+          }).catch((err) => console.error(`reinsert ${oldIdx}→${oldIdx - 1}:`, err));
+        }
+      } catch (err) {
+        console.error(`handleRemoveTeam ${eventId}/${index}:`, err);
+      }
+    })();
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -4185,7 +4313,7 @@ function App() {
     setScreen("team");
   }
 
-  function handleEscolherTime(index, memberName = "") {
+  async function handleEscolherTime(index, memberName = "") {
     const selectedEvent = events.find((event) => event.id === timeEventId) || null;
     const eventMode = selectedEvent ? getEventMode(selectedEvent) : MISSIONS_MODE_EVENT;
     const pendingMissionIdx =
@@ -4196,7 +4324,19 @@ function App() {
         : -1;
     const normalizedMemberName = normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "";
 
-    if (selectedEvent && isAnamnesisEnabled(selectedEvent) && !hasCompletedAnamnesis(selectedEvent, index)) {
+    let anamneseAlreadyDone = false;
+    if (selectedEvent && isAnamnesisEnabled(selectedEvent)) {
+      try {
+        const teamState = await getTeamState(selectedEvent.id, index);
+        anamneseAlreadyDone = Boolean(teamState.payload?.anamnese?.submittedAt);
+      } catch (err) {
+        if (err.statusCode !== 404) {
+          console.error(`team_state ${selectedEvent.id}/${index} load for anamnese check:`, err);
+        }
+      }
+    }
+
+    if (selectedEvent && isAnamnesisEnabled(selectedEvent) && !anamneseAlreadyDone) {
       setActiveStudentName(normalizedMemberName);
       setAnamnesisAnswers({});
       setAnamnesisError("");
@@ -4429,15 +4569,34 @@ function App() {
   }
 
   function updateExecutionAnalysis(eventId, teamIdx, missionId, execId, technicalAnalysis, technicalAnalysisUsage) {
+    const isTraining = !missionId;
+    const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
+    const baseEvent = events.find((event) => event.id === eventId) || null;
+    const currentGlossary = baseEvent ? getMissionGlossary(baseEvent, teamIdx, glossaryMissionId, { isTraining }) : [];
+    const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
+      accumulatedGlossary: currentGlossary,
+    });
+    const execPatch = {
+      explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || undefined,
+      reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || undefined,
+      reasoningDetails: normalizedAnalysis,
+      technicalAnalysis: normalizedAnalysis,
+      technicalAnalysisUsage,
+    };
+    void perTeamExecutionsHook.patchPayload(execId, execPatch);
+    void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+      const existing = payload || {};
+      return {
+        ...existing,
+        missionGlossaries: {
+          ...(existing.missionGlossaries || {}),
+          [glossaryMissionId]: normalizedAnalysis.glossary.accumulated,
+        },
+      };
+    });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const isTraining = !missionId;
-        const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
-        const currentGlossary = getMissionGlossary(event, teamIdx, glossaryMissionId, { isTraining });
-        const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
-          accumulatedGlossary: currentGlossary,
-        });
         const missionGlossaries = {
           ...(event.missionGlossaries || {}),
           [getMissionGlossaryKey(teamIdx, glossaryMissionId)]: normalizedAnalysis.glossary.accumulated,
@@ -4446,41 +4605,19 @@ function App() {
           const key = `${teamIdx}__${missionId}`;
           const execucoes = { ...(event.execucoes || {}) };
           execucoes[key] = (execucoes[key] || []).map((exec) =>
-            exec.id !== execId
-              ? exec
-              : {
-                  ...exec,
-                  explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
-                  reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
-                  reasoningDetails: normalizedAnalysis,
-                  technicalAnalysis: normalizedAnalysis,
-                  technicalAnalysisUsage,
-                },
+            exec.id !== execId ? exec : { ...exec, ...execPatch },
           );
           return { ...event, execucoes, missionGlossaries };
         }
-
         const key = `${teamIdx}`;
         const trainingRuns = { ...(event.trainingRuns || {}) };
         trainingRuns[key] = (trainingRuns[key] || []).map((exec) =>
-          exec.id !== execId
-            ? exec
-            : {
-                ...exec,
-                explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
-                reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
-                reasoningDetails: normalizedAnalysis,
-                technicalAnalysis: normalizedAnalysis,
-                technicalAnalysisUsage,
-              },
+          exec.id !== execId ? exec : { ...exec, ...execPatch },
         );
         return { ...event, trainingRuns, missionGlossaries };
       }),
     );
 
-    const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
-      accumulatedGlossary: missionFlow.exec?.technicalAnalysis?.glossary?.accumulated || [],
-    });
     setMissionFlow((current) =>
       current.exec?.id !== execId
         ? current
@@ -4499,15 +4636,16 @@ function App() {
   }
 
   function updateExecutionTechnicalFeedback(eventId, teamIdx, missionId, execId, feedback) {
+    const nextFeedback = {
+      rating: feedback.rating,
+      reason: feedback.reason || "",
+      comment: feedback.comment || "",
+      submittedAt: new Date().toISOString(),
+    };
+    void perTeamExecutionsHook.patchPayload(execId, { technicalFeedback: nextFeedback });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const nextFeedback = {
-          rating: feedback.rating,
-          reason: feedback.reason || "",
-          comment: feedback.comment || "",
-          submittedAt: new Date().toISOString(),
-        };
         if (missionId) {
           const key = `${teamIdx}__${missionId}`;
           const execucoes = { ...(event.execucoes || {}) };
@@ -4587,29 +4725,37 @@ function App() {
     });
   }
 
+  async function patchTeamStatePerTeamWithFallback(eventId, teamIdx, mergeFn) {
+    let initial = { payload: {}, version: 0 };
+    try {
+      const current = await getTeamState(eventId, teamIdx);
+      initial = { payload: current.payload, version: current.version };
+    } catch (err) {
+      if (err.statusCode !== 404) {
+        console.error(`team_state ${eventId}/${teamIdx} load:`, err);
+        return;
+      }
+    }
+    try {
+      await putTeamStateOCC({ eventId, teamIdx, initial, merge: mergeFn });
+    } catch (err) {
+      console.error(`team_state ${eventId}/${teamIdx} put:`, err);
+    }
+  }
+
   function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
     if (!teamIndexes.length) return;
-    updateCriticalEvents((current) =>
-      current.map((event) => {
-        if (event.id !== eventId) return event;
-        const pendingMap = { ...(event.questionariosPendentes || {}) };
-        teamIndexes.forEach((teamIdx) => {
-          const key = `${teamIdx}__${missionId}`;
-          if (!getConclusaoEntry(event, teamIdx, missionId)) {
-            const openedAt = new Date().toISOString();
-            pendingMap[key] = {
-              openedAt,
-              updatedAt: openedAt,
-              source,
-            };
-          }
-        });
-        return {
-          ...event,
-          questionariosPendentes: pendingMap,
-        };
-      }),
-    );
+    const openedAt = new Date().toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const conclusoes = existing.conclusoes || {};
+        if (conclusoes[missionId]) return existing;
+        const pending = { ...(existing.questionariosPendentes || {}) };
+        pending[missionId] = { openedAt, updatedAt: openedAt, source };
+        return { ...existing, questionariosPendentes: pending };
+      });
+    });
   }
 
   function handleTeamCloseMission() {
@@ -4627,18 +4773,13 @@ function App() {
   function handleCancelTeamMissionClosure() {
     if (!teamEvent || timeTeamIdx === null || !currentMission || isTrainingEvent) return;
     if (getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id) !== "team") return;
-    const key = `${timeTeamIdx}__${currentMission.id}`;
-    updateCriticalEvents((current) =>
-      current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
-        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
-        delete questionariosPendentes[key];
-        return {
-          ...event,
-          questionariosPendentes,
-        };
-      }),
-    );
+    const targetMissionId = currentMission.id;
+    void patchTeamStatePerTeamWithFallback(teamEvent.id, timeTeamIdx, (payload) => {
+      const existing = payload || {};
+      const pending = { ...(existing.questionariosPendentes || {}) };
+      delete pending[targetMissionId];
+      return { ...existing, questionariosPendentes: pending };
+    });
     setReflectionAnswers({});
     setReflectionComment("");
     setReflectionError("");
@@ -4671,6 +4812,21 @@ function App() {
       return;
     }
     const concludedAt = new Date().toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const pending = { ...(existing.questionariosPendentes || {}) };
+        delete pending[missionId];
+        return {
+          ...existing,
+          questionariosPendentes: pending,
+          conclusoes: {
+            ...(existing.conclusoes || {}),
+            [missionId]: { closedAt: concludedAt, updatedAt: concludedAt, source: "facilitator_no_evaluation" },
+          },
+        };
+      });
+    });
     updateCriticalEvents((current) =>
       current.map((item) => {
         if (item.id !== eventId) return item;
@@ -4706,6 +4862,28 @@ function App() {
       return;
     }
     const resetAt = new Date(getSyncedNowMs()).toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void deleteTeamExecutions(eventId, teamIdx, { missionId }).catch((err) =>
+        console.error(`handleFacilitatorReopenMission delete:`, err),
+      );
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const reflexoes = { ...(existing.reflexoes || {}) };
+        delete reflexoes[missionId];
+        return {
+          ...existing,
+          reflexoes,
+          questionariosPendentes: {
+            ...(existing.questionariosPendentes || {}),
+            [missionId]: { source: "reopened", updatedAt: resetAt },
+          },
+          conclusoes: {
+            ...(existing.conclusoes || {}),
+            [missionId]: { source: "reopened", updatedAt: resetAt },
+          },
+        };
+      });
+    });
     const nextEvents = (currentEventsRef.current || []).map((item) => {
       if (item.id !== eventId) return item;
       const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
@@ -4750,16 +4928,27 @@ function App() {
     if (!teamEvent || timeTeamIdx === null) return;
     const nextDisabled = !teamHelpDisabled;
     const nowIso = new Date().toISOString();
+    const eventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+
+    if (nextDisabled) {
+      const openTeamRequests = (perTeamHelpHook.items || []).filter(
+        (item) => item.team_idx === targetTeamIdx && item.status === "open",
+      );
+      openTeamRequests.forEach((request) => {
+        void putHelpRequest(eventId, request.id, { status: "cancelled" });
+      });
+    }
 
     updateEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== eventId) return event;
 
         const baseEvent = {
           ...event,
           helpDisabledMap: {
             ...(event.helpDisabledMap || {}),
-            [timeTeamIdx]: {
+            [targetTeamIdx]: {
               disabled: nextDisabled,
               updatedAt: nowIso,
             },
@@ -4769,7 +4958,7 @@ function App() {
         if (!nextDisabled) return baseEvent;
 
         const cancelRequest = (request) =>
-          request.teamIdx === timeTeamIdx && request.status === "open"
+          request.teamIdx === targetTeamIdx && request.status === "open"
             ? {
                 ...request,
                 status: "cancelled",
@@ -5063,6 +5252,7 @@ function App() {
 
   function handleCancelHelpRequest(eventId, requestId) {
     const nowIso = new Date(getSyncedNowMs()).toISOString();
+    void putHelpRequest(eventId, requestId, { status: "cancelled" });
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== eventId
         ? event
@@ -5103,6 +5293,7 @@ function App() {
 
   function handleResolveHelpRequest(eventId, requestId) {
     const nowIso = new Date(getSyncedNowMs()).toISOString();
+    void putHelpRequest(eventId, requestId, { status: "resolved" });
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== eventId
         ? event
@@ -5156,6 +5347,9 @@ function App() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const key = getMissionUsageKey(timeTeamIdx, currentMission.id);
     const resetAt = new Date(getSyncedNowMs()).toISOString();
+    const targetEventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+    const targetMissionId = currentMission.id;
 
     const removedTotals = currentExecs.reduce(
       (acc, exec) => ({
@@ -5171,9 +5365,39 @@ function App() {
       { total: 0, input: 0, output: 0, cost: 0, explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0 },
     );
 
+    void deleteTeamExecutions(targetEventId, targetTeamIdx, { missionId: targetMissionId }).catch((err) =>
+      console.error(`handleResetMissionFromZero delete executions:`, err),
+    );
+
+    void patchTeamStatePerTeamWithFallback(targetEventId, targetTeamIdx, (payload) => {
+      const existing = payload || {};
+      const conclusoes = { ...(existing.conclusoes || {}) };
+      delete conclusoes[targetMissionId];
+      const pending = { ...(existing.questionariosPendentes || {}) };
+      delete pending[targetMissionId];
+      const reflexoes = { ...(existing.reflexoes || {}) };
+      delete reflexoes[targetMissionId];
+      const preservedMissionUsage = { ...(existing.preservedMissionUsage || {}) };
+      const prev = preservedMissionUsage[targetMissionId] || {
+        total: 0, input: 0, output: 0, cost: 0,
+        explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0,
+      };
+      preservedMissionUsage[targetMissionId] = {
+        total: prev.total + removedTotals.total,
+        input: prev.input + removedTotals.input,
+        output: prev.output + removedTotals.output,
+        cost: prev.cost + removedTotals.cost,
+        explanationTotal: prev.explanationTotal + removedTotals.explanationTotal,
+        explanationInput: prev.explanationInput + removedTotals.explanationInput,
+        explanationOutput: prev.explanationOutput + removedTotals.explanationOutput,
+        explanationCost: prev.explanationCost + removedTotals.explanationCost,
+      };
+      return { ...existing, conclusoes, questionariosPendentes: pending, reflexoes, preservedMissionUsage };
+    });
+
     updateCriticalEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== targetEventId) return event;
         const preservedMissionUsage = { ...(event.preservedMissionUsage || {}) };
         const currentPreserved = preservedMissionUsage[key] || {
           total: 0, input: 0, output: 0, cost: 0,
@@ -5206,16 +5430,21 @@ function App() {
 
   function handleResetTrainingConversation() {
     if (!teamEvent || timeTeamIdx === null) return;
+    const eventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+    void deleteTeamExecutions(eventId, targetTeamIdx, { missionId: "__training__" }).catch((err) =>
+      console.error(`handleResetTrainingConversation:`, err),
+    );
 
     updateEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== eventId) return event;
         const trainingRuns = { ...(event.trainingRuns || {}) };
-        delete trainingRuns[`${timeTeamIdx}`];
+        delete trainingRuns[`${targetTeamIdx}`];
         return {
           ...event,
           trainingRuns,
-          trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== timeTeamIdx),
+          trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== targetTeamIdx),
         };
       }),
     );

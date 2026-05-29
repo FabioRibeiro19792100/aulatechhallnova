@@ -1,4 +1,4 @@
-import { getEventState, putEventStateOCC } from "../../../lib/per-team-backend.mjs";
+import { getEventState, putEventStateOCC, deleteAllEventData } from "../../../lib/per-team-backend.mjs";
 import { readJsonBody, sendError } from "../../../lib/api-response.mjs";
 
 export default async function handler(req, res) {
@@ -20,7 +20,12 @@ export default async function handler(req, res) {
       res.status(200).json(result);
       return;
     }
-    res.setHeader("Allow", "GET, PUT");
+    if (req.method === "DELETE") {
+      await deleteAllEventData(eventId);
+      res.status(204).end();
+      return;
+    }
+    res.setHeader("Allow", "GET, PUT, DELETE");
     res.status(405).send("Metodo nao permitido.");
   } catch (err) {
     if (err.statusCode === 409 && err.body) {

@@ -1,11 +1,11 @@
+begin;
+
 create table if not exists public.event_state (
   event_id    text primary key,
   payload     jsonb not null default '{}'::jsonb,
   version     bigint not null default 1,
   updated_at  timestamptz not null default timezone('utc', now())
 );
-
-create index if not exists event_state_payload_gin on public.event_state using gin (payload);
 
 create table if not exists public.team_state (
   event_id    text not null,
@@ -16,8 +16,6 @@ create table if not exists public.team_state (
   primary key (event_id, team_idx)
 );
 
-create index if not exists team_state_by_event on public.team_state (event_id);
-
 create table if not exists public.team_presence (
   event_id      text not null,
   team_idx      int  not null,
@@ -25,8 +23,6 @@ create table if not exists public.team_presence (
   last_seen_at  timestamptz not null default timezone('utc', now()),
   primary key (event_id, team_idx)
 );
-
-create index if not exists team_presence_by_event on public.team_presence (event_id);
 
 create table if not exists public.executions (
   id            text primary key,
@@ -88,3 +84,5 @@ begin
     execute format('create policy %I_update_anon on public.%I for update to anon using (true) with check (true)', t, t);
   end loop;
 end $$;
+
+commit;

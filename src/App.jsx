@@ -2353,6 +2353,39 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!toastText) return undefined;
+    const timer = window.setTimeout(() => setToastText(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [toastText]);
+
+  function handleOpenStudentResource(item, sectionTitle) {
+    if (!item?.href) return;
+    setStudentResourcePreview({
+      id: item.id,
+      title: item.title,
+      sectionTitle,
+      href: item.href,
+      previewHref: getStudentResourcePreviewUrl(item.href),
+      description: item.description || "",
+    });
+  }
+
+  function handleOpenStudentResourceInNewTab() {
+    if (!studentResourcePreview?.href) return;
+    window.open(studentResourcePreview.href, "_blank", "noopener,noreferrer");
+  }
+
+  const supabaseRealtimeClient = useMemo(() => {
+    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
+    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
+
+  useEffect(() => {
     if (!storeHydrated || !supabaseRealtimeClient) return undefined;
     const channel = supabaseRealtimeClient
       .channel("event_state__list")
@@ -2396,39 +2429,6 @@ function App() {
       supabaseRealtimeClient.removeChannel(channel);
     };
   }, [storeHydrated, supabaseRealtimeClient]);
-
-  useEffect(() => {
-    if (!toastText) return undefined;
-    const timer = window.setTimeout(() => setToastText(""), 2200);
-    return () => window.clearTimeout(timer);
-  }, [toastText]);
-
-  function handleOpenStudentResource(item, sectionTitle) {
-    if (!item?.href) return;
-    setStudentResourcePreview({
-      id: item.id,
-      title: item.title,
-      sectionTitle,
-      href: item.href,
-      previewHref: getStudentResourcePreviewUrl(item.href),
-      description: item.description || "",
-    });
-  }
-
-  function handleOpenStudentResourceInNewTab() {
-    if (!studentResourcePreview?.href) return;
-    window.open(studentResourcePreview.href, "_blank", "noopener,noreferrer");
-  }
-
-  const supabaseRealtimeClient = useMemo(() => {
-    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
-    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now() + serverClockOffsetRef.current), 1000);

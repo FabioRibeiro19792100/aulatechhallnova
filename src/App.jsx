@@ -2521,18 +2521,33 @@ function App() {
     const teamPayload = perTeamTeamStateHook.state?.payload || {};
     const reKey = (map) =>
       Object.fromEntries(Object.entries(map || {}).map(([mid, val]) => [`${perTeamTeamIdx}__${mid}`, val]));
+    const reshapeExec = (row) => {
+      const payload = row?.payload || {};
+      return {
+        ...payload,
+        id: row.id,
+        ts: payload.ts || row.created_at,
+        tokens: payload.tokens ?? row.tokens?.total ?? 0,
+        inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+        outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+        custo: payload.custo ?? row.custo ?? 0,
+        aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+      };
+    };
+    const reshapedExecs = execKey ? perTeamExecutionsHook.executions.map(reshapeExec) : [];
+    const isTraining = perTeamMissionId === "__training__";
     return {
       ...teamEvent,
       ...eventPayload,
-      execucoes: execKey
-        ? { ...(teamEvent.execucoes || {}), [execKey]: perTeamExecutionsHook.executions }
+      execucoes: execKey && !isTraining
+        ? { ...(teamEvent.execucoes || {}), [execKey]: reshapedExecs }
         : teamEvent.execucoes || {},
       reflexoes: reKey(teamPayload.reflexoes),
       conclusoes: reKey(teamPayload.conclusoes),
       questionariosPendentes: reKey(teamPayload.questionariosPendentes),
       missionGlossaries: reKey(teamPayload.missionGlossaries),
       preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
-      trainingRuns: teamPayload.trainingRuns ? { [perTeamTeamIdx]: teamPayload.trainingRuns } : {},
+      trainingRuns: isTraining ? { [perTeamTeamIdx]: reshapedExecs } : {},
       anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
       helpRequests: (perTeamHelpHook.items || []).filter(
         (item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id),
@@ -2595,7 +2610,17 @@ function App() {
         const groups = {};
         (dash.recentExecutions || []).forEach((row) => {
           const key = `${row.team_idx}__${row.mission_id}`;
-          (groups[key] ||= []).push(row.payload || row);
+          const payload = row.payload || {};
+          (groups[key] ||= []).push({
+            ...payload,
+            id: row.id,
+            ts: payload.ts || row.created_at,
+            tokens: payload.tokens ?? row.tokens?.total ?? 0,
+            inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+            outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+            custo: payload.custo ?? row.custo ?? 0,
+            aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+          });
         });
         return groups;
       })(),
@@ -4555,15 +4580,16 @@ function App() {
   }
 
   function updateExecutionTechnicalFeedback(eventId, teamIdx, missionId, execId, feedback) {
+    const nextFeedback = {
+      rating: feedback.rating,
+      reason: feedback.reason || "",
+      comment: feedback.comment || "",
+      submittedAt: new Date().toISOString(),
+    };
+    void perTeamExecutionsHook.patchPayload(execId, { technicalFeedback: nextFeedback });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const nextFeedback = {
-          rating: feedback.rating,
-          reason: feedback.reason || "",
-          comment: feedback.comment || "",
-          submittedAt: new Date().toISOString(),
-        };
         if (missionId) {
           const key = `${teamIdx}__${missionId}`;
           const execucoes = { ...(event.execucoes || {}) };
@@ -5228,6 +5254,9 @@ function App() {
     if (!teamEvent || timeTeamIdx === null || !currentMission) return;
     const key = getMissionUsageKey(timeTeamIdx, currentMission.id);
     const resetAt = new Date(getSyncedNowMs()).toISOString();
+    const targetEventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+    const targetMissionId = currentMission.id;
 
     const removedTotals = currentExecs.reduce(
       (acc, exec) => ({
@@ -5243,9 +5272,39 @@ function App() {
       { total: 0, input: 0, output: 0, cost: 0, explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0 },
     );
 
+    void deleteTeamExecutions(targetEventId, targetTeamIdx, { missionId: targetMissionId }).catch((err) =>
+      console.error(`handleResetMissionFromZero delete executions:`, err),
+    );
+
+    void patchTeamStatePerTeamWithFallback(targetEventId, targetTeamIdx, (payload) => {
+      const existing = payload || {};
+      const conclusoes = { ...(existing.conclusoes || {}) };
+      delete conclusoes[targetMissionId];
+      const pending = { ...(existing.questionariosPendentes || {}) };
+      delete pending[targetMissionId];
+      const reflexoes = { ...(existing.reflexoes || {}) };
+      delete reflexoes[targetMissionId];
+      const preservedMissionUsage = { ...(existing.preservedMissionUsage || {}) };
+      const prev = preservedMissionUsage[targetMissionId] || {
+        total: 0, input: 0, output: 0, cost: 0,
+        explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0,
+      };
+      preservedMissionUsage[targetMissionId] = {
+        total: prev.total + removedTotals.total,
+        input: prev.input + removedTotals.input,
+        output: prev.output + removedTotals.output,
+        cost: prev.cost + removedTotals.cost,
+        explanationTotal: prev.explanationTotal + removedTotals.explanationTotal,
+        explanationInput: prev.explanationInput + removedTotals.explanationInput,
+        explanationOutput: prev.explanationOutput + removedTotals.explanationOutput,
+        explanationCost: prev.explanationCost + removedTotals.explanationCost,
+      };
+      return { ...existing, conclusoes, questionariosPendentes: pending, reflexoes, preservedMissionUsage };
+    });
+
     updateCriticalEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== targetEventId) return event;
         const preservedMissionUsage = { ...(event.preservedMissionUsage || {}) };
         const currentPreserved = preservedMissionUsage[key] || {
           total: 0, input: 0, output: 0, cost: 0,

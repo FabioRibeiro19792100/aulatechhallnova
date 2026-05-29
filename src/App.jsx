@@ -2590,6 +2590,9 @@ function App() {
       helpRequests: (perTeamHelpHook.items || [])
         .filter((item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id))
         .map(reshapeHelpRequest),
+      trainingHelpRequests: (perTeamHelpHook.items || [])
+        .filter((item) => item.team_idx === perTeamTeamIdx && item.mission_id === "__training__")
+        .map(reshapeHelpRequest),
       tokenOperationalLogs: (perTeamTokenLogHook.items || []).map(reshapeTokenLog),
     };
   }, [

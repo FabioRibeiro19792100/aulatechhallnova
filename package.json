@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "survival:load": "node scripts/load-survival.mjs",
     "platform:load": "node scripts/load-platform.mjs",
-    "prod:load": "node scripts/load-prod.mjs"
+    "prod:load": "node scripts/load-prod.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

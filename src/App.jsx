@@ -47,6 +47,7 @@ import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
 import { useHelpRequests } from "./hooks/useHelpRequests.js";
 import { useTokenLogs } from "./hooks/useTokenLogs.js";
 import { usePresence } from "./hooks/usePresence.js";
+import { useDashboard } from "./hooks/useDashboard.js";
 
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
@@ -2956,49 +2957,141 @@ function App() {
     enabled: workspaceActive,
   });
 
+  const effectiveTeamEvent = useMemo(() => {
+    if (!usePerTeamBackend || !teamEvent) return teamEvent;
+    const execKey = perTeamMissionId ? `${perTeamTeamIdx}__${perTeamMissionId}` : null;
+    const eventPayload = perTeamEventStateHook.state?.payload || {};
+    const teamPayload = perTeamTeamStateHook.state?.payload || {};
+    const reKey = (map) =>
+      Object.fromEntries(Object.entries(map || {}).map(([mid, val]) => [`${perTeamTeamIdx}__${mid}`, val]));
+    return {
+      ...teamEvent,
+      ...eventPayload,
+      execucoes: execKey
+        ? { ...(teamEvent.execucoes || {}), [execKey]: perTeamExecutionsHook.executions }
+        : teamEvent.execucoes || {},
+      reflexoes: reKey(teamPayload.reflexoes),
+      conclusoes: reKey(teamPayload.conclusoes),
+      questionariosPendentes: reKey(teamPayload.questionariosPendentes),
+      missionGlossaries: reKey(teamPayload.missionGlossaries),
+      preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
+      trainingRuns: teamPayload.trainingRuns ? { [perTeamTeamIdx]: teamPayload.trainingRuns } : {},
+      anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
+      helpRequests: (perTeamHelpHook.items || []).filter(
+        (item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id),
+      ),
+      tokenOperationalLogs: perTeamTokenLogHook.items || [],
+    };
+  }, [
+    usePerTeamBackend,
+    teamEvent,
+    perTeamMissionId,
+    perTeamTeamIdx,
+    perTeamEventStateHook.state,
+    perTeamTeamStateHook.state,
+    perTeamExecutionsHook.executions,
+    perTeamHelpHook.items,
+    perTeamTokenLogHook.items,
+  ]);
+
+  const facilitadorEventIdActive = usePerTeamBackend && screen === "facilitador" ? facSelectedId : null;
+  const perTeamDashboardHook = useDashboard(facilitadorEventIdActive, {
+    realtimeClient: supabaseRealtimeClient,
+    refreshMs: 5000,
+  });
+
+  const facilitadorBaseEvent = useMemo(
+    () => store.events?.find((event) => event.id === facSelectedId) || null,
+    [store.events, facSelectedId],
+  );
+
+  const effectiveFacilitadorEvent = useMemo(() => {
+    if (!usePerTeamBackend || !facilitadorBaseEvent) return facilitadorBaseEvent;
+    const dash = perTeamDashboardHook.data;
+    if (!dash) return facilitadorBaseEvent;
+    const eventPayload = dash.event?.payload || {};
+    const teamRows = dash.teams || [];
+    const reKeyAllTeams = (selector) => {
+      const out = {};
+      teamRows.forEach((row) => {
+        const payload = row.payload || {};
+        const map = selector(payload) || {};
+        Object.entries(map).forEach(([missionId, val]) => {
+          out[`${row.team_idx}__${missionId}`] = val;
+        });
+      });
+      return out;
+    };
+    return {
+      ...facilitadorBaseEvent,
+      ...eventPayload,
+      reflexoes: reKeyAllTeams((p) => p.reflexoes),
+      conclusoes: reKeyAllTeams((p) => p.conclusoes),
+      questionariosPendentes: reKeyAllTeams((p) => p.questionariosPendentes),
+      missionGlossaries: reKeyAllTeams((p) => p.missionGlossaries),
+      preservedMissionUsage: reKeyAllTeams((p) => p.preservedMissionUsage),
+      anamnesisResponses: Object.fromEntries(
+        teamRows
+          .filter((row) => row.payload?.anamnese)
+          .map((row) => [row.team_idx, row.payload.anamnese]),
+      ),
+      execucoes: (() => {
+        const groups = {};
+        (dash.recentExecutions || []).forEach((row) => {
+          const key = `${row.team_idx}__${row.mission_id}`;
+          (groups[key] ||= []).push(row.payload || row);
+        });
+        return groups;
+      })(),
+      helpRequests: dash.helpRequests || [],
+      tokenOperationalLogs: dash.tokenLogs || [],
+      presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
+    };
+  }, [usePerTeamBackend, facilitadorBaseEvent, perTeamDashboardHook.data]);
+
   const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
-  const currentExecs = currentMission && teamEvent
+  const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
-      ? getTrainingRuns(teamEvent, timeTeamIdx)
-      : getExecucoes(teamEvent, timeTeamIdx, currentMission.id)
+      ? getTrainingRuns(effectiveTeamEvent, timeTeamIdx)
+      : getExecucoes(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : [];
-  const currentReflexao = currentMission && teamEvent && !isTrainingEvent ? getReflexao(teamEvent, timeTeamIdx, currentMission.id) : null;
-  const currentQuestionarioPendente = currentMission && teamEvent && !isTrainingEvent ? isQuestionarioPendente(teamEvent, timeTeamIdx, currentMission.id) : false;
-  const currentQuestionarioPendenteSource = currentMission && teamEvent && !isTrainingEvent
-    ? getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id)
+  const currentReflexao = currentMission && effectiveTeamEvent && !isTrainingEvent ? getReflexao(effectiveTeamEvent, timeTeamIdx, currentMission.id) : null;
+  const currentQuestionarioPendente = currentMission && effectiveTeamEvent && !isTrainingEvent ? isQuestionarioPendente(effectiveTeamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentQuestionarioPendenteSource = currentMission && effectiveTeamEvent && !isTrainingEvent
+    ? getQuestionarioPendenteSource(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : null;
-  const currentConcluida = currentMission && teamEvent && !isTrainingEvent ? isConcluida(teamEvent, timeTeamIdx, currentMission.id) : false;
-  const currentConclusaoSource = currentMission && teamEvent && !isTrainingEvent
-    ? getConclusaoSource(teamEvent, timeTeamIdx, currentMission.id)
+  const currentConcluida = currentMission && effectiveTeamEvent && !isTrainingEvent ? isConcluida(effectiveTeamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentConclusaoSource = currentMission && effectiveTeamEvent && !isTrainingEvent
+    ? getConclusaoSource(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : null;
-  const currentMissionStatus = currentMission && teamEvent && !isTrainingEvent ? getMissionClosureStatus(teamEvent, timeTeamIdx, currentMission.id) : "aberta";
+  const currentMissionStatus = currentMission && effectiveTeamEvent && !isTrainingEvent ? getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, currentMission.id) : "aberta";
   const latestCurrentExec = currentExecs.length ? currentExecs[currentExecs.length - 1] : null;
   const readingExec = missionFlow.exec || latestCurrentExec || null;
   const readingStage = Boolean(readingExec);
-  const hasMissionHistory = currentMission && teamEvent
+  const hasMissionHistory = currentMission && effectiveTeamEvent
     ? isTrainingEvent
       ? currentExecs.length > 0
       : currentExecs.length > 0 || Boolean(currentReflexao) || currentQuestionarioPendente || currentConcluida
     : false;
-  const preservedUsage = currentMission && teamEvent && !isTrainingEvent ? getPreservedMissionUsage(teamEvent, timeTeamIdx, currentMission.id) : null;
-  const currentHelpRequests = currentMission && teamEvent
+  const preservedUsage = currentMission && effectiveTeamEvent && !isTrainingEvent ? getPreservedMissionUsage(effectiveTeamEvent, timeTeamIdx, currentMission.id) : null;
+  const currentHelpRequests = currentMission && effectiveTeamEvent
     ? isTrainingEvent
-      ? [...getTrainingHelpRequests(teamEvent, timeTeamIdx), ...getTrainingTokenRequests(teamEvent, timeTeamIdx)]
-      : getHelpRequests(teamEvent, timeTeamIdx, currentMission.id)
+      ? [...getTrainingHelpRequests(effectiveTeamEvent, timeTeamIdx), ...getTrainingTokenRequests(effectiveTeamEvent, timeTeamIdx)]
+      : getHelpRequests(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : [];
   const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open" && request.kind !== "tokens").length;
   const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open" && request.kind !== "tokens") || null;
   const currentTokenMissionId = currentMission ? getTokenMissionId(currentMission.id, { isTraining: isTrainingEvent }) : null;
-  const currentTokenBudget = currentMission && teamEvent && timeTeamIdx !== null
-    ? getEffectiveMissionTokenBudget(teamEvent, timeTeamIdx, currentMission.id, { isTraining: isTrainingEvent })
+  const currentTokenBudget = currentMission && effectiveTeamEvent && timeTeamIdx !== null
+    ? getEffectiveMissionTokenBudget(effectiveTeamEvent, timeTeamIdx, currentMission.id, { isTraining: isTrainingEvent })
     : null;
   const currentOpenTokenRequest =
-    currentMission && teamEvent
+    currentMission && effectiveTeamEvent
       ? currentHelpRequests.find((request) => request.status === "open" && request.kind === "tokens") || null
       : null;
   const currentMissionOperationalLogs =
-    currentMission && teamEvent && timeTeamIdx !== null
-      ? getMissionTokenOperationalLogs(teamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
+    currentMission && effectiveTeamEvent && timeTeamIdx !== null
+      ? getMissionTokenOperationalLogs(effectiveTeamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
       : [];
   const facilitatorTabs = selectedEvent && isAnamnesisEnabled(selectedEvent)
     ? ["dashboard", "missoes", "prompts", "anamnese"]
@@ -3008,7 +3101,7 @@ function App() {
         isTraining: tokenGrantTargetMissionId === TOKEN_MISSION_TRAINING_ID,
       })
     : null;
-  const teamHelpDisabled = teamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(teamEvent, timeTeamIdx) : false;
+  const teamHelpDisabled = effectiveTeamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(effectiveTeamEvent, timeTeamIdx) : false;
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
   const anamnesisTargetEvent = anamnesisContext ? events.find((event) => event.id === anamnesisContext.eventId) || null : null;
   const answeredAnamnesisCount = countAnsweredAnamnesisQuestions(anamnesisAnswers);
@@ -3128,18 +3221,18 @@ function App() {
   }, [currentMission?.id, currentQuestionarioPendente, isTrainingEvent]);
 
   useEffect(() => {
-    if (!teamEvent || timeTeamIdx === null || isTrainingEvent) return;
-    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
+    if (!effectiveTeamEvent || timeTeamIdx === null || isTrainingEvent) return;
+    const pendingMissionIdx = getFirstPendingMissionIndex(effectiveTeamEvent, timeTeamIdx);
     if (pendingMissionIdx >= 0 && timeMissionIdx !== pendingMissionIdx) {
       setTimeMissionIdx(pendingMissionIdx);
     }
-  }, [isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
+  }, [isTrainingEvent, effectiveTeamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
-    if (!teamEvent || timeTeamIdx === null || isTrainingEvent || !currentMissionLocked) return;
+    if (!effectiveTeamEvent || timeTeamIdx === null || isTrainingEvent || !currentMissionLocked) return;
 
-    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
-    const firstUnlockedMissionIdx = teamEvent.missions.findIndex((mission) => mission.unlocked);
+    const pendingMissionIdx = getFirstPendingMissionIndex(effectiveTeamEvent, timeTeamIdx);
+    const firstUnlockedMissionIdx = effectiveTeamEvent.missions.findIndex((mission) => mission.unlocked);
     const fallbackMissionIdx = pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null;
 
     if (fallbackMissionIdx !== timeMissionIdx) {
@@ -3151,7 +3244,7 @@ function App() {
     setMissionInput("");
     setMissionAttachments([]);
     setRunError("Esta missão foi bloqueada pelo facilitador.");
-  }, [currentMissionLocked, isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
+  }, [currentMissionLocked, isTrainingEvent, effectiveTeamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
     if (!selectedEvent) {
@@ -6462,8 +6555,8 @@ function App() {
                   <span className={`topbar-api-pill${apiConfigured ? " is-connected" : ""}`}>
                     {apiConfigured ? "API ligada" : "API não configurada"}
                   </span>
-                  {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
-                    <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
+                  {effectiveFacilitadorEvent && getOpenHelpRequests(effectiveFacilitadorEvent).length > 0 ? (
+                    <span className="topbar-help-pill">{getOpenHelpRequests(effectiveFacilitadorEvent).length} ajuda(s)</span>
                   ) : null}
                   {selectedEventTimerRunning ? (
                     <span className="topbar-live-pill">
@@ -6644,7 +6737,7 @@ function App() {
 
                   {facTab === "dashboard" && (
                     <DashboardPanel
-                      evento={selectedEvent}
+                      evento={effectiveFacilitadorEvent}
                       dashboardView={dashboardView}
                       setDashboardView={setDashboardView}
                       openConfirm={openConfirm}
@@ -6661,7 +6754,7 @@ function App() {
 
                   {facTab === "missoes" && (
                     <MissionsPanel
-                      evento={selectedEvent}
+                      evento={effectiveFacilitadorEvent}
                       eventMode={selectedEventMode}
                       missionTogglePending={missionTogglePending}
                       missionFeedbackOpen={missionFeedbackOpen}
@@ -6679,9 +6772,9 @@ function App() {
                     />
                   )}
 
-                  {facTab === "prompts" && <PromptInsightsPanel evento={selectedEvent} />}
+                  {facTab === "prompts" && <PromptInsightsPanel evento={effectiveFacilitadorEvent} />}
 
-                  {facTab === "anamnese" && <AnamnesisInsightsPanel evento={selectedEvent} />}
+                  {facTab === "anamnese" && <AnamnesisInsightsPanel evento={effectiveFacilitadorEvent} />}
 
                 </>
               )}
@@ -6788,7 +6881,7 @@ function App() {
               <div className="topbar-context-strip">
                 <span className="topbar-context-item">
                   <CalendarDays size={16} strokeWidth={1.8} aria-hidden="true" />
-                  <span className="topbar-context-value">{teamEvent.name}</span>
+                  <span className="topbar-context-value">{effectiveTeamEvent.name}</span>
                 </span>
                 <span className="topbar-context-item">
                   <Users size={16} strokeWidth={1.8} aria-hidden="true" />
@@ -6902,16 +6995,16 @@ function App() {
                       </button>
                     ) : null}
                   </div>
-                ) : !teamEvent.missions.length ? (
+                ) : !effectiveTeamEvent.missions.length ? (
                   <div className="empty-list-text">Nenhuma missão disponível.</div>
                 ) : (
                   <div className="ws-mission-list">
-                    {teamEvent.missions.map((mission, index) => {
+                    {effectiveTeamEvent.missions.map((mission, index) => {
                       const locked = !mission.unlocked;
-                      const missionStatus = getMissionClosureStatus(teamEvent, timeTeamIdx, mission.id);
+                      const missionStatus = getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const concluida = missionStatus === "concluida";
                       const aguardandoQuestionario = missionStatus === "aguardando_questionario";
-                      const execs = getExecucoes(teamEvent, timeTeamIdx, mission.id);
+                      const execs = getExecucoes(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const meta = concluida
                         ? "feito"
                         : aguardandoQuestionario

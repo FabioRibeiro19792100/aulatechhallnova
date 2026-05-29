@@ -2353,6 +2353,51 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!storeHydrated || !supabaseRealtimeClient) return undefined;
+    const channel = supabaseRealtimeClient
+      .channel("event_state__list")
+      .on("postgres_changes", { event: "*", schema: "public", table: "event_state" }, (change) => {
+        if (change.eventType === "DELETE") {
+          const removedId = change.old?.event_id;
+          if (!removedId) return;
+          setStore((current) => ({
+            ...current,
+            eventList: (current.eventList || []).filter((item) => item.event_id !== removedId),
+            events: (current.events || []).filter((event) => event.id !== removedId),
+          }));
+          return;
+        }
+        const row = change.new;
+        if (!row) return;
+        setStore((current) => {
+          const payload = row.payload || {};
+          const nextEvent = { id: row.event_id, ...payload };
+          const events = current.events || [];
+          const replaced = events.some((event) => event.id === row.event_id);
+          const nextEvents = replaced
+            ? events.map((event) => (event.id === row.event_id ? nextEvent : event))
+            : [...events, nextEvent];
+          const eventList = current.eventList || [];
+          const nextListItem = {
+            event_id: row.event_id,
+            name: payload.name || row.event_id,
+            status: payload.status || "draft",
+            mode: payload.mode || "missions",
+            updated_at: row.updated_at,
+          };
+          const nextList = eventList.some((item) => item.event_id === row.event_id)
+            ? eventList.map((item) => (item.event_id === row.event_id ? nextListItem : item))
+            : [...eventList, nextListItem];
+          return { ...current, eventList: nextList, events: nextEvents };
+        });
+      })
+      .subscribe();
+    return () => {
+      supabaseRealtimeClient.removeChannel(channel);
+    };
+  }, [storeHydrated, supabaseRealtimeClient]);
+
+  useEffect(() => {
     if (!toastText) return undefined;
     const timer = window.setTimeout(() => setToastText(""), 2200);
     return () => window.clearTimeout(timer);

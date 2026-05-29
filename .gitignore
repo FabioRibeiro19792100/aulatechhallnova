@@ -1,5 +1,18 @@
 .env
 .local-config.json
+.local-app-state.json
 node_modules
 dist
 .DS_Store
+
+# Editor swap files
+*.swp
+*.swo
+*.swn
+
+# Playwright MCP captures
+.playwright-mcp/
+
+# Stress / load test outputs
+stress-baseline-*.json
+stress-report-*.json

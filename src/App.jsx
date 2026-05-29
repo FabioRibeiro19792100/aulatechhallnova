@@ -194,7 +194,7 @@ async function fetchRemoteState() {
   if (response.status === 304 && lastRemoteStatePayload) {
     return {
       ...lastRemoteStatePayload,
-      serverNowMs: Date.now(),
+      serverNowMs: null,
     };
   }
   if (!response.ok) {

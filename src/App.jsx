@@ -40,7 +40,7 @@ import {
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode } from "./data/models.js";
-import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -3049,15 +3049,20 @@ function App() {
   }
 
   function appendTokenOperationalLog(event, entry) {
+    const logId = `token_log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    void postTokenLog(event.id, {
+      id: logId,
+      team_idx: entry.teamIdx ?? null,
+      mission_id: entry.missionId || null,
+      payload: { ...entry, id: logId, createdAt },
+      created_at: createdAt,
+    });
     return {
       ...event,
       tokenOperationalLogs: [
         ...(event.tokenOperationalLogs || []),
-        {
-          id: `token_log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          createdAt: new Date().toISOString(),
-          ...entry,
-        },
+        { id: logId, createdAt, ...entry },
       ],
     };
   }
@@ -4762,16 +4767,27 @@ function App() {
     if (!teamEvent || timeTeamIdx === null) return;
     const nextDisabled = !teamHelpDisabled;
     const nowIso = new Date().toISOString();
+    const eventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+
+    if (nextDisabled) {
+      const openTeamRequests = (perTeamHelpHook.items || []).filter(
+        (item) => item.team_idx === targetTeamIdx && item.status === "open",
+      );
+      openTeamRequests.forEach((request) => {
+        void putHelpRequest(eventId, request.id, { status: "cancelled" });
+      });
+    }
 
     updateEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== eventId) return event;
 
         const baseEvent = {
           ...event,
           helpDisabledMap: {
             ...(event.helpDisabledMap || {}),
-            [timeTeamIdx]: {
+            [targetTeamIdx]: {
               disabled: nextDisabled,
               updatedAt: nowIso,
             },
@@ -4781,7 +4797,7 @@ function App() {
         if (!nextDisabled) return baseEvent;
 
         const cancelRequest = (request) =>
-          request.teamIdx === timeTeamIdx && request.status === "open"
+          request.teamIdx === targetTeamIdx && request.status === "open"
             ? {
                 ...request,
                 status: "cancelled",
@@ -5075,6 +5091,7 @@ function App() {
 
   function handleCancelHelpRequest(eventId, requestId) {
     const nowIso = new Date(getSyncedNowMs()).toISOString();
+    void putHelpRequest(eventId, requestId, { status: "cancelled" });
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== eventId
         ? event
@@ -5115,6 +5132,7 @@ function App() {
 
   function handleResolveHelpRequest(eventId, requestId) {
     const nowIso = new Date(getSyncedNowMs()).toISOString();
+    void putHelpRequest(eventId, requestId, { status: "resolved" });
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== eventId
         ? event

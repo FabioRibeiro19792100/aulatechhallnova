@@ -13,14 +13,16 @@ export default async function handler(req, res) {
     }
     if (req.method === "POST") {
       const body = (await readJsonBody(req)) || {};
+      const id = `${body.id || `tl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`}`;
       await insertTokenLog({
+        id,
         event_id: eventId,
         team_idx: body.team_idx ?? null,
         mission_id: body.mission_id || null,
         payload: body.payload || {},
         created_at: body.created_at || new Date().toISOString(),
       });
-      res.status(201).json({ ok: true });
+      res.status(201).json({ ok: true, id });
       return;
     }
     res.setHeader("Allow", "GET, POST");

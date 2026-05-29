@@ -196,14 +196,16 @@ function bindPerTeamRoutes(app) {
   }));
 
   app.post("/api/event/:eventId/token-log", wrap(async (req, res) => {
+    const id = `${req.body.id || `tl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`}`;
     await insertTokenLogPerTeam({
+      id,
       event_id: req.params.eventId,
       team_idx: req.body.team_idx ?? null,
       mission_id: req.body.mission_id || null,
       payload: req.body.payload || {},
       created_at: req.body.created_at || new Date().toISOString(),
     });
-    res.status(201).json({ ok: true });
+    res.status(201).json({ ok: true, id });
   }));
 
   app.get("/api/event/:eventId/token-log", wrap(async (req, res) => {

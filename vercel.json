@@ -3,6 +3,8 @@
   "functions": {
     "api/state/index.js": { "maxDuration": 30 },
     "api/attachments/extract.js": { "maxDuration": 30 },
+    "api/openai/chat.js": { "maxDuration": 60 },
+    "api/openai/responses.js": { "maxDuration": 60 },
     "api/openai/responses/stream.js": { "maxDuration": 60 }
   },
   "rewrites": [

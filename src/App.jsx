@@ -2909,64 +2909,6 @@ function App() {
   }, [currentMission?.id, currentQuestionarioPendente, isTrainingEvent]);
 
   useEffect(() => {
-    if (!apiConfigured || !latestCurrentExec || !currentMission || running) return;
-    if (!latestCurrentExec.technicalAnalysis?.pending) return;
-
-    const execId = latestCurrentExec.id;
-    const historyIndex = currentExecs.findIndex((e) => e.id === execId);
-    const priorExecs = historyIndex >= 0 ? currentExecs.slice(0, historyIndex) : [];
-    const historyContext = buildHistoryContext(priorExecs);
-
-    const model = latestCurrentExec.technicalAnalysisUsage?.model || selectedModelForMode;
-
-    void gerarExplicacaoGuiadaIA({
-      model,
-      modelPricing: modelPricingMap,
-      mission: currentMission,
-      input: latestCurrentExec.input || "",
-      attachments: latestCurrentExec.attachments || [],
-      acao: latestCurrentExec.acao || FREE_ACTION_KEY,
-      output: latestCurrentExec.output || "",
-      historyContext,
-    })
-      .then((guidedReasoning) => {
-        const finalTechnicalAnalysis =
-          guidedReasoning ||
-          buildTechnicalAnalysisUnavailable({
-            apiConfigured,
-            historyContext,
-          });
-        updateExecutionAnalysis(
-          teamEvent.id,
-          timeTeamIdx,
-          isTrainingEvent ? null : currentMission.id,
-          execId,
-          finalTechnicalAnalysis,
-          guidedReasoning?.usage || {
-            inputTokens: 0,
-            outputTokens: 0,
-            totalTokens: 0,
-            cost: 0,
-            model,
-          },
-        );
-      })
-      .catch((err) => {
-        console.error("Erro na auto-recuperação da explicação técnica:", err);
-      });
-  }, [
-    apiConfigured,
-    latestCurrentExec?.id,
-    latestCurrentExec?.technicalAnalysis?.pending,
-    currentMission?.id,
-    running,
-    selectedModelForMode,
-    teamEvent?.id,
-    timeTeamIdx,
-    isTrainingEvent,
-  ]);
-
-  useEffect(() => {
     if (!effectiveTeamEvent || timeTeamIdx === null || isTrainingEvent) return;
     const pendingMissionIdx = getFirstPendingMissionIndex(effectiveTeamEvent, timeTeamIdx);
     if (pendingMissionIdx >= 0 && timeMissionIdx !== pendingMissionIdx) {
@@ -3115,6 +3057,65 @@ function App() {
   const survivalDraft = survivalSelectedMode ? survivalDrafts[survivalSelectedMode] || "" : "";
   const survivalTokenTotal = survivalExecs.reduce((sum, exec) => sum + (exec.tokens || 0), 0);
   const survivalRecentTransactions = [...survivalExecs].slice(-5).reverse();
+
+  useEffect(() => {
+    if (!apiConfigured || !latestCurrentExec || !currentMission || running) return;
+    if (!latestCurrentExec.technicalAnalysis?.pending) return;
+
+    const execId = latestCurrentExec.id;
+    const historyIndex = currentExecs.findIndex((e) => e.id === execId);
+    const priorExecs = historyIndex >= 0 ? currentExecs.slice(0, historyIndex) : [];
+    const historyContext = buildHistoryContext(priorExecs);
+
+    const model = latestCurrentExec.technicalAnalysisUsage?.model || selectedModelForMode;
+
+    void gerarExplicacaoGuiadaIA({
+      model,
+      modelPricing: modelPricingMap,
+      mission: currentMission,
+      input: latestCurrentExec.input || "",
+      attachments: latestCurrentExec.attachments || [],
+      acao: latestCurrentExec.acao || FREE_ACTION_KEY,
+      output: latestCurrentExec.output || "",
+      historyContext,
+    })
+      .then((guidedReasoning) => {
+        const finalTechnicalAnalysis =
+          guidedReasoning ||
+          buildTechnicalAnalysisUnavailable({
+            apiConfigured,
+            historyContext,
+          });
+        updateExecutionAnalysis(
+          teamEvent.id,
+          timeTeamIdx,
+          isTrainingEvent ? null : currentMission.id,
+          execId,
+          finalTechnicalAnalysis,
+          guidedReasoning?.usage || {
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            cost: 0,
+            model,
+          },
+        );
+      })
+      .catch((err) => {
+        console.error("Erro na auto-recuperação da explicação técnica:", err);
+      });
+  }, [
+    apiConfigured,
+    latestCurrentExec?.id,
+    latestCurrentExec?.technicalAnalysis?.pending,
+    currentMission?.id,
+    running,
+    selectedModelForMode,
+    teamEvent?.id,
+    timeTeamIdx,
+    isTrainingEvent,
+  ]);
+
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";

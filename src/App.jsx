@@ -2658,6 +2658,7 @@ function App() {
       execucoes: (() => {
         const groups = {};
         (dash.recentExecutions || []).forEach((row) => {
+          if (row.mission_id === "__training__") return;
           const key = `${row.team_idx}__${row.mission_id}`;
           const payload = row.payload || {};
           (groups[key] ||= []).push({
@@ -2669,6 +2670,24 @@ function App() {
             outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
             custo: payload.custo ?? row.custo ?? 0,
             aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+          });
+        });
+        return groups;
+      })(),
+      trainingRuns: (() => {
+        const groups = {};
+        (dash.recentExecutions || []).forEach((row) => {
+          if (row.mission_id !== "__training__") return;
+          const payload = row.payload || {};
+          (groups[`${row.team_idx}`] ||= []).push({
+            ...payload,
+            id: row.id,
+            ts: payload.ts || row.created_at,
+            tokens: payload.tokens ?? row.tokens?.total ?? 0,
+            inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+            outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+            custo: payload.custo ?? row.custo ?? 0,
+            aiMode: payload.aiMode || CHAT_AI_MODE,
           });
         });
         return groups;

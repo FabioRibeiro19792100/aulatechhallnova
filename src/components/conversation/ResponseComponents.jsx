@@ -1,4 +1,5 @@
 import { forwardRef, useState, useEffect, useRef, useCallback, useImperativeHandle } from "react";
+import { ExternalLink, Newspaper } from "lucide-react";
 import MarkdownMessage from "../../MarkdownMessage.jsx";
 
 export function ProcessingPipeline({ processingSteps }) {
@@ -138,6 +139,41 @@ export function ReasoningPanel({ text, live = false }) {
   );
 }
 
+export function SourceListPanel({ citations = [], used = false, live = false }) {
+  if (!used && !citations.length) return null;
+
+  return (
+    <div className={`source-list-panel${live ? " is-live" : ""}`}>
+      <div className="source-list-head">
+        <div className="source-list-badge">
+          <Newspaper size={13} strokeWidth={1.8} />
+          <span>Busca web usada</span>
+        </div>
+      </div>
+      <div className="source-list-links">
+        {citations.length ? (
+          citations.map((citation, index) => (
+            <a
+              key={`${citation.url}-${index}`}
+              className="source-list-link"
+              href={citation.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span>{citation.title || citation.url}</span>
+              <ExternalLink size={13} strokeWidth={1.8} />
+            </a>
+          ))
+        ) : (
+          <div className="source-list-link is-static">
+            <span>Busca executada sem referências estruturadas nesta rodada.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ThinkingIndicator({ label = "Pensando" }) {
   return (
     <div className="thinking-indicator" role="status" aria-live="polite">
@@ -186,7 +222,7 @@ export function AttachmentList({ attachments = [] }) {
   );
 }
 
-export const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpdate }, ref) {
+export const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpdate, showReasoningPanel = true }, ref) {
   const [answer, setAnswer] = useState("");
   const [reasoning, setReasoning] = useState("");
 
@@ -209,7 +245,7 @@ export const LiveAnswer = forwardRef(function LiveAnswer({ simulationMode, onUpd
 
   return (
     <>
-      {reasoning ? <ReasoningPanel text={reasoning} live={!answer} /> : null}
+      {reasoning && showReasoningPanel ? <ReasoningPanel text={reasoning} live /> : null}
       {answer ? (
         <>
           <MarkdownMessage text={answer} />

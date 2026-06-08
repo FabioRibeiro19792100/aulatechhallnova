@@ -4208,6 +4208,13 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
 .reasoning-toggle-caret{margin-left:auto;color:var(--text3)}
 .reasoning-body{padding:8px 12px 10px;border-top:1px solid var(--border);max-height:260px;overflow-y:auto}
 .reasoning-body .markdown-body{font-size:12.5px;color:var(--text2)}
+.source-list-panel{margin:10px 0 0;border:1px solid var(--border);border-radius:12px;background:var(--surface2);overflow:hidden}
+.source-list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px 8px}
+.source-list-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#334155}
+.source-list-links{display:flex;flex-direction:column;gap:8px;padding:0 12px 12px}
+.source-list-link{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:10px;background:#fff;border:1px solid rgba(148,163,184,.18);color:var(--text);text-decoration:none}
+.source-list-link:hover{border-color:rgba(59,130,246,.32);box-shadow:0 10px 24px rgba(15,23,42,.06)}
+.source-list-link.is-static{justify-content:flex-start;cursor:default}
 
 .survival-screen{
   --survival-bg:
@@ -4482,6 +4489,147 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
 .survival-input-card .reasoning-panel{background:rgba(255,255,255,.03);border-color:var(--survival-panel-border)}
 .survival-input-card .context-banner{background:rgba(255,255,255,.03);color:var(--survival-text-muted)}
 .survival-input-card .processing-step{color:var(--survival-text-muted)}
+.survival-screen .topbar{
+  background:rgba(248,250,252,.92);
+  border-bottom:1px solid rgba(148,163,184,.22);
+  backdrop-filter:saturate(180%) blur(12px);
+}
+.survival-screen .topbar-brand-title,
+.survival-screen .topbar-caption,
+.survival-screen .topbar-caption.soft{color:#0f172a}
+.survival-topbar-leftmeta{display:flex;align-items:center;min-height:28px}
+.survival-topbar-status-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.survival-topbar-status{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  color:#7c2d12;
+  font-size:11px;
+  font-weight:600;
+}
+.survival-topbar-status svg{color:#b91c1c;width:14px;height:14px}
+.survival-api-pill{
+  background:#fff;
+  color:#475569;
+  border-color:rgba(148,163,184,.26);
+}
+.survival-api-pill.is-connected{
+  background:#ecfdf5;
+  color:#166534;
+  border-color:rgba(22,163,74,.24);
+}
+.survival-leave-btn{
+  border:1px solid rgba(148,163,184,.24);
+  background:#fff;
+  color:#0f172a;
+  box-shadow:0 10px 30px rgba(15,23,42,.06);
+}
+.survival-leave-btn:hover{
+  border-color:rgba(148,163,184,.38);
+  background:#fff;
+  color:#0f172a;
+}
+.survival-theme-switch{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+}
+.survival-theme-toggle-label{
+  font-size:11px;
+  font-weight:700;
+  color:#334155;
+  white-space:nowrap;
+}
+.survival-theme-toggle{
+  appearance:none;
+  border:1px solid rgba(100,116,139,.34);
+  background:#dbe3ef;
+  padding:0;
+  cursor:pointer;
+  position:relative;
+  display:inline-flex;
+  width:48px;
+  height:28px;
+  flex-shrink:0;
+  border-radius:999px;
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.18),0 0 0 1px rgba(255,255,255,.18);
+  transition:background .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+.survival-theme-toggle-thumb{
+  position:absolute;
+  top:2px;
+  left:2px;
+  width:22px;
+  height:22px;
+  border-radius:999px;
+  background:#fff;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 1px 4px rgba(15,23,42,.18);
+  transition:transform .18s ease;
+}
+.survival-theme-toggle:hover{border-color:rgba(100,116,139,.42);box-shadow:inset 0 1px 1px rgba(255,255,255,.18),0 0 0 4px rgba(148,163,184,.12)}
+.survival-theme-toggle.is-light{
+  background:#22c55e;
+  border-color:#16a34a;
+}
+.survival-theme-toggle.is-light .survival-theme-toggle-thumb{transform:translateX(20px)}
+.survival-workspace{
+  flex:1;
+  min-height:0;
+  height:100%;
+  overflow:hidden;
+  grid-template-columns:minmax(240px,25%) minmax(0,45%) minmax(0,30%);
+}
+.survival-workspace .ws-content{
+  background:linear-gradient(180deg,rgba(24,35,58,.72) 0%,rgba(21,32,52,.6) 100%);
+  box-shadow:inset -1px 0 0 rgba(125,149,188,.12),inset 1px 0 0 rgba(255,255,255,.05);
+  padding:14px 24px 18px;
+}
+.survival-theme-light .survival-workspace .ws-content{
+  background:transparent;
+  box-shadow:none;
+}
+.survival-workspace .workspace-explain-shell{background:#0f172a}
+.survival-sidebar{
+  border-right:1px solid var(--survival-panel-border);
+  display:grid;
+  gap:28px;
+  padding-top:34px;
+}
+.survival-sidebar-title{
+  font-size:22px;
+  line-height:1.1;
+  font-weight:600;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--survival-text);
+  margin-bottom:4px;
+}
+.survival-theme-light .survival-mini-pill{
+  background:rgba(255,255,255,.66);
+  color:#0f172a;
+}
+.survival-theme-light .survival-mini-pill.active{box-shadow:0 10px 24px rgba(15,23,42,.08)}
+.survival-theme-light .survival-mini-pill.is-blue.active{
+  background:linear-gradient(180deg,#e0f2fe 0%,#dbeafe 100%);
+  border-color:#3b82f6;
+  box-shadow:inset 0 0 0 1px rgba(59,130,246,.2),0 10px 24px rgba(59,130,246,.16);
+  color:#0b3b8f;
+}
+.survival-theme-light .survival-mini-pill.is-red.active{
+  background:linear-gradient(180deg,#fee2e2 0%,#ffe4e6 100%);
+  border-color:#e11d48;
+  box-shadow:inset 0 0 0 1px rgba(225,29,72,.16),0 10px 24px rgba(225,29,72,.14);
+  color:#9f1239;
+}
+.survival-token-rail-title{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.survival-token-rail-title svg{flex:0 0 auto;color:var(--survival-text-soft)}
+.survival-chat-body{padding-top:0}
+.survival-explain-shell{min-width:0}
 
 @media (max-width:960px){
   .survival-pill-grid{grid-template-columns:1fr}

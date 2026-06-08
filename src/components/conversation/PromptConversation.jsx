@@ -2,7 +2,7 @@ import { useRef, useCallback, useEffect } from "react";
 import { Copy } from "lucide-react";
 import MarkdownMessage from "../../MarkdownMessage.jsx";
 import { getActionLabel } from "../../utils.js";
-import { AttachmentList, ReasoningPanel, ProcessingPipeline, LiveAnswer } from "./ResponseComponents.jsx";
+import { AttachmentList, ReasoningPanel, ProcessingPipeline, LiveAnswer, SourceListPanel } from "./ResponseComponents.jsx";
 import { GeneratedArtifactsPanel } from "./ArtifactComponents.jsx";
 
 export function PromptConversation({ execs, pendingPrompt, pendingAttachments = [], runState, liveAnswerRef, onCopyResponse, planningApproval, onApprovePlanning, onAdjustPlanning }) {
@@ -44,6 +44,9 @@ export function PromptConversation({ execs, pendingPrompt, pendingAttachments = 
               {exec.historySignal ? <div className="context-banner">{exec.historySignal}</div> : null}
               {exec.reasoningText ? <ReasoningPanel text={exec.reasoningText} /> : null}
               <MarkdownMessage text={exec.output} />
+              {exec.webSearchUsed || exec.citations?.length ? (
+                <SourceListPanel citations={exec.citations || []} used={Boolean(exec.webSearchUsed)} />
+              ) : null}
               <GeneratedArtifactsPanel exec={exec} compact />
               <div className="prompt-thread-response-actions">
                 <button
@@ -76,7 +79,9 @@ export function PromptConversation({ execs, pendingPrompt, pendingAttachments = 
               <span>IA</span>
               <span>{runState?.simulationMode === "openai-live" ? "OpenAI em execução" : "IA simulada em execução"}</span>
             </div>
-            {runState?.processingSteps?.length ? <ProcessingPipeline processingSteps={runState.processingSteps} /> : null}
+            {runState?.simulationMode !== "openai-live" && runState?.processingSteps?.length ? (
+              <ProcessingPipeline processingSteps={runState.processingSteps} />
+            ) : null}
             {runState?.usedHistory ? (
               <div className="context-banner">Esta nova resposta está considerando o histórico anterior desta missão.</div>
             ) : null}

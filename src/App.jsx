@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -17,6 +17,8 @@ import { OutputCard, HistorySection, MissionTokenRail, ReflectionSummary } from 
 import { EventCardSectionLabel, FacilitatorTabLabel, FacilitatorScreenShareButton, FacilitatorScreenSharePanel, TeamScreenShareViewer, RoomMapPanel, TokenManagementPanel, FacilitatorToolsDrawer } from "./components/facilitator/FacilitatorComponents.jsx";
 import { PromptInsightsPanel } from "./components/facilitator/PromptInsightsPanel.jsx";
 import { AnamnesisInsightsPanel } from "./components/facilitator/AnamnesisInsightsPanel.jsx";
+import { ParticipantInsightsPanel } from "./components/facilitator/ParticipantInsightsPanel.jsx";
+import { MIN_PARTICIPANT_ANALYSIS_PROMPTS, buildParticipantDescriptor, getAllParticipantDescriptors, getParticipantAnalysisMap } from "./components/facilitator/participantAnalysisUtils.js";
 import { DashboardPanel } from "./components/facilitator/DashboardPanel.jsx";
 import { MissionsPanel } from "./components/facilitator/MissionsPanel.jsx";
 import { ANAMNESIS_UNKNOWN_VALUE, ANAMNESIS_QUESTIONS, ANAMNESIS_STOPWORDS, isAnamnesisEnabled, getAnamnesisResponse, hasCompletedAnamnesis, getAnamnesisAnswerChoice, getAnamnesisAnswerNote, isAnamnesisUnknownChoice, isAnamnesisAnswerFilled, countAnsweredAnamnesisQuestions, normalizeAnamnesisText, normalizeAnamnesisAnswer, getAnamnesisQuestionResults, extractAnamnesisKeywords } from "./data/anamnesis.js";
@@ -273,6 +275,7 @@ function makeEvent({ name, desc, rawTeams }) {
     tokenOperationalLogs: [],
     helpRequests: [],
     helpDisabledMap: {},
+    participantAnalyses: {},
     anamnesisEnabled: false,
     anamnesisResponses: {},
     trainingRuns: {},
@@ -819,6 +822,7 @@ function migrateEventToFixedMissions(event) {
     missionTokenPolicies: event.missionTokenPolicies || {},
     tokenGrants: event.tokenGrants || [],
     tokenOperationalLogs: event.tokenOperationalLogs || [],
+    participantAnalyses: event.participantAnalyses || {},
     anamnesisEnabled: Boolean(event.anamnesisEnabled),
     anamnesisResponses: event.anamnesisResponses || {},
   };
@@ -1758,6 +1762,285 @@ async function gerarExplicacaoGuiadaIA({ model, modelPricing, mission, input, at
   }, { historyContext });
 }
 
+function normalizeParticipantAnalysisDimension(value) {
+  const rawLevel = `${value?.level || "Simples"}`.trim() || "Simples";
+  const normalizedLevelMap = {
+    emergente: "Simples",
+    consistente: "Solida",
+    sofisticada: "Refinada",
+    simples: "Simples",
+    solida: "Solida",
+    sólida: "Solida",
+    refinada: "Refinada",
+  };
+  return {
+    level: normalizedLevelMap[rawLevel.toLowerCase()] || rawLevel,
+    summary: reframeParticipantAnalysisText(`${value?.summary || ""}`.trim()),
+    evidence: Array.isArray(value?.evidence)
+      ? value.evidence
+          .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+          .filter(Boolean)
+          .slice(0, 5)
+      : [],
+  };
+}
+
+function pickHighestParticipantLevel(...levels) {
+  const rank = {
+    emergente: 0,
+    simples: 0,
+    consistente: 1,
+    solida: 1,
+    sólida: 1,
+    sofisticada: 2,
+    refinada: 2,
+  };
+  const labelMap = {
+    emergente: "Simples",
+    simples: "Simples",
+    consistente: "Solida",
+    solida: "Solida",
+    sólida: "Solida",
+    sofisticada: "Refinada",
+    refinada: "Refinada",
+  };
+  const values = levels
+    .map((item) => `${item || ""}`.trim())
+    .filter(Boolean);
+  if (!values.length) return "Simples";
+  const highest = values.reduce((best, current) => {
+    const bestRank = rank[best.toLowerCase()] ?? 0;
+    const currentRank = rank[current.toLowerCase()] ?? 0;
+    return currentRank > bestRank ? current : best;
+  }, values[0]);
+  return labelMap[highest.toLowerCase()] || highest;
+}
+
+function mergeParticipantDimensions(...parts) {
+  const entries = parts.filter(Boolean);
+  if (!entries.length) return normalizeParticipantAnalysisDimension(null);
+  const level = pickHighestParticipantLevel(...entries.map((item) => item?.level));
+  const summary = entries.map((item) => `${item?.summary || ""}`.trim()).filter(Boolean).join(" ");
+  const evidence = entries
+    .flatMap((item) => (Array.isArray(item?.evidence) ? item.evidence : []))
+    .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+    .filter(Boolean);
+  return {
+    level,
+    summary: reframeParticipantAnalysisText(summary),
+    evidence: [...new Set(evidence)].slice(0, 5),
+  };
+}
+
+function reframeParticipantAnalysisText(text) {
+  const raw = `${text || ""}`.trim();
+  if (!raw) return "";
+  return raw
+    .replace(
+      /respostas?\s+alinhadas?\s+com\s+as\s+capacidades?\s+do\s+modelo/gi,
+      "Pedidos alinhados com as capacidades do modo e do modelo usados",
+    )
+    .replace(/a resposta da ia/gi, "a interacao conduzida pela pessoa com a IA")
+    .replace(/a resposta do modelo/gi, "a formulacao feita pela pessoa para orientar o modelo")
+    .replace(/qualidade da resposta/gi, "qualidade da orientacao dada a IA")
+    .replace(/resposta apropriada ao contexto limitado do prompt/gi, "Pedido coerente com o contexto limitado apresentado")
+    .replace(
+      /ausencia de conteudo tecnico ou pedagogico especifico na resposta/gi,
+      "Ausencia de direcionamento tecnico ou pedagogico especifico nos pedidos",
+    )
+    .replace(
+      /conteudo muito geral devido a falta de especificidade do prompt/gi,
+      "Pedidos ainda gerais, com pouca especificidade em partes do historico",
+    )
+    .replace(
+      /o prompt nao continha um pedido claro, entao a resposta precisou ser generica e de orientacao/gi,
+      "Em parte do historico, os pedidos nao deixaram claro o resultado desejado, o que limitou a interacao",
+    )
+    .replace(/apresentacao de opcoes uteis para o usuario/gi, "Pedidos que abriram espaco para comparar opcoes e caminhos possiveis")
+    .replace(/resposta clara e educada/gi, "Pedidos formulados de modo claro e direto");
+}
+
+function normalizeParticipantAnalysis(payload, meta = {}) {
+  const dimensions = payload?.dimensions || {};
+  const operationalDimension = dimensions.operations
+    ? normalizeParticipantAnalysisDimension(dimensions.operations)
+    : mergeParticipantDimensions(dimensions.tools, dimensions.model_selection);
+  return {
+    participant_id: `${payload?.participant_id || meta.participantId || ""}`.trim(),
+    profiles: Array.isArray(payload?.profiles) ? payload.profiles.map((item) => `${item || ""}`.trim()).filter(Boolean) : [],
+    learning_archetypes: Array.isArray(payload?.learning_archetypes)
+      ? payload.learning_archetypes.map((item) => `${item || ""}`.trim()).filter(Boolean)
+      : [],
+    autonomy_level: `${payload?.autonomy_level || ""}`.trim(),
+    dimensions: {
+      intent: normalizeParticipantAnalysisDimension(dimensions.intent),
+      context: normalizeParticipantAnalysisDimension(dimensions.context),
+      instruction: normalizeParticipantAnalysisDimension(dimensions.instruction),
+      iteration: normalizeParticipantAnalysisDimension(dimensions.iteration),
+      operations: operationalDimension,
+      efficiency: normalizeParticipantAnalysisDimension(dimensions.efficiency),
+    },
+    evolution: {
+      summary: reframeParticipantAnalysisText(`${payload?.evolution?.summary || ""}`.trim()),
+      evolved_competencies: Array.isArray(payload?.evolution?.evolved_competencies)
+        ? payload.evolution.evolved_competencies
+            .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+            .filter(Boolean)
+        : [],
+      stable_patterns: Array.isArray(payload?.evolution?.stable_patterns)
+        ? payload.evolution.stable_patterns
+            .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+            .filter(Boolean)
+        : [],
+      usage_changes: Array.isArray(payload?.evolution?.usage_changes)
+        ? payload.evolution.usage_changes
+            .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+            .filter(Boolean)
+        : [],
+    },
+    strengths: Array.isArray(payload?.strengths)
+      ? payload.strengths.map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim())).filter(Boolean)
+      : [],
+    opportunities: Array.isArray(payload?.opportunities)
+      ? payload.opportunities.map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim())).filter(Boolean)
+      : [],
+    recommendations: Array.isArray(payload?.recommendations)
+      ? payload.recommendations
+          .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+          .filter(Boolean)
+          .slice(0, 5)
+      : [],
+    analysis_confidence:
+      typeof payload?.analysis_confidence === "string"
+        ? payload.analysis_confidence
+        : {
+            level: `${payload?.analysis_confidence?.level || meta.confidenceLabel || "media"}`.trim(),
+            rationale: `${payload?.analysis_confidence?.rationale || ""}`.trim(),
+          },
+  };
+}
+
+async function gerarLeituraPedagogicaParticipanteIA({
+  participant,
+  eventName,
+  modelPricing,
+}) {
+  const analysisModel = TECHNICAL_ANALYSIS_MODEL;
+  const historyLines = participant.history.map((exec, index) => {
+    const attachmentSummary = Array.isArray(exec.attachments) && exec.attachments.length
+      ? exec.attachments.map((item) => `${item.name} (${item.kind || "arquivo"})`).join(", ")
+      : "sem anexos";
+    return [
+      `Rodada ${index + 1}`,
+      `- timestamp: ${exec.ts || ""}`,
+      `- modo: ${exec.aiMode || CHAT_AI_MODE}`,
+      `- modelo selecionado: ${exec.selectedModel || "nao informado"}`,
+      `- modelo efetivo: ${exec.effectiveModel || exec.selectedModel || "nao informado"}`,
+      `- tokens totais: ${exec.tokens || 0}`,
+      `- custo estimado: ${typeof exec.custo === "number" ? exec.custo : 0}`,
+      `- anexos: ${attachmentSummary}`,
+      `- prompt/input: ${truncateForAnalysis(exec.input || "", 700)}`,
+      `- saida da IA: ${truncateForAnalysis(exec.output || "", 520)}`,
+    ].join("\n");
+  });
+
+  const prompt = [
+    "Voce e um sistema de leitura pedagogica longitudinal de uso de IA.",
+    "Nao atribua nota numerica.",
+    "Nao avalie qualidade de prompt com vies escolar ou apenas por tamanho, tecnicismo ou jargao.",
+    "Seu trabalho e identificar padroes de uso, competencias observadas, oportunidades de desenvolvimento e evolucao ao longo do tempo.",
+    "Trabalhe apenas com o historico fornecido. Nao invente evidencias ausentes.",
+    "Sempre fundamente a leitura em evidencias observadas nas interacoes.",
+    "Considere bons prompts em formas diversas: curtos, longos, estruturados ou diretos podem ser bons dependendo da tarefa.",
+    "Atribua merito apenas ao que a pessoa fez para orientar a IA: formulacao, contexto, escolhas de modo, iteracao, refinamento e adequacao operacional.",
+    "Nao elogie a resposta da IA como se isso fosse competencia da pessoa.",
+    "Evite frases centradas na saida do modelo, como 'respostas alinhadas' ou 'boa resposta tecnica'.",
+    "Prefira formulacoes como 'os pedidos tenderam a...', 'houve adequacao entre a solicitacao e o modo usado...', 'a pessoa refinou...', 'a interacao mostrou...'.",
+    "Use estes arquetipos de aprendizagem quando fizer sentido, podendo indicar mais de um em ordem de predominancia:",
+    '- "Explorador": aprende testando, variando e sondando possibilidades.',
+    '- "Planejador": organiza antes de executar e tende a estruturar intencao.',
+    '- "Consultor": usa IA sobretudo para consulta, esclarecimento e validacao.',
+    '- "Copiloto": trabalha em ida e volta, refinando com a IA ao longo do processo.',
+    '- "Produtor": usa IA como mecanismo de entrega e aceleracao de producao.',
+    "Profiles possiveis de uso com IA: Explorador, Executor, Analista, Construtor, Orquestrador.",
+    "Nas dimensoes intent, context, instruction, iteration, operations e efficiency, use level com apenas: Simples, Solida ou Refinada.",
+    "Em operations, consolide escolhas de modo, ferramenta e modelo em uma unica leitura de escolhas operacionais.",
+    "No campo autonomy_level, use apenas: Dependente, Assistido ou Autonomo.",
+    "Retorne apenas JSON valido, sem markdown, seguindo exatamente esta estrutura:",
+    `{
+  "participant_id": "",
+  "profiles": [],
+  "learning_archetypes": [],
+  "autonomy_level": "",
+  "dimensions": {
+    "intent": { "level": "", "summary": "", "evidence": [] },
+    "context": { "level": "", "summary": "", "evidence": [] },
+    "instruction": { "level": "", "summary": "", "evidence": [] },
+    "iteration": { "level": "", "summary": "", "evidence": [] },
+    "operations": { "level": "", "summary": "", "evidence": [] },
+    "efficiency": { "level": "", "summary": "", "evidence": [] }
+  },
+  "evolution": {
+    "summary": "",
+    "evolved_competencies": [],
+    "stable_patterns": [],
+    "usage_changes": []
+  },
+  "strengths": [],
+  "opportunities": [],
+  "recommendations": [],
+  "analysis_confidence": {
+    "level": "",
+    "rationale": ""
+  }
+}`,
+    "Cada lista curta deve ter no maximo 5 itens.",
+    "As recomendacoes devem ser praticas, especificas, acionaveis e baseadas em evidencias do historico.",
+    `Evento: ${eventName || "Nao informado"}`,
+    `Participante nominal principal: ${participant.displayName}`,
+    `Confianca de identificacao: ${participant.confidenceLabel}`,
+    `Origem da identificacao: ${participant.source}`,
+    `Time: ${participant.teamName}`,
+    `Quantidade total de rodadas: ${participant.history.length}`,
+    "Historico cronologico:",
+    historyLines.join("\n\n"),
+  ].join("\n\n");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 35000);
+  try {
+    const result = await fetchChatCompletion({
+      model: analysisModel,
+      reasoningEffort: "low",
+      signal: controller.signal,
+      messages: [
+        {
+          role: "system",
+          content: "Produza apenas JSON valido. Nao use markdown. Nao inclua texto fora do JSON.",
+        },
+        { role: "user", content: prompt },
+      ],
+    });
+    const parsed = tryParseJson(result.output) || tryParseJson(extractJsonObject(result.output));
+    if (!parsed) return null;
+    return {
+      analysis: normalizeParticipantAnalysis(parsed, {
+        participantId: participant.displayName,
+        confidenceLabel: participant.confidenceLabel,
+      }),
+      usage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        totalTokens: result.inputTokens + result.outputTokens,
+        cost: estimateCost(modelPricing, analysisModel, result.inputTokens, result.outputTokens),
+        model: analysisModel,
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchChatCompletion({ model, messages, reasoningEffort, signal }) {
   const requestBody = {
     model,
@@ -2249,6 +2532,9 @@ function App() {
   const [missionTogglePending, setMissionTogglePending] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [materialsDrawerOpen, setMaterialsDrawerOpen] = useState(false);
+  const [participantPromptAnalysisOpen, setParticipantPromptAnalysisOpen] = useState(false);
+  const [participantUtilityRailExpanded, setParticipantUtilityRailExpanded] = useState(false);
+  const [participantInsightsDrawerState, setParticipantInsightsDrawerState] = useState({ open: false, teamIdx: null });
   const [studentResourcePreview, setStudentResourcePreview] = useState(null);
   const [planningApprovalState, setPlanningApprovalState] = useState({
     open: false,
@@ -2267,6 +2553,7 @@ function App() {
   const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
   const [clockNow, setClockNow] = useState(Date.now());
   const serverClockOffsetRef = useRef(0);
+  const participantUtilityRailRef = useRef(null);
   const [survivalAccessGranted, setSurvivalAccessGranted] = useState(Boolean(initialSurvivalStore.authenticated));
   const [survivalPasswordInput, setSurvivalPasswordInput] = useState("");
   const [survivalAuthError, setSurvivalAuthError] = useState("");
@@ -2348,6 +2635,7 @@ function App() {
   const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
   const currentEventsRef = useRef(initialLocalStore.events || []);
+  const participantAnalysisInflightRef = useRef(new Set());
   const brandLoaderTimerRef = useRef(null);
 
   function clearBrandLoaderTimer() {
@@ -2601,6 +2889,20 @@ function App() {
   const selectedEvent = events.find((event) => event.id === facSelectedId) || null;
   const teamEvent = events.find((event) => event.id === timeEventId) || null;
   const selectedEventMode = getEventMode(selectedEvent);
+  const apiConfigured = Boolean(serverConfig.openaiConfigured);
+
+  useEffect(() => {
+    if (!apiConfigured) return;
+    const eventsToScan = currentEventsRef.current || [];
+    eventsToScan.forEach((event) => {
+      getAllParticipantDescriptors(event).forEach((participant) => {
+        const entry = participant.analysisEntry;
+        if (entry?.status === "pending") return;
+        if (entry?.status === "ready" && entry.historySignature === participant.historySignature) return;
+        void runParticipantJourneyAnalysis(event.id, participant.teamIdx);
+      });
+    });
+  }, [apiConfigured, store.events]);
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
@@ -2790,6 +3092,18 @@ function App() {
     };
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 
+  useEffect(() => {
+    if (!apiConfigured || !effectiveFacilitadorEvent) return;
+    getAllParticipantDescriptors(effectiveFacilitadorEvent).forEach((participant) => {
+      const entry = participant.analysisEntry;
+      if (entry?.status === "pending") return;
+      if (entry?.status === "ready" && entry.historySignature === participant.historySignature) return;
+      void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, participant.teamIdx, {
+        sourceEvent: effectiveFacilitadorEvent,
+      });
+    });
+  }, [apiConfigured, effectiveFacilitadorEvent]);
+
   const selectedEventForRead = effectiveFacilitadorEvent || selectedEvent;
   const teamEventForRead = effectiveTeamEvent || teamEvent;
   const selectedEventAnnouncements = getEventAnnouncements(selectedEventForRead);
@@ -2872,12 +3186,103 @@ function App() {
   const facilitatorTabs = selectedEvent && isAnamnesisEnabled(selectedEvent)
     ? ["dashboard", "missoes", "prompts", "anamnese"]
     : ["dashboard", "missoes", "prompts"];
+  const handleRetryParticipantAnalysis = useCallback(
+    (teamIdx) => {
+      if (!effectiveFacilitadorEvent) return;
+      void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, { force: true });
+    },
+    [effectiveFacilitadorEvent],
+  );
+  const handleOpenParticipantInsightsDrawer = useCallback((teamIdx) => {
+    setParticipantInsightsDrawerState({ open: true, teamIdx });
+  }, []);
+  const handleCloseParticipantInsightsDrawer = useCallback(() => {
+    setParticipantInsightsDrawerState({ open: false, teamIdx: null });
+  }, []);
+  const selectedParticipantInsights =
+    effectiveFacilitadorEvent && participantInsightsDrawerState.teamIdx !== null
+      ? buildParticipantDescriptor(effectiveFacilitadorEvent, participantInsightsDrawerState.teamIdx)
+      : null;
+  const currentParticipantInsights =
+    screen === "workspace" && effectiveTeamEvent && timeTeamIdx !== null
+      ? buildParticipantDescriptor(effectiveTeamEvent, timeTeamIdx)
+      : null;
   const selectedTokenPolicy = selectedEvent && tokenGrantTargetMissionId
     ? getMissionTokenPolicy(selectedEvent, tokenGrantTargetMissionId, {
         isTraining: tokenGrantTargetMissionId === TOKEN_MISSION_TRAINING_ID,
       })
     : null;
   const teamHelpDisabled = effectiveTeamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(effectiveTeamEvent, timeTeamIdx) : false;
+  const participantRailItems = [
+    {
+      key: "messages",
+      label: "Mensagens",
+      icon: MessageSquareText,
+      active: teamAnnouncementInboxOpen,
+      badge: teamUnreadAnnouncementCount || 0,
+      disabled: false,
+      run: () => {
+        handleOpenTeamAnnouncementInbox();
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "tokens",
+      label: "Extrato de tokens",
+      icon: FileText,
+      active: tokenDrawerOpen,
+      disabled: false,
+      run: () => {
+        setTokenDrawerOpen(true);
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "help",
+      label: currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda",
+      icon: LifeBuoy,
+      active: helpOpen,
+      badge: currentOpenHelpCount || 0,
+      disabled: teamHelpDisabled,
+      run: () => {
+        handleOpenHelp();
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "request-tokens",
+      label: currentOpenTokenRequest ? "Tokens solicitados" : "Solicitar tokens",
+      icon: Coins,
+      active: Boolean(currentOpenTokenRequest),
+      disabled: teamHelpDisabled || !currentMission || !currentTokenBudget?.blocked || Boolean(currentOpenTokenRequest),
+      run: () => {
+        handleSendTokenRequest();
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "analysis",
+      label: "Análise do prompt",
+      icon: GraduationCap,
+      active: participantPromptAnalysisOpen,
+      disabled: false,
+      run: () => {
+        setParticipantPromptAnalysisOpen(true);
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "student-area",
+      label: "Área do aluno",
+      icon: Users,
+      active: materialsDrawerOpen,
+      disabled: false,
+      run: () => {
+        setMaterialsDrawerOpen(true);
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+  ];
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
   const anamnesisTargetEvent = anamnesisContext ? events.find((event) => event.id === anamnesisContext.eventId) || null : null;
   const answeredAnamnesisCount = countAnsweredAnamnesisQuestions(anamnesisAnswers);
@@ -3064,6 +3469,12 @@ function App() {
   ]);
 
   useEffect(() => {
+    if (!facilitatorTabs.includes(facTab)) {
+      setFacTab("dashboard");
+    }
+  }, [facTab, facilitatorTabs]);
+
+  useEffect(() => {
     if (facTab === "anamnese" && (!selectedEvent || !isAnamnesisEnabled(selectedEvent))) {
       setFacTab("dashboard");
     }
@@ -3124,7 +3535,6 @@ function App() {
 
   const teamStudentOptions = useMemo(() => getEventStudentOptions(teamEvent), [teamEvent]);
 
-  const apiConfigured = Boolean(serverConfig.openaiConfigured);
   const modelCatalog = useMemo(() => getModelCatalog(serverConfig), [serverConfig]);
   const modelPricingMap = useMemo(() => getModelPricingMap(modelCatalog), [modelCatalog]);
   const currentMissionAiMode = currentMission ? getMissionAiMode(currentMission) : CHAT_AI_MODE;
@@ -3386,6 +3796,93 @@ function App() {
         void pushEventStateChange(event.id, event);
       }
     });
+  }
+
+  function setParticipantAnalysisEntry(eventId, analysisKey, nextEntry) {
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        return {
+          ...event,
+          participantAnalyses: {
+            ...(event.participantAnalyses || {}),
+            [analysisKey]: nextEntry,
+          },
+        };
+      }),
+    );
+  }
+
+  async function runParticipantJourneyAnalysis(eventId, teamIdx, options = {}) {
+    if (!apiConfigured) return;
+    const latestEvent = options.sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId);
+    if (!latestEvent) return;
+
+    const participant = buildParticipantDescriptor(latestEvent, teamIdx);
+    if (participant.history.length < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
+
+    const existing = getParticipantAnalysisMap(latestEvent)[participant.analysisKey] || null;
+    if (!options.force && existing?.status === "ready" && existing.historySignature === participant.historySignature) {
+      return;
+    }
+
+    const inflightKey = `${eventId}::${participant.analysisKey}`;
+    if (participantAnalysisInflightRef.current.has(inflightKey)) return;
+    participantAnalysisInflightRef.current.add(inflightKey);
+
+    const pendingEntry = {
+      analysisKey: participant.analysisKey,
+      participantId: participant.participantId,
+      displayName: participant.displayName,
+      teamIdx,
+      teamName: participant.teamName,
+      confidence: participant.confidence,
+      confidenceLabel: participant.confidenceLabel,
+      source: participant.source,
+      status: "pending",
+      historySignature: participant.historySignature,
+      updatedAt: new Date().toISOString(),
+      generatedAt: existing?.generatedAt || null,
+      analysis: existing?.analysis || null,
+      usage: existing?.usage || null,
+      errorMessage: "",
+    };
+    setParticipantAnalysisEntry(eventId, participant.analysisKey, pendingEntry);
+
+    try {
+      await sleep(Math.random() * 1500);
+      const result = await gerarLeituraPedagogicaParticipanteIA({
+        participant,
+        eventName: latestEvent.name,
+        modelPricing: modelPricingMap,
+      });
+      const refreshedEvent = (currentEventsRef.current || []).find((event) => event.id === eventId);
+      const refreshedEntry = refreshedEvent ? getParticipantAnalysisMap(refreshedEvent)[participant.analysisKey] : null;
+      if (!refreshedEntry || refreshedEntry.historySignature !== participant.historySignature) return;
+
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: result?.analysis ? "ready" : "unavailable",
+        generatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        analysis: result?.analysis || null,
+        usage: result?.usage || null,
+        errorMessage: result?.analysis ? "" : "Nao foi possivel consolidar a leitura automaticamente.",
+      });
+    } catch (error) {
+      console.error("participant analysis:", error);
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "unavailable",
+        generatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        analysis: null,
+        usage: null,
+        errorMessage: "Falha ao gerar a leitura pedagogica deste participante.",
+      });
+    } finally {
+      participantAnalysisInflightRef.current.delete(inflightKey);
+    }
   }
 
   function handleUpdateMissionTokenPolicy(eventId, missionId, nextPolicyInput) {
@@ -4361,6 +4858,16 @@ function App() {
         }
       : null;
 
+  useEffect(() => {
+    if (!participantUtilityRailExpanded) return undefined;
+    function handlePointerDown(event) {
+      if (participantUtilityRailRef.current?.contains(event.target)) return;
+      setParticipantUtilityRailExpanded(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [participantUtilityRailExpanded]);
+
     setStore((current) => ({
       ...current,
       events: nextEventsSnapshot,
@@ -4957,6 +5464,25 @@ function App() {
       custo: execData.cost ?? execData.custo ?? null,
       created_at: execData.ts || new Date().toISOString(),
     });
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const key = `${teamIdx}__${missionId}`;
+        const existingExecs = Array.isArray(event.execucoes?.[key]) ? event.execucoes[key] : [];
+        const nextExecs = existingExecs.some((exec) => exec.id === execData.id) ? existingExecs : [...existingExecs, execData];
+        const participantAnalyses = Object.fromEntries(
+          Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== teamIdx),
+        );
+        return {
+          ...event,
+          execucoes: {
+            ...(event.execucoes || {}),
+            [key]: nextExecs,
+          },
+          participantAnalyses,
+        };
+      }),
+    );
   }
 
   function saveTrainingExecution(eventId, teamIdx, execData) {
@@ -4970,6 +5496,25 @@ function App() {
       custo: execData.cost ?? execData.custo ?? null,
       created_at: execData.ts || new Date().toISOString(),
     });
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const key = `${teamIdx}`;
+        const existingRuns = Array.isArray(event.trainingRuns?.[key]) ? event.trainingRuns[key] : [];
+        const nextRuns = existingRuns.some((exec) => exec.id === execData.id) ? existingRuns : [...existingRuns, execData];
+        const participantAnalyses = Object.fromEntries(
+          Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== teamIdx),
+        );
+        return {
+          ...event,
+          trainingRuns: {
+            ...(event.trainingRuns || {}),
+            [key]: nextRuns,
+          },
+          participantAnalyses,
+        };
+      }),
+    );
   }
 
   function updateExecutionAnalysis(eventId, teamIdx, missionId, execId, technicalAnalysis, technicalAnalysisUsage) {
@@ -5127,6 +5672,32 @@ function App() {
         },
       };
     });
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const key = `${teamIdx}__${missionId}`;
+        const pendingMap = { ...(event.questionariosPendentes || {}) };
+        const pendingEntry = pendingMap[key];
+        delete pendingMap[key];
+        const pendingSource = typeof pendingEntry === "object" && pendingEntry ? pendingEntry.source : "team";
+        return {
+          ...event,
+          reflexoes: {
+            ...(event.reflexoes || {}),
+            [key]: reflexao,
+          },
+          questionariosPendentes: pendingMap,
+          conclusoes: {
+            ...(event.conclusoes || {}),
+            [key]: {
+              closedAt: submittedAt,
+              updatedAt: submittedAt,
+              source: pendingSource === "team" ? "team" : "facilitator",
+            },
+          },
+        };
+      }),
+    );
   }
 
   async function patchTeamStatePerTeamWithFallback(eventId, teamIdx, mergeFn) {
@@ -5313,6 +5884,9 @@ function App() {
         conclusoes,
         reflexoes,
         missionResets,
+        participantAnalyses: Object.fromEntries(
+          Object.entries(item.participantAnalyses || {}).filter(([, entry]) => !teamIndexes.includes(Number(entry?.teamIdx))),
+        ),
       };
     });
     commitCriticalEventsDirect(nextEvents);
@@ -5851,6 +6425,9 @@ function App() {
           ...event,
           missionResets: { ...(event.missionResets || {}), [key]: resetAt },
           preservedMissionUsage,
+          participantAnalyses: Object.fromEntries(
+            Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== targetTeamIdx),
+          ),
         };
       }),
     );
@@ -5879,6 +6456,9 @@ function App() {
           ...event,
           trainingRuns,
           trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== targetTeamIdx),
+          participantAnalyses: Object.fromEntries(
+            Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== targetTeamIdx),
+          ),
         };
       }),
     );
@@ -6075,6 +6655,8 @@ function App() {
       const execRecord = {
         id: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         ts: new Date().toISOString(),
+        memberName: activeStudentName || "",
+        teamName: teamEvent.teams?.[timeTeamIdx]?.name || `Time ${timeTeamIdx + 1}`,
         input,
         attachments: sanitizeAttachmentsForStorage(attachments),
         acao,
@@ -6855,6 +7437,7 @@ function App() {
                       evento={effectiveFacilitadorEvent}
                       dashboardView={dashboardView}
                       setDashboardView={setDashboardView}
+                      onRetryParticipantAnalysis={handleRetryParticipantAnalysis}
                       openConfirm={openConfirm}
                       openDeleteConfirm={openDeleteConfirm}
                       handleFacilitatorCloseMission={handleFacilitatorCloseMission}
@@ -7004,51 +7587,7 @@ function App() {
                 </span>
               </div>
             }
-            right={
-              <>
-                {teamEventAnnouncements.length ? (
-                  <button className="btn btn-sm topbar-participant-action" onClick={handleOpenTeamAnnouncementInbox}>
-                    <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Mensagens
-                    {teamUnreadAnnouncementCount ? <span className="help-trigger-badge">{teamUnreadAnnouncementCount}</span> : null}
-                  </button>
-                ) : null}
-                {!teamScreenShareVisible ? (
-                  <button className="btn btn-sm topbar-participant-action" onClick={() => setTokenDrawerOpen(true)}>
-                    <FileText size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Extrato de tokens
-                  </button>
-                ) : null}
-                {(currentMission || isTrainingEvent) && !teamScreenShareVisible ? (
-                  <>
-                    <button
-                      className={`btn btn-sm topbar-participant-action${teamHelpDisabled ? " is-disabled" : ""}`}
-                      onClick={handleOpenHelp}
-                      disabled={teamHelpDisabled}
-                    >
-                      <LifeBuoy size={14} strokeWidth={1.7} aria-hidden="true" />
-                      {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
-                      {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
-                    </button>
-                    <button
-                      className={`btn btn-sm topbar-participant-action topbar-token-request-btn${teamHelpDisabled ? " is-disabled" : ""}`}
-                      onClick={handleSendTokenRequest}
-                      disabled={teamHelpDisabled || !currentMission || !currentTokenBudget?.blocked || Boolean(currentOpenTokenRequest)}
-                      title={!currentTokenBudget?.blocked ? "Disponível quando o limite da missão for atingido" : undefined}
-                    >
-                      <Coins size={14} strokeWidth={1.7} aria-hidden="true" />
-                      {currentOpenTokenRequest ? "Tokens solicitados" : "Solicitar tokens"}
-                    </button>
-                  </>
-                ) : null}
-                {!teamScreenShareVisible ? (
-                  <button className="btn btn-sm topbar-participant-action topbar-student-area-btn" onClick={() => setMaterialsDrawerOpen(true)}>
-                    <Users size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Área do aluno
-                  </button>
-                ) : null}
-              </>
-            }
+            right={null}
           />
           {devQuickSwitch ? <div className="dev-toolbar-shell">{devQuickSwitch}</div> : null}
           {!apiConfigured && <div className="demo-banner">Modo demonstração - sem chave OpenAI. Respostas são simuladas.</div>}
@@ -7061,6 +7600,47 @@ function App() {
             <div className="team-timer-notice-banner">
               <span className="team-timer-notice-kicker">Atualização do cronômetro</span>
               <span className="team-timer-notice-text">{teamEventTimerNotice.message}</span>
+            </div>
+          ) : null}
+          {!teamScreenShareVisible ? (
+            <div
+              ref={participantUtilityRailRef}
+              className={`participant-utility-rail${participantUtilityRailExpanded ? " is-expanded" : ""}`}
+              aria-label="Ações do participante"
+              onMouseLeave={() => {
+                if (participantUtilityRailExpanded) setParticipantUtilityRailExpanded(false);
+              }}
+            >
+              {participantRailItems
+                .filter((item) => item.key !== "request-tokens" || currentMission || isTrainingEvent)
+                .map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.key} className="participant-utility-rail-item">
+                      {participantUtilityRailExpanded ? (
+                        <button
+                          type="button"
+                          className={`participant-utility-rail-label${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                          onClick={item.run}
+                          disabled={item.disabled}
+                        >
+                          {item.label}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={`participant-utility-rail-btn${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                        onClick={() => setParticipantUtilityRailExpanded((value) => !value)}
+                        disabled={item.disabled}
+                        title={item.label}
+                        aria-label={item.label}
+                      >
+                        <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+                        {item.badge ? <span className="participant-utility-rail-badge">{item.badge}</span> : null}
+                      </button>
+                    </div>
+                  );
+                })}
             </div>
           ) : null}
           <div className={`workspace${teamScreenShareVisible ? " workspace-live-focus" : ""}`}>
@@ -7554,6 +8134,25 @@ function App() {
                   </div>
                 </section>
               ))}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {screen === "workspace" && participantPromptAnalysisOpen && currentParticipantInsights ? (
+        <div className="side-sheet-backdrop" onClick={() => setParticipantPromptAnalysisOpen(false)}>
+          <aside className="side-sheet side-sheet-right participant-insights-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="side-sheet-body participant-insights-drawer-body">
+              <ParticipantInsightsPanel
+                evento={effectiveTeamEvent}
+                participant={currentParticipantInsights}
+                compact
+                onClose={() => setParticipantPromptAnalysisOpen(false)}
+                onRetryParticipantAnalysis={() => {
+                  if (timeTeamIdx === null || !effectiveTeamEvent) return;
+                  void runParticipantJourneyAnalysis(effectiveTeamEvent.id, timeTeamIdx, { force: true });
+                }}
+              />
             </div>
           </aside>
         </div>

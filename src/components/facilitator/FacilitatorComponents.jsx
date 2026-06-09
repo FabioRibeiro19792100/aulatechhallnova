@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import {
   FileText, SlidersHorizontal, Users, Code2, LayoutDashboard, BookOpen, MessageSquareText,
-  Monitor, Map, Coins, Sparkles, CircleAlert, ArrowLeft, X,
+  Monitor, Map, Coins, Sparkles, CircleAlert, ArrowLeft, X, GraduationCap,
 } from "lucide-react";
 import {
   getScreenShareState,
@@ -51,6 +51,8 @@ export function FacilitatorTabLabel({ tab }) {
       ? LayoutDashboard
       : tab === "missoes"
         ? BookOpen
+        : tab === "participantes"
+          ? GraduationCap
         : tab === "anamnese"
           ? FileText
           : MessageSquareText;
@@ -60,7 +62,15 @@ export function FacilitatorTabLabel({ tab }) {
         <Icon strokeWidth={1.6} />
       </span>
       <span>
-        {tab === "dashboard" ? "Dashboard" : tab === "missoes" ? "Missões" : tab === "anamnese" ? "Anamnese" : "Prompts"}
+        {tab === "dashboard"
+          ? "Dashboard"
+          : tab === "missoes"
+            ? "Missões"
+            : tab === "participantes"
+              ? "Participantes"
+              : tab === "anamnese"
+                ? "Anamnese"
+                : "Prompts"}
       </span>
     </>
   );

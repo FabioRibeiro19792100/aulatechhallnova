@@ -1,5 +1,8 @@
-import { BookOpen, LifeBuoy, ListChecks, Users } from "lucide-react";
+import { useState } from "react";
+import { BookOpen, ChevronDown, LifeBuoy, ListChecks, Users } from "lucide-react";
 import { formatDateTime, formatTokenLimitLabel, formatCountdown, getReflectionTopicShortLabel, TOKEN_MISSION_TRAINING_ID } from "../../utils.js";
+import { ParticipantInsightsPanel } from "./ParticipantInsightsPanel.jsx";
+import { buildParticipantDescriptor } from "./participantAnalysisUtils.js";
 
 const TRAINING_MODE_EVENT = "training";
 const DEFAULT_TOKEN_GRANT_AMOUNT = 15000;
@@ -124,10 +127,17 @@ function truncatePromptSnippet(text, max = 140) {
   return `${normalized.slice(0, max).trim()}...`;
 }
 
+function openParticipantInsights(event, teamIdx, onOpenParticipantAnalysis) {
+  event.preventDefault();
+  event.stopPropagation();
+  onOpenParticipantAnalysis?.(teamIdx);
+}
+
 export function DashboardPanel({
   evento,
   dashboardView,
   setDashboardView,
+  onRetryParticipantAnalysis,
   openConfirm,
   openDeleteConfirm,
   handleFacilitatorCloseMission,
@@ -137,6 +147,13 @@ export function DashboardPanel({
   handleRemoveTeam,
   handleResolveHelpRequest,
 }) {
+  const [participantDrawerTeamIdx, setParticipantDrawerTeamIdx] = useState(null);
+  const [showAllTeamMissions, setShowAllTeamMissions] = useState(false);
+  const [expandedMissionTeams, setExpandedMissionTeams] = useState({});
+  const [missionTeamStatusFilters, setMissionTeamStatusFilters] = useState({});
+  const selectedParticipant =
+    participantDrawerTeamIdx !== null ? buildParticipantDescriptor(evento, participantDrawerTeamIdx) : null;
+
   if (getEventMode(evento) === TRAINING_MODE_EVENT) {
     const openHelpRequests = getOpenHelpRequests(evento);
     let totalTokens = 0;
@@ -198,12 +215,18 @@ export function DashboardPanel({
                 return (
                   <div className={`team-admin-card${teamHelpOpen ? " has-open-help" : ""}`} key={teamItem.name}>
                     <div className="team-admin-head">
-                      <div className="team-admin-id">
+                      <button
+                        type="button"
+                        className="team-admin-id team-admin-id-button"
+                        onClick={(event) => openParticipantInsights(event, teamIdx, setParticipantDrawerTeamIdx)}
+                        aria-label={`Abrir leitura pedagógica de ${teamItem.name}`}
+                        title="Abrir leitura pedagógica"
+                      >
                         <div className="team-avatar">{initials(teamItem.name)}</div>
                         <div>
                           <div className="team-dash-name">{teamItem.name}</div>
                         </div>
-                      </div>
+                      </button>
                       <div className="team-admin-actions">
                         <button
                           className="icon-copy-btn team-remove-icon"
@@ -227,10 +250,16 @@ export function DashboardPanel({
                         <span>Rodadas</span>
                         <strong>{execs.length}</strong>
                       </div>
-                      <div className="team-admin-metric">
+                      <button
+                        type="button"
+                        className="team-admin-metric team-admin-metric-action"
+                        onClick={(event) => openParticipantInsights(event, teamIdx, setParticipantDrawerTeamIdx)}
+                        aria-label={`Abrir leitura pedagógica de ${teamItem.name}`}
+                        title="Abrir leitura pedagógica"
+                      >
                         <span>Tokens</span>
                         <strong>{teamTokens.toLocaleString()}</strong>
-                      </div>
+                      </button>
                       <div className="team-admin-metric">
                         <span>Ajuda</span>
                         <strong>{teamHelpOpen}</strong>
@@ -395,21 +424,34 @@ export function DashboardPanel({
                 {dashboardView === "team" ? <Users size={16} strokeWidth={1.6} /> : <BookOpen size={16} strokeWidth={1.6} />}
               </span>
               <span>{dashboardView === "team" ? "Times no evento" : "Missões no evento"}</span>
+              {dashboardView === "team" ? (
+                <button
+                  className={`dashboard-expand-icon${showAllTeamMissions ? " is-open" : ""}`}
+                  type="button"
+                  aria-label={showAllTeamMissions ? "Recolher missões" : "Expandir missões"}
+                  title={showAllTeamMissions ? "Recolher missões" : "Expandir missões"}
+                  onClick={() => setShowAllTeamMissions((current) => !current)}
+                >
+                  <ChevronDown size={16} strokeWidth={1.8} />
+                </button>
+              ) : null}
             </span>
             <div className="section-actions">
-              <div className="inline-choice-row dashboard-view-toggle">
-                <button
-                  className={`choice-pill${dashboardView === "team" ? " active" : ""}`}
-                  onClick={() => setDashboardView("team")}
-                >
-                  Visão por time
-                </button>
-                <button
-                  className={`choice-pill${dashboardView === "mission" ? " active" : ""}`}
-                  onClick={() => setDashboardView("mission")}
-                >
-                  Visão por missão
-                </button>
+              <div className="dashboard-view-controls">
+                <div className="inline-choice-row dashboard-view-toggle">
+                  <button
+                    className={`choice-pill${dashboardView === "team" ? " active" : ""}`}
+                    onClick={() => setDashboardView("team")}
+                  >
+                    Visão por time
+                  </button>
+                  <button
+                    className={`choice-pill${dashboardView === "mission" ? " active" : ""}`}
+                    onClick={() => setDashboardView("mission")}
+                  >
+                    Visão por missão
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -437,19 +479,21 @@ export function DashboardPanel({
           .filter(Boolean);
 
         const unlockedCount = evento.missions.filter((mission) => mission.unlocked).length || 1;
-        const progress = Math.round((teamConc / unlockedCount) * 100);
         const teamHelpOpenRequests = openHelpRequests.filter((request) => request.teamIdx === teamIdx);
         const teamHelpOpen = teamHelpOpenRequests.length;
-        const activeMissionCount = evento.missions.filter((mission) => getExecucoes(evento, teamIdx, mission.id).length > 0).length;
         const missionProgressItems = evento.missions
           .filter((mission) => mission.unlocked)
           .map((mission) => {
             const execs = getExecucoes(evento, teamIdx, mission.id);
             const reflection = (evento.reflexoes || {})[`${teamIdx}__${mission.id}`];
+            const missionTokens = execs.reduce((sum, execucao) => sum + (execucao.tokens || 0), 0);
+            const missionCusto = execs.reduce((sum, execucao) => sum + (execucao.custo || 0), 0);
             return {
               id: mission.id,
               name: mission.name,
               runs: execs.length,
+              tokens: missionTokens,
+              cost: missionCusto,
               concluded: Boolean(reflection),
               closureStatus: getMissionClosureStatus(evento, teamIdx, mission.id),
               reflection,
@@ -457,16 +501,21 @@ export function DashboardPanel({
               lastRunAt: execs.length ? execs[execs.length - 1].ts : null,
             };
           });
-
         return (
-          <div className={`team-admin-card${teamHelpOpen ? " has-open-help" : ""}`} key={teamItem.name}>
+          <div className="team-admin-card" key={teamItem.name}>
             <div className="team-admin-head">
-              <div className="team-admin-id">
+              <button
+                type="button"
+                className="team-admin-id team-admin-id-button"
+                onClick={(event) => openParticipantInsights(event, teamIdx, setParticipantDrawerTeamIdx)}
+                aria-label={`Abrir leitura pedagógica de ${teamItem.name}`}
+                title="Abrir leitura pedagógica"
+              >
                 <div className="team-avatar">{initials(teamItem.name)}</div>
                 <div>
                   <div className="team-dash-name">{teamItem.name}</div>
                 </div>
-              </div>
+              </button>
               <div className="team-admin-actions">
                 <button
                   className="icon-copy-btn team-remove-icon"
@@ -487,13 +536,19 @@ export function DashboardPanel({
             </div>
             <div className="team-admin-metrics">
               <div className="team-admin-metric">
-                <span>Prompts</span>
-                <strong>{missionRuns}</strong>
-              </div>
-              <div className="team-admin-metric">
                 <span>Missões concluídas</span>
                 <strong>{`${teamConc}/${unlockedCount}`}</strong>
               </div>
+              <button
+                type="button"
+                className="team-admin-metric team-admin-metric-action"
+                onClick={(event) => openParticipantInsights(event, teamIdx, setParticipantDrawerTeamIdx)}
+                aria-label={`Abrir leitura pedagógica de ${teamItem.name}`}
+                title="Abrir leitura pedagógica"
+              >
+                <span>Prompts</span>
+                <strong>{missionRuns}</strong>
+              </button>
               <div className="team-admin-metric">
                 <span>Tokens</span>
                 <strong>{teamTokens.toLocaleString()}</strong>
@@ -504,7 +559,7 @@ export function DashboardPanel({
               </div>
             </div>
             <div className="team-admin-foot">
-              {missionProgressItems.length ? (
+              {showAllTeamMissions && missionProgressItems.length ? (
                 <div className="team-mission-section">
                   <div className="team-mission-section-head">
                     <span className="mini-label team-mission-section-label">
@@ -520,24 +575,6 @@ export function DashboardPanel({
                           <div className="team-mission-title-row">
                             <div className="team-mission-kicker">{missionIndex + 1}.</div>
                             <div className="team-mission-name">{missionItem.name}</div>
-                          </div>
-                          {missionItem.runs && !missionItem.concluded ? (
-                            <div className="team-mission-meta">
-                              {`${missionItem.runs} prompt${missionItem.runs > 1 ? "s" : ""}`}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="team-mission-side">
-                          <div className="team-mission-status">
-                            <span className={`team-inline-pill${missionItem.closureStatus === "concluida" ? " is-complete" : missionItem.closureStatus === "aguardando_questionario" ? " is-alert" : missionItem.runs ? "" : " is-muted"}`}>
-                              {missionItem.closureStatus === "concluida"
-                                ? "feito"
-                                : missionItem.closureStatus === "aguardando_questionario"
-                                  ? "questionário"
-                                  : missionItem.runs
-                                    ? "em andamento"
-                                    : "pendente"}
-                            </span>
                             {missionItem.helpOpen ? (
                               <span
                                 className="team-help-indicator is-alert"
@@ -549,10 +586,39 @@ export function DashboardPanel({
                               </span>
                             ) : null}
                           </div>
-                          <div className="team-mission-side-date">
-                            {missionItem.reflection
-                              ? formatDateTime(missionItem.reflection.submittedAt || missionItem.reflection.ts)
-                              : ""}
+                          <div className="team-admin-metrics team-mission-metrics">
+                            <div className="team-admin-metric team-mission-metric">
+                              <span>Status</span>
+                              <strong>
+                                <span
+                                  className={`team-mission-status-chip${
+                                    missionItem.closureStatus === "concluida"
+                                      ? " is-complete"
+                                      : missionItem.runs || missionItem.closureStatus === "aguardando_questionario"
+                                        ? " is-active"
+                                        : " is-pending"
+                                  }`}
+                                >
+                                  {missionItem.closureStatus === "concluida"
+                                    ? "finalizou"
+                                    : missionItem.runs || missionItem.closureStatus === "aguardando_questionario"
+                                      ? "em andamento"
+                                      : "não iniciou"}
+                                </span>
+                              </strong>
+                            </div>
+                            <div className="team-admin-metric team-mission-metric">
+                              <span>Prompts</span>
+                              <strong>{missionItem.runs}</strong>
+                            </div>
+                            <div className="team-admin-metric team-mission-metric">
+                              <span>Tokens</span>
+                              <strong>{missionItem.tokens.toLocaleString()}</strong>
+                            </div>
+                            <div className="team-admin-metric team-mission-metric">
+                              <span>Custo</span>
+                              <strong>${missionItem.cost.toFixed(4)}</strong>
+                            </div>
                           </div>
                         </div>
                         {missionItem.reflection ? (
@@ -590,9 +656,11 @@ export function DashboardPanel({
                 let missionCusto = 0;
                 let missionRuns = 0;
                 let missionConcluded = 0;
+                const isMissionExpanded = Boolean(expandedMissionTeams[mission.id]);
                 const missionHelpOpen = openHelpRequests.filter((request) => request.missionId === mission.id).length;
                 const missionHasOpenTeams = evento.teams.some((_, teamIdx) => getMissionClosureStatus(evento, teamIdx, mission.id) === "aberta");
                 const missionHasReopenableTeams = evento.teams.some((_, teamIdx) => canFacilitatorReopenMissionForTeam(evento, teamIdx, mission.id));
+                const missionStatusFilter = missionTeamStatusFilters[mission.id] || "all";
 
                 const teamRows = evento.teams.map((teamItem, teamIdx) => {
                   const execs = getExecucoes(evento, teamIdx, mission.id);
@@ -609,10 +677,22 @@ export function DashboardPanel({
                     teamName: teamItem.name,
                     reflection,
                     closureStatus,
+                    statusKey:
+                      closureStatus === "concluida"
+                        ? "complete"
+                        : execs.length || closureStatus === "aguardando_questionario"
+                          ? "active"
+                          : "pending",
                     helpOpen,
                     runs: execs.length,
+                    tokens: teamTokens,
+                    cost: teamCusto,
                   };
                 });
+                const filteredTeamRows =
+                  missionStatusFilter === "all"
+                    ? teamRows
+                    : teamRows.filter((teamRow) => teamRow.statusKey === missionStatusFilter);
 
                 return (
                   <div className="mission-admin-card" key={mission.id}>
@@ -673,6 +753,76 @@ export function DashboardPanel({
                         </button>
                       </div>
                     </div>
+                    <div className="mission-admin-inline-control">
+                      <button
+                        className={`dashboard-expand-icon${
+                          isMissionExpanded ? " is-open" : ""
+                        }`}
+                        type="button"
+                        aria-label={isMissionExpanded ? "Recolher times" : "Expandir times"}
+                        title={isMissionExpanded ? "Recolher times" : "Expandir times"}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const nextExpanded = !isMissionExpanded;
+                          setExpandedMissionTeams((current) => ({
+                            ...current,
+                            [mission.id]: nextExpanded,
+                          }));
+                          if (nextExpanded) {
+                            setMissionTeamStatusFilters((current) => ({
+                              ...current,
+                              [mission.id]: "all",
+                            }));
+                          }
+                        }}
+                      >
+                        <ChevronDown size={16} strokeWidth={1.8} />
+                      </button>
+                      {isMissionExpanded ? (
+                        <div className="dashboard-status-filters mission-status-filters" aria-label="Filtrar times desta missão por status">
+                          <button
+                            type="button"
+                            className={`dashboard-status-filter${missionStatusFilter === "complete" ? " is-active" : ""} is-complete`}
+                            aria-pressed={missionStatusFilter === "complete"}
+                            onClick={() =>
+                              setMissionTeamStatusFilters((current) => ({
+                                ...current,
+                                [mission.id]: current[mission.id] === "complete" ? "all" : "complete",
+                              }))
+                            }
+                            aria-label="Mostrar times que finalizaram esta missão"
+                            title="Finalizou"
+                          />
+                          <button
+                            type="button"
+                            className={`dashboard-status-filter${missionStatusFilter === "active" ? " is-active" : ""} is-active-state`}
+                            aria-pressed={missionStatusFilter === "active"}
+                            onClick={() =>
+                              setMissionTeamStatusFilters((current) => ({
+                                ...current,
+                                [mission.id]: current[mission.id] === "active" ? "all" : "active",
+                              }))
+                            }
+                            aria-label="Mostrar times em andamento nesta missão"
+                            title="Em andamento"
+                          />
+                          <button
+                            type="button"
+                            className={`dashboard-status-filter${missionStatusFilter === "pending" ? " is-active" : ""} is-pending`}
+                            aria-pressed={missionStatusFilter === "pending"}
+                            onClick={() =>
+                              setMissionTeamStatusFilters((current) => ({
+                                ...current,
+                                [mission.id]: current[mission.id] === "pending" ? "all" : "pending",
+                              }))
+                            }
+                            aria-label="Mostrar times que não começaram esta missão"
+                            title="Não começou"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="mission-admin-metrics">
                       <div className="team-admin-metric">
                         <span>Times</span>
@@ -691,51 +841,79 @@ export function DashboardPanel({
                         <strong>{missionTokens.toLocaleString()}</strong>
                       </div>
                     </div>
-                    <div className="mission-team-list">
-                      {teamRows.map((teamRow) => (
-                        <div className="mission-team-row" key={`${mission.id}-${teamRow.teamName}`}>
-                          <div className="mission-team-main">
-                            <div className="mission-team-top">
-                              <div className="mission-team-name">{teamRow.teamName}</div>
-                              <div className="team-mission-status">
-                                <span className={`team-inline-pill${teamRow.closureStatus === "concluida" ? " is-complete" : teamRow.closureStatus === "aguardando_questionario" ? " is-alert" : teamRow.runs ? "" : " is-muted"}`}>
-                                  {teamRow.closureStatus === "concluida"
-                                    ? "feito"
-                                    : teamRow.closureStatus === "aguardando_questionario"
-                                      ? "questionário"
-                                      : teamRow.runs
-                                        ? "em andamento"
-                                        : "pendente"}
-                                </span>
-                                {teamRow.helpOpen ? (
-                                  <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedidos de ajuda abertos nesta missão`}>
-                                    <span className="team-help-indicator-icon">!</span>
-                                    <span className="team-help-indicator-count">{teamRow.helpOpen}</span>
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-                            {teamRow.reflection ? (
-                              <div className="team-mission-feedback mission-team-feedback">
-                                <div className="team-admin-feedback-scores is-inline">
-                                  {Object.entries(teamRow.reflection.respostas || {}).map(([key, value]) => (
-                                    <span className="mission-feedback-chip is-rating" key={`${mission.id}-${teamRow.teamName}-${key}`}>
-                                      <strong>{getReflectionTopicShortLabel(key)}</strong>
-                                      <span className="mission-feedback-score" aria-label={`${value} de 5`}>
-                                        {value}/5
-                                      </span>
+                    {isMissionExpanded ? (
+                      <div className="mission-team-list">
+                        {filteredTeamRows.map((teamRow) => (
+                          <div className="mission-team-row" key={`${mission.id}-${teamRow.teamName}`}>
+                            <div className="mission-team-main">
+                              <div className="mission-team-top">
+                                <div className="mission-team-identity">
+                                  <div className="team-avatar mission-team-avatar">{initials(teamRow.teamName)}</div>
+                                  <div className="mission-team-name">{teamRow.teamName}</div>
+                                  {teamRow.helpOpen ? (
+                                    <span className="team-help-indicator is-alert" title={`${teamRow.helpOpen} pedidos de ajuda abertos nesta missão`}>
+                                      <span className="team-help-indicator-icon">!</span>
+                                      <span className="team-help-indicator-count">{teamRow.helpOpen}</span>
                                     </span>
-                                  ))}
+                                  ) : null}
                                 </div>
-                                {teamRow.reflection.comment ? (
-                                  <div className="team-admin-feedback-comment">{teamRow.reflection.comment}</div>
-                                ) : null}
                               </div>
-                            ) : null}
+                              <div className="team-admin-metrics mission-team-metrics">
+                                <div className="team-admin-metric mission-team-metric">
+                                  <span>Status</span>
+                                  <strong>
+                                    <span
+                                      className={`team-mission-status-chip${
+                                        teamRow.closureStatus === "concluida"
+                                          ? " is-complete"
+                                          : teamRow.runs || teamRow.closureStatus === "aguardando_questionario"
+                                            ? " is-active"
+                                            : " is-pending"
+                                      }`}
+                                    >
+                                      {teamRow.closureStatus === "concluida"
+                                        ? "finalizou"
+                                        : teamRow.runs || teamRow.closureStatus === "aguardando_questionario"
+                                          ? "em andamento"
+                                          : "não iniciou"}
+                                    </span>
+                                  </strong>
+                                </div>
+                                <div className="team-admin-metric mission-team-metric">
+                                  <span>Prompts</span>
+                                  <strong>{teamRow.runs}</strong>
+                                </div>
+                                <div className="team-admin-metric mission-team-metric">
+                                  <span>Tokens</span>
+                                  <strong>{teamRow.tokens.toLocaleString()}</strong>
+                                </div>
+                                <div className="team-admin-metric mission-team-metric">
+                                  <span>Custo</span>
+                                  <strong>${teamRow.cost.toFixed(4)}</strong>
+                                </div>
+                              </div>
+                              {teamRow.reflection ? (
+                                <div className="team-mission-feedback mission-team-feedback">
+                                  <div className="team-admin-feedback-scores is-inline">
+                                    {Object.entries(teamRow.reflection.respostas || {}).map(([key, value]) => (
+                                      <span className="mission-feedback-chip is-rating" key={`${mission.id}-${teamRow.teamName}-${key}`}>
+                                        <strong>{getReflectionTopicShortLabel(key)}</strong>
+                                        <span className="mission-feedback-score" aria-label={`${value} de 5`}>
+                                          {value}/5
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {teamRow.reflection.comment ? (
+                                    <div className="team-admin-feedback-comment">{teamRow.reflection.comment}</div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
@@ -818,6 +996,22 @@ export function DashboardPanel({
           </div>
         </aside>
       </div>
+
+      {participantDrawerTeamIdx !== null ? (
+        <div className="side-sheet-backdrop" onClick={() => setParticipantDrawerTeamIdx(null)}>
+          <aside className="side-sheet side-sheet-right participant-insights-drawer" onClick={(event) => event.stopPropagation()}>
+            <div className="side-sheet-body participant-insights-drawer-body">
+              <ParticipantInsightsPanel
+                evento={evento}
+                participant={selectedParticipant}
+                compact
+                onClose={() => setParticipantDrawerTeamIdx(null)}
+                onRetryParticipantAnalysis={onRetryParticipantAnalysis}
+              />
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
     </>
   );

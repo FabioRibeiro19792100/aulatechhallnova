@@ -177,7 +177,7 @@ export function GuidedReading({ exec }) {
   );
 }
 
-export function MissionReadingPanel({ exec, onSubmitFeedback }) {
+export function MissionReadingPanel({ exec, onSubmitFeedback, allowFeedback = true }) {
   const details = normalizeTechnicalAnalysis(exec.technicalAnalysis || exec.reasoningDetails || {}, {
     accumulatedGlossary: exec.technicalAnalysis?.glossary?.accumulated || exec.reasoningDetails?.glossary?.accumulated || [],
   });
@@ -262,31 +262,33 @@ export function MissionReadingPanel({ exec, onSubmitFeedback }) {
         <div className="tech-reading-meta">
           <span>Rodada {exec.iterationNumber || "-"}</span>
         </div>
-        <div className="tech-reading-feedback-strip">
-          <span className="tech-reading-feedback-question">Essa leitura foi útil?</span>
-          <div className="tech-reading-feedback-actions">
-            <button
-              className={`tech-reading-feedback-btn${feedbackRating === "up" ? " is-active" : ""}`}
-              type="button"
-              aria-label="Foi útil"
-              onClick={() => handleThumbSelection("up")}
-            >
-              <ThumbsUp size={16} strokeWidth={1.9} />
-            </button>
-            <button
-              className={`tech-reading-feedback-btn is-negative${feedbackRating === "down" ? " is-active" : ""}`}
-              type="button"
-              aria-label="Não foi útil"
-              onClick={() => handleThumbSelection("down")}
-            >
-              <ThumbsDown size={16} strokeWidth={1.9} />
-            </button>
+        {allowFeedback ? (
+          <div className="tech-reading-feedback-strip">
+            <span className="tech-reading-feedback-question">Essa leitura foi útil?</span>
+            <div className="tech-reading-feedback-actions">
+              <button
+                className={`tech-reading-feedback-btn${feedbackRating === "up" ? " is-active" : ""}`}
+                type="button"
+                aria-label="Foi útil"
+                onClick={() => handleThumbSelection("up")}
+              >
+                <ThumbsUp size={16} strokeWidth={1.9} />
+              </button>
+              <button
+                className={`tech-reading-feedback-btn is-negative${feedbackRating === "down" ? " is-active" : ""}`}
+                type="button"
+                aria-label="Não foi útil"
+                onClick={() => handleThumbSelection("down")}
+              >
+                <ThumbsDown size={16} strokeWidth={1.9} />
+              </button>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <div className="tech-reading-body">
-        {feedbackOpen ? (
+        {allowFeedback && feedbackOpen ? (
           <div className="tech-reading-feedback-card">
             <div className="tech-reading-feedback-card-head">
               <div className="tech-reading-feedback-card-title">O que te atrapalhou nesta explicação?</div>

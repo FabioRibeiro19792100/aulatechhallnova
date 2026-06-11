@@ -1,6 +1,8 @@
 import { TRAINING_THREAD_ID } from "../../utils.js";
 
 const DEFAULT_EVENT_MODE = "missions";
+export const PROMPT_QUALITY_MODEL_1 = "model1";
+export const PROMPT_QUALITY_MODEL_2 = "model2";
 
 function sortByTimestamp(items = []) {
   return [...items].sort((a, b) => new Date(a.ts || 0) - new Date(b.ts || 0));
@@ -19,17 +21,47 @@ export function getParticipantAnalysisMap(evento) {
   return evento?.participantAnalyses || {};
 }
 
+export function getEventPromptQualityModel(evento) {
+  return evento?.promptQualityModel === PROMPT_QUALITY_MODEL_2
+    ? PROMPT_QUALITY_MODEL_2
+    : PROMPT_QUALITY_MODEL_1;
+}
+
+export function getParticipantAnalysisEntry(evento, analysisKey, model = PROMPT_QUALITY_MODEL_1) {
+  const entry = getParticipantAnalysisMap(evento)?.[analysisKey] || null;
+  if (!entry) return null;
+  if (entry.models && entry.models[model]) return entry.models[model];
+  if (model === PROMPT_QUALITY_MODEL_1 && entry.status) return entry;
+  return null;
+}
+
 export function getTeamExecutionHistory(evento, teamIdx) {
-  const missionEntries = Object.entries(evento?.execucoes || {})
+  const byId = new Map();
+
+  Object.entries(evento?.execucoes || {})
     .filter(([key]) => `${key}`.startsWith(`${teamIdx}__`))
-    .flatMap(([, execs]) => (Array.isArray(execs) ? execs : []))
-    .map((exec) => ({ ...exec, missionId: exec.missionId || null }));
+    .flatMap(([key, execs]) => {
+      const missionIdFromKey = `${key}`.slice(`${teamIdx}__`.length) || null;
+      return (Array.isArray(execs) ? execs : []).map((exec) => ({
+        ...exec,
+        missionId: exec.missionId || missionIdFromKey,
+      }));
+    })
+    .forEach((exec) => {
+      const entryKey = exec?.id || `${exec?.missionId || "unknown"}::${exec?.ts || ""}::${exec?.input || ""}`;
+      if (!byId.has(entryKey)) byId.set(entryKey, exec);
+    });
 
   const trainingEntries = Array.isArray(evento?.trainingRuns?.[`${teamIdx}`])
     ? evento.trainingRuns[`${teamIdx}`].map((exec) => ({ ...exec, missionId: TRAINING_THREAD_ID }))
     : [];
 
-  return sortByTimestamp([...missionEntries, ...trainingEntries]);
+  trainingEntries.forEach((exec) => {
+    const entryKey = exec?.id || `${exec?.missionId || "unknown"}::${exec?.ts || ""}::${exec?.input || ""}`;
+    if (!byId.has(entryKey)) byId.set(entryKey, exec);
+  });
+
+  return sortByTimestamp([...byId.values()]);
 }
 
 export function resolveParticipantIdentity(evento, teamIdx, execution = null) {
@@ -131,7 +163,7 @@ export function buildParticipantHistorySignature(evento, teamIdx) {
 
 export const MIN_PARTICIPANT_ANALYSIS_PROMPTS = 5;
 
-export function buildParticipantDescriptor(evento, teamIdx) {
+export function buildParticipantDescriptor(evento, teamIdx, model = getEventPromptQualityModel(evento)) {
   const history = getTeamExecutionHistory(evento, teamIdx);
   const latestExecution = history[history.length - 1] || null;
   const identity = resolveParticipantIdentity(evento, teamIdx, latestExecution);
@@ -144,11 +176,11 @@ export function buildParticipantDescriptor(evento, teamIdx) {
     historySignature: buildParticipantHistorySignature(evento, teamIdx),
     journeyClosed: isParticipantJourneyClosed(evento, teamIdx),
     lastActivityAt: latestExecution?.ts || null,
-    analysisEntry: getParticipantAnalysisMap(evento)[analysisKey] || null,
+    analysisEntry: getParticipantAnalysisEntry(evento, analysisKey, model),
   };
 }
 
-export function getAllParticipantDescriptors(evento) {
+export function getAllParticipantDescriptors(evento, model = getEventPromptQualityModel(evento)) {
   const teamCount = Array.isArray(evento?.teams) ? evento.teams.length : 0;
   const analyses = Object.values(getParticipantAnalysisMap(evento)).filter(Boolean);
   const teamIndexes = new Set([
@@ -157,12 +189,7 @@ export function getAllParticipantDescriptors(evento) {
   ]);
 
   return [...teamIndexes]
-    .map((teamIdx) => buildParticipantDescriptor(evento, teamIdx))
+    .map((teamIdx) => buildParticipantDescriptor(evento, teamIdx, model))
     .filter((entry) => entry.history.length || entry.analysisEntry)
-    .sort((a, b) => {
-      const aTime = new Date(a.lastActivityAt || 0).getTime();
-      const bTime = new Date(b.lastActivityAt || 0).getTime();
-      if (bTime !== aTime) return bTime - aTime;
-      return a.displayName.localeCompare(b.displayName, "pt-BR");
-    });
+    .sort((a, b) => a.displayName.localeCompare(b.displayName, "pt-BR"));
 }

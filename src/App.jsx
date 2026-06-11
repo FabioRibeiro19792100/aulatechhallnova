@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -14,13 +14,24 @@ import { HtmlArtifactCard, GeneratedArtifactsPanel } from "./components/conversa
 import { PromptConversation } from "./components/conversation/PromptConversation.jsx";
 import { GuidedSection, LearningSlide, TechnicalReadingList, TechnicalReadingBlock, GuidedReading, MissionReadingPanel, MissionClosurePanel } from "./components/mission/MissionComponents.jsx";
 import { OutputCard, HistorySection, MissionTokenRail, ReflectionSummary } from "./components/mission/MissionOutput.jsx";
-import { EventCardSectionLabel, FacilitatorTabLabel, FacilitatorScreenShareButton, FacilitatorScreenSharePanel, TeamScreenShareViewer, RoomMapPanel, TokenManagementPanel, FacilitatorToolsDrawer } from "./components/facilitator/FacilitatorComponents.jsx";
+import { EventCardSectionLabel, FacilitatorTabLabel, FacilitatorScreenSharePanel, TeamScreenShareViewer, RoomMapPanel, TokenManagementPanel, FacilitatorToolsDrawer } from "./components/facilitator/FacilitatorComponents.jsx";
 import { PromptInsightsPanel } from "./components/facilitator/PromptInsightsPanel.jsx";
 import { AnamnesisInsightsPanel } from "./components/facilitator/AnamnesisInsightsPanel.jsx";
 import { ParticipantInsightsPanel } from "./components/facilitator/ParticipantInsightsPanel.jsx";
-import { MIN_PARTICIPANT_ANALYSIS_PROMPTS, buildParticipantDescriptor, getAllParticipantDescriptors, getParticipantAnalysisMap } from "./components/facilitator/participantAnalysisUtils.js";
+import { PromptQualityLabPanel } from "./components/facilitator/PromptQualityLabPanel.jsx";
+import {
+  MIN_PARTICIPANT_ANALYSIS_PROMPTS,
+  PROMPT_QUALITY_MODEL_1,
+  PROMPT_QUALITY_MODEL_2,
+  buildParticipantDescriptor,
+  getAllParticipantDescriptors,
+  getEventPromptQualityModel,
+  getParticipantAnalysisEntry,
+  getParticipantAnalysisMap,
+} from "./components/facilitator/participantAnalysisUtils.js";
 import { DashboardPanel } from "./components/facilitator/DashboardPanel.jsx";
 import { MissionsPanel } from "./components/facilitator/MissionsPanel.jsx";
+import { buildPromptQualityModel2Analysis } from "./components/facilitator/promptQualityModel2Utils.js";
 import { ANAMNESIS_UNKNOWN_VALUE, ANAMNESIS_QUESTIONS, ANAMNESIS_STOPWORDS, isAnamnesisEnabled, getAnamnesisResponse, hasCompletedAnamnesis, getAnamnesisAnswerChoice, getAnamnesisAnswerNote, isAnamnesisUnknownChoice, isAnamnesisAnswerFilled, countAnsweredAnamnesisQuestions, normalizeAnamnesisText, normalizeAnamnesisAnswer, getAnamnesisQuestionResults, extractAnamnesisKeywords } from "./data/anamnesis.js";
 import {
   FREE_ACTION_KEY, FREE_ACTION_LABEL, TRAINING_THREAD_ID, CHAT_AI_MODE, CODING_AI_MODE,
@@ -54,7 +65,7 @@ import { useDashboard } from "./hooks/useDashboard.js";
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
 const CODING_AI_REASONING_EFFORT = "medium";
-const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
+const TECHNICAL_ANALYSIS_MODEL = "gpt-4o-mini";
 const FACILITATOR_PASSWORD = "camila";
 const SURVIVAL_PASSWORD = "2805";
 const DEFAULT_TOKEN_GRANT_AMOUNT = 15000;
@@ -96,9 +107,95 @@ const SURVIVAL_CODING_MISSION = {
   acoes: [],
 };
 
-
 const STORE = "techhall:v3";
 const SHOW_DEV_SWITCH = true;
+
+function buildDashboardEnrichedEvent(baseEvent, dash) {
+  if (!baseEvent) return baseEvent;
+  if (!dash) return baseEvent;
+  const eventPayload = dash.event?.payload || {};
+  const teamRows = dash.teams || [];
+  const reKeyAllTeams = (selector) => {
+    const out = {};
+    teamRows.forEach((row) => {
+      const payload = row.payload || {};
+      const map = selector(payload) || {};
+      Object.entries(map).forEach(([missionId, val]) => {
+        out[`${row.team_idx}__${missionId}`] = val;
+      });
+    });
+    return out;
+  };
+  return {
+    ...baseEvent,
+    ...eventPayload,
+    participantAnalyses: baseEvent.participantAnalyses || {},
+    reflexoes: reKeyAllTeams((p) => p.reflexoes),
+    conclusoes: reKeyAllTeams((p) => p.conclusoes),
+    questionariosPendentes: reKeyAllTeams((p) => p.questionariosPendentes),
+    missionGlossaries: reKeyAllTeams((p) => p.missionGlossaries),
+    preservedMissionUsage: reKeyAllTeams((p) => p.preservedMissionUsage),
+    anamnesisResponses: Object.fromEntries(
+      teamRows
+        .filter((row) => row.payload?.anamnese)
+        .map((row) => [row.team_idx, row.payload.anamnese]),
+    ),
+    execucoes: (() => {
+      const groups = {};
+      (dash.recentExecutions || []).forEach((row) => {
+        if (row.mission_id === "__training__") return;
+        const key = `${row.team_idx}__${row.mission_id}`;
+        const payload = row.payload || {};
+        (groups[key] ||= []).push({
+          ...payload,
+          id: row.id,
+          ts: payload.ts || row.created_at,
+          tokens: payload.tokens ?? row.tokens?.total ?? 0,
+          inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+          outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+          custo: payload.custo ?? row.custo ?? 0,
+          aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+        });
+      });
+      return groups;
+    })(),
+    trainingRuns: (() => {
+      const groups = {};
+      (dash.trainingExecutions || dash.recentExecutions || []).forEach((row) => {
+        if (row.mission_id !== "__training__") return;
+        const payload = row.payload || {};
+        (groups[`${row.team_idx}`] ||= []).push({
+          ...payload,
+          id: row.id,
+          ts: payload.ts || row.created_at,
+          tokens: payload.tokens ?? row.tokens?.total ?? 0,
+          inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
+          outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+          custo: payload.custo ?? row.custo ?? 0,
+          aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+        });
+      });
+      return groups;
+    })(),
+    helpRequests: (dash.helpRequests || []).map((row) => ({
+      id: row.id,
+      teamIdx: row.team_idx,
+      missionId: row.mission_id,
+      status: row.status,
+      kind: row.payload?.kind || row.kind || null,
+      createdAt: row.created_at,
+      message: row.payload?.message || "",
+      missionName: row.payload?.missionName || "",
+      teamName: row.payload?.teamName || row.payload?.memberName || "",
+      studentName: row.payload?.memberName || row.payload?.teamName || "",
+      timerRemainingMs: row.payload?.timerRemainingMs || null,
+      currentUsage: row.payload?.currentUsage || null,
+      currentLimit: row.payload?.currentLimit || null,
+    })),
+    tokenOperationalLogs: dash.tokenLogs || [],
+    presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
+  };
+}
 
 function buildRunSteps(apiConfigured) {
   if (apiConfigured) {
@@ -276,6 +373,7 @@ function makeEvent({ name, desc, rawTeams }) {
     helpRequests: [],
     helpDisabledMap: {},
     participantAnalyses: {},
+    promptQualityModel: PROMPT_QUALITY_MODEL_1,
     anamnesisEnabled: false,
     anamnesisResponses: {},
     trainingRuns: {},
@@ -815,6 +913,7 @@ function migrateEventToFixedMissions(event) {
   const announcements = getEventAnnouncements(event);
   const baseEvent = {
     ...event,
+    promptQualityModel: getEventPromptQualityModel(event),
     announcements,
     announcement: null,
     sessionTimerNotice: event.sessionTimerNotice || null,
@@ -886,6 +985,7 @@ function normalizeEventsForProduct(events = []) {
       );
     return {
       ...migrated,
+      participantAnalyses: migrated.participantAnalyses || {},
       execucoes: clearMap(migrated.execucoes),
       trainingRuns: clearMap(migrated.trainingRuns),
     };
@@ -1920,18 +2020,39 @@ function normalizeParticipantAnalysis(payload, meta = {}) {
   };
 }
 
+function hasParticipantExecutionMaterial(event = null) {
+  if (!event) return false;
+  return Boolean(
+    Object.keys(event.execucoes || {}).length ||
+    Object.keys(event.trainingRuns || {}).length,
+  );
+}
+
 async function gerarLeituraPedagogicaParticipanteIA({
   participant,
   eventName,
   modelPricing,
 }) {
   const analysisModel = TECHNICAL_ANALYSIS_MODEL;
-  const historyLines = participant.history.map((exec, index) => {
+  const detailedHistoryLimit = 8;
+  const detailedHistory = participant.history.slice(-detailedHistoryLimit);
+  const historicalOverflow = participant.history.slice(0, Math.max(0, participant.history.length - detailedHistoryLimit));
+  const overflowSummary = historicalOverflow.length
+    ? {
+        rounds: historicalOverflow.length,
+        chatRounds: historicalOverflow.filter((exec) => (exec.aiMode || CHAT_AI_MODE) === CHAT_AI_MODE).length,
+        codingRounds: historicalOverflow.filter((exec) => (exec.aiMode || CHAT_AI_MODE) === CODING_AI_MODE).length,
+        trainingRounds: historicalOverflow.filter((exec) => exec.missionId === TRAINING_THREAD_ID || exec.missionId === "__training__").length,
+        tokens: historicalOverflow.reduce((sum, exec) => sum + (exec.tokens || 0), 0),
+        cost: historicalOverflow.reduce((sum, exec) => sum + (typeof exec.custo === "number" ? exec.custo : 0), 0),
+      }
+    : null;
+  const historyLines = detailedHistory.map((exec, index) => {
     const attachmentSummary = Array.isArray(exec.attachments) && exec.attachments.length
       ? exec.attachments.map((item) => `${item.name} (${item.kind || "arquivo"})`).join(", ")
       : "sem anexos";
     return [
-      `Rodada ${index + 1}`,
+      `Rodada detalhada ${index + 1}`,
       `- timestamp: ${exec.ts || ""}`,
       `- modo: ${exec.aiMode || CHAT_AI_MODE}`,
       `- modelo selecionado: ${exec.selectedModel || "nao informado"}`,
@@ -1939,8 +2060,7 @@ async function gerarLeituraPedagogicaParticipanteIA({
       `- tokens totais: ${exec.tokens || 0}`,
       `- custo estimado: ${typeof exec.custo === "number" ? exec.custo : 0}`,
       `- anexos: ${attachmentSummary}`,
-      `- prompt/input: ${truncateForAnalysis(exec.input || "", 700)}`,
-      `- saida da IA: ${truncateForAnalysis(exec.output || "", 520)}`,
+      `- prompt/input: ${truncateForAnalysis(exec.input || "", 180)}`,
     ].join("\n");
   });
 
@@ -1997,30 +2117,42 @@ async function gerarLeituraPedagogicaParticipanteIA({
     "Cada lista curta deve ter no maximo 5 itens.",
     "As recomendacoes devem ser praticas, especificas, acionaveis e baseadas em evidencias do historico.",
     `Evento: ${eventName || "Nao informado"}`,
+    "Recorte da leitura: Historico completo consolidado do participante no evento, incluindo treino e missoes quando rastreaveis.",
     `Participante nominal principal: ${participant.displayName}`,
     `Confianca de identificacao: ${participant.confidenceLabel}`,
     `Origem da identificacao: ${participant.source}`,
     `Time: ${participant.teamName}`,
     `Quantidade total de rodadas: ${participant.history.length}`,
+    overflowSummary
+      ? `Resumo das rodadas anteriores ao recorte detalhado: ${overflowSummary.rounds} rodadas (${overflowSummary.chatRounds} chat, ${overflowSummary.codingRounds} coding, ${overflowSummary.trainingRounds} treino), ${overflowSummary.tokens} tokens, custo estimado ${overflowSummary.cost.toFixed(4)}.`
+      : "",
     "Historico cronologico:",
     historyLines.join("\n\n"),
   ].join("\n\n");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 35000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const result = await fetchChatCompletion({
-      model: analysisModel,
-      reasoningEffort: "low",
-      signal: controller.signal,
-      messages: [
-        {
-          role: "system",
-          content: "Produza apenas JSON valido. Nao use markdown. Nao inclua texto fora do JSON.",
-        },
-        { role: "user", content: prompt },
-      ],
-    });
+    let result;
+    try {
+      result = await fetchChatCompletion({
+        model: analysisModel,
+        signal: controller.signal,
+        messages: [
+          {
+            role: "system",
+            content: "Produza apenas JSON valido. Nao use markdown. Nao inclua texto fora do JSON.",
+          },
+          { role: "user", content: prompt },
+        ],
+      });
+    } catch (error) {
+      const message = `${error?.message || ""}`.toLowerCase();
+      if (error?.name === "AbortError" || message.includes("aborted")) {
+        throw new Error("A análise demorou mais do que o esperado. Tente novamente.");
+      }
+      throw error;
+    }
     const parsed = tryParseJson(result.output) || tryParseJson(extractJsonObject(result.output));
     if (!parsed) return null;
     return {
@@ -2546,6 +2678,7 @@ function App() {
   const [tokenLimitModalOpen, setTokenLimitModalOpen] = useState(false);
   const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
   const [facilitatorToolView, setFacilitatorToolView] = useState(FACILITATOR_TOOL_VIEWS.MENU);
+  const [facilitatorUtilityRailExpanded, setFacilitatorUtilityRailExpanded] = useState(false);
   const [tokenGrantTargetMissionId, setTokenGrantTargetMissionId] = useState("");
   const [tokenPolicyCustomInput, setTokenPolicyCustomInput] = useState("15000");
   const [activeStudentName, setActiveStudentName] = useState(initialParticipantSession.activeStudentName || "");
@@ -2554,6 +2687,7 @@ function App() {
   const [clockNow, setClockNow] = useState(Date.now());
   const serverClockOffsetRef = useRef(0);
   const participantUtilityRailRef = useRef(null);
+  const facilitatorUtilityRailRef = useRef(null);
   const [survivalAccessGranted, setSurvivalAccessGranted] = useState(Boolean(initialSurvivalStore.authenticated));
   const [survivalPasswordInput, setSurvivalPasswordInput] = useState("");
   const [survivalAuthError, setSurvivalAuthError] = useState("");
@@ -2740,7 +2874,14 @@ function App() {
                 eventList.map(async (item) => {
                   try {
                     const detail = await getEventState(item.event_id);
-                    return { id: item.event_id, ...(detail.payload || {}) };
+                    const payload = { ...(detail.payload || {}) };
+                    delete payload.participantAnalyses;
+                    const localEvent = (currentEventsRef.current || []).find((event) => event.id === item.event_id);
+                    return {
+                      id: item.event_id,
+                      ...payload,
+                      participantAnalyses: localEvent?.participantAnalyses || {},
+                    };
                   } catch {
                     return null;
                   }
@@ -2783,8 +2924,15 @@ function App() {
         if (!row) return;
         setStore((current) => {
           const payload = row.payload || {};
-          const nextEvent = { id: row.event_id, ...payload };
+          const nextPayload = { ...payload };
+          delete nextPayload.participantAnalyses;
           const events = current.events || [];
+          const previousEvent = events.find((event) => event.id === row.event_id) || null;
+          const nextEvent = {
+            id: row.event_id,
+            ...nextPayload,
+            participantAnalyses: previousEvent?.participantAnalyses || {},
+          };
           const replaced = events.some((event) => event.id === row.event_id);
           const nextEvents = replaced
             ? events.map((event) => (event.id === row.event_id ? nextEvent : event))
@@ -2886,23 +3034,21 @@ function App() {
 
   const allEvents = store.events || [];
   const events = allEvents.filter((event) => !isEventHidden(event));
+  const hiddenEventsCount = allEvents.length - events.length;
   const selectedEvent = events.find((event) => event.id === facSelectedId) || null;
   const teamEvent = events.find((event) => event.id === timeEventId) || null;
   const selectedEventMode = getEventMode(selectedEvent);
   const apiConfigured = Boolean(serverConfig.openaiConfigured);
 
   useEffect(() => {
-    if (!apiConfigured) return;
-    const eventsToScan = currentEventsRef.current || [];
-    eventsToScan.forEach((event) => {
-      getAllParticipantDescriptors(event).forEach((participant) => {
-        const entry = participant.analysisEntry;
-        if (entry?.status === "pending") return;
-        if (entry?.status === "ready" && entry.historySignature === participant.historySignature) return;
-        void runParticipantJourneyAnalysis(event.id, participant.teamIdx);
-      });
-    });
-  }, [apiConfigured, store.events]);
+    if (!participantUtilityRailExpanded) return undefined;
+    function handlePointerDown(event) {
+      if (participantUtilityRailRef.current?.contains(event.target)) return;
+      setParticipantUtilityRailExpanded(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [participantUtilityRailExpanded]);
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
@@ -3018,6 +3164,10 @@ function App() {
     realtimeClient: supabaseRealtimeClient,
     refreshMs: 5000,
   });
+  const workspaceDashboardHook = useDashboard(screen === "workspace" ? teamEvent?.id || null : null, {
+    realtimeClient: supabaseRealtimeClient,
+    refreshMs: 5000,
+  });
 
   const facilitadorBaseEvent = useMemo(
     () => store.events?.find((event) => event.id === facSelectedId) || null,
@@ -3025,84 +3175,13 @@ function App() {
   );
 
   const effectiveFacilitadorEvent = useMemo(() => {
-    if (!facilitadorBaseEvent) return facilitadorBaseEvent;
-    const dash = perTeamDashboardHook.data;
-    if (!dash) return facilitadorBaseEvent;
-    const eventPayload = dash.event?.payload || {};
-    const teamRows = dash.teams || [];
-    const reKeyAllTeams = (selector) => {
-      const out = {};
-      teamRows.forEach((row) => {
-        const payload = row.payload || {};
-        const map = selector(payload) || {};
-        Object.entries(map).forEach(([missionId, val]) => {
-          out[`${row.team_idx}__${missionId}`] = val;
-        });
-      });
-      return out;
-    };
-    return {
-      ...facilitadorBaseEvent,
-      ...eventPayload,
-      reflexoes: reKeyAllTeams((p) => p.reflexoes),
-      conclusoes: reKeyAllTeams((p) => p.conclusoes),
-      questionariosPendentes: reKeyAllTeams((p) => p.questionariosPendentes),
-      missionGlossaries: reKeyAllTeams((p) => p.missionGlossaries),
-      preservedMissionUsage: reKeyAllTeams((p) => p.preservedMissionUsage),
-      anamnesisResponses: Object.fromEntries(
-        teamRows
-          .filter((row) => row.payload?.anamnese)
-          .map((row) => [row.team_idx, row.payload.anamnese]),
-      ),
-      execucoes: (() => {
-        const groups = {};
-        (dash.recentExecutions || []).forEach((row) => {
-          const key = `${row.team_idx}__${row.mission_id}`;
-          const payload = row.payload || {};
-          (groups[key] ||= []).push({
-            ...payload,
-            id: row.id,
-            ts: payload.ts || row.created_at,
-            tokens: payload.tokens ?? row.tokens?.total ?? 0,
-            inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
-            outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
-            custo: payload.custo ?? row.custo ?? 0,
-            aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
-          });
-        });
-        return groups;
-      })(),
-      helpRequests: (dash.helpRequests || []).map((row) => ({
-        id: row.id,
-        teamIdx: row.team_idx,
-        missionId: row.mission_id,
-        status: row.status,
-        kind: row.payload?.kind || row.kind || null,
-        createdAt: row.created_at,
-        message: row.payload?.message || "",
-        missionName: row.payload?.missionName || "",
-        teamName: row.payload?.teamName || row.payload?.memberName || "",
-        studentName: row.payload?.memberName || row.payload?.teamName || "",
-        timerRemainingMs: row.payload?.timerRemainingMs || null,
-        currentUsage: row.payload?.currentUsage || null,
-        currentLimit: row.payload?.currentLimit || null,
-      })),
-      tokenOperationalLogs: dash.tokenLogs || [],
-      presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
-    };
+    return buildDashboardEnrichedEvent(facilitadorBaseEvent, perTeamDashboardHook.data);
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 
-  useEffect(() => {
-    if (!apiConfigured || !effectiveFacilitadorEvent) return;
-    getAllParticipantDescriptors(effectiveFacilitadorEvent).forEach((participant) => {
-      const entry = participant.analysisEntry;
-      if (entry?.status === "pending") return;
-      if (entry?.status === "ready" && entry.historySignature === participant.historySignature) return;
-      void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, participant.teamIdx, {
-        sourceEvent: effectiveFacilitadorEvent,
-      });
-    });
-  }, [apiConfigured, effectiveFacilitadorEvent]);
+  const effectiveTeamAnalysisEvent = useMemo(
+    () => buildDashboardEnrichedEvent(effectiveTeamEvent || teamEvent, workspaceDashboardHook.data),
+    [effectiveTeamEvent, teamEvent, workspaceDashboardHook.data],
+  );
 
   const selectedEventForRead = effectiveFacilitadorEvent || selectedEvent;
   const teamEventForRead = effectiveTeamEvent || teamEvent;
@@ -3186,26 +3265,106 @@ function App() {
   const facilitatorTabs = selectedEvent && isAnamnesisEnabled(selectedEvent)
     ? ["dashboard", "missoes", "prompts", "anamnese"]
     : ["dashboard", "missoes", "prompts"];
+  const effectivePromptQualityModel = getEventPromptQualityModel(effectiveFacilitadorEvent || selectedEvent);
+  const handleSetPromptQualityModel = useCallback((eventId, nextModel) => {
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id === eventId
+          ? {
+              ...event,
+              promptQualityModel: nextModel === PROMPT_QUALITY_MODEL_2 ? PROMPT_QUALITY_MODEL_2 : PROMPT_QUALITY_MODEL_1,
+            }
+          : event,
+      ),
+    );
+  }, [updateEvents]);
   const handleRetryParticipantAnalysis = useCallback(
-    (teamIdx) => {
+    (teamIdx, requestedModel = effectivePromptQualityModel) => {
       if (!effectiveFacilitadorEvent) return;
-      void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, { force: true });
+      const participant = buildParticipantDescriptor(effectiveFacilitadorEvent, teamIdx);
+      if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) {
+        setParticipantAnalysisEntry(effectiveFacilitadorEvent.id, participant.analysisKey, {
+          analysisKey: participant.analysisKey,
+          participantId: participant.participantId,
+          displayName: participant.displayName,
+          teamIdx,
+          teamName: participant.teamName,
+          confidence: participant.confidence,
+          confidenceLabel: participant.confidenceLabel,
+          source: participant.source,
+          status: "insufficient_history",
+          historySignature: participant.historySignature,
+          updatedAt: new Date().toISOString(),
+          generatedAt: null,
+          analysis: null,
+          usage: null,
+          errorMessage: `A análise só acontece a partir de ${MIN_PARTICIPANT_ANALYSIS_PROMPTS} prompts.`,
+        }, {
+          model: requestedModel,
+        });
+        return;
+      }
+      setParticipantAnalysisEntry(effectiveFacilitadorEvent.id, participant.analysisKey, {
+        analysisKey: participant.analysisKey,
+        participantId: participant.participantId,
+        displayName: participant.displayName,
+        teamIdx,
+        teamName: participant.teamName,
+        confidence: participant.confidence,
+        confidenceLabel: participant.confidenceLabel,
+        source: participant.source,
+        status: "pending",
+        historySignature: participant.historySignature,
+        updatedAt: new Date().toISOString(),
+        generatedAt: null,
+        analysis: null,
+        usage: null,
+        errorMessage: "Disparando análise...",
+      }, {
+        model: requestedModel,
+      });
+      if (requestedModel === PROMPT_QUALITY_MODEL_2) {
+        void runParticipantPromptQualityLabAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+          force: true,
+          sourceEvent: effectiveFacilitadorEvent,
+        });
+      } else {
+        void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+          force: true,
+          sourceEvent: effectiveFacilitadorEvent,
+        });
+      }
     },
-    [effectiveFacilitadorEvent],
+    [effectiveFacilitadorEvent, effectivePromptQualityModel],
   );
   const handleOpenParticipantInsightsDrawer = useCallback((teamIdx) => {
     setParticipantInsightsDrawerState({ open: true, teamIdx });
-  }, []);
+    if (!effectiveFacilitadorEvent) return;
+    const participant = buildParticipantDescriptor(effectiveFacilitadorEvent, teamIdx);
+    if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) {
+      return;
+    }
+    if (effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2) {
+      void runParticipantPromptQualityLabAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+        sourceEvent: effectiveFacilitadorEvent,
+      });
+    } else {
+      void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+        sourceEvent: effectiveFacilitadorEvent,
+      });
+    }
+  }, [effectiveFacilitadorEvent, effectivePromptQualityModel]);
   const handleCloseParticipantInsightsDrawer = useCallback(() => {
     setParticipantInsightsDrawerState({ open: false, teamIdx: null });
   }, []);
   const selectedParticipantInsights =
     effectiveFacilitadorEvent && participantInsightsDrawerState.teamIdx !== null
-      ? buildParticipantDescriptor(effectiveFacilitadorEvent, participantInsightsDrawerState.teamIdx)
+      ? buildParticipantDescriptor(effectiveFacilitadorEvent, participantInsightsDrawerState.teamIdx, effectivePromptQualityModel)
       : null;
+  const effectiveWorkspacePromptQualityModel = getEventPromptQualityModel(effectiveTeamAnalysisEvent || effectiveTeamEvent || teamEvent);
   const currentParticipantInsights =
-    screen === "workspace" && effectiveTeamEvent && timeTeamIdx !== null
-      ? buildParticipantDescriptor(effectiveTeamEvent, timeTeamIdx)
+    screen === "workspace" && (effectiveTeamAnalysisEvent || effectiveTeamEvent) && timeTeamIdx !== null
+      ? buildParticipantDescriptor(effectiveTeamAnalysisEvent || effectiveTeamEvent, timeTeamIdx, effectiveWorkspacePromptQualityModel)
       : null;
   const selectedTokenPolicy = selectedEvent && tokenGrantTargetMissionId
     ? getMissionTokenPolicy(selectedEvent, tokenGrantTargetMissionId, {
@@ -3213,6 +3372,95 @@ function App() {
       })
     : null;
   const teamHelpDisabled = effectiveTeamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(effectiveTeamEvent, timeTeamIdx) : false;
+  const openFacilitatorHelpCount = effectiveFacilitadorEvent ? getOpenHelpRequests(effectiveFacilitadorEvent).length : 0;
+  const facilitatorRailItems = [
+    {
+      key: FACILITATOR_TOOL_VIEWS.CONFIG,
+      label: "Configuração da IA",
+      icon: Sparkles,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.CONFIG,
+      indicator: apiConfigured ? "connected" : "disconnected",
+      disabled: false,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.CONFIG);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.BROADCAST,
+      label: "Mensagem para a turma",
+      icon: MessageSquareText,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.BROADCAST,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.BROADCAST);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.SCREEN,
+      label: "Projeção de tela",
+      icon: Monitor,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.SCREEN,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.SCREEN);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.TIMER,
+      label: "Cronômetro",
+      icon: CircleAlert,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.TIMER,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.TIMER);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.ROOM_MAP,
+      label: "Mapa da sala",
+      icon: MapIcon,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.ROOM_MAP,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.ROOM_MAP);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+  {
+    key: "help-requests",
+    label: "Pedidos de ajuda",
+    icon: LifeBuoy,
+    active: false,
+    badge: openFacilitatorHelpCount || 0,
+    disabled: !effectiveFacilitadorEvent,
+    run: () => {
+      setFacTab("dashboard");
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.TOKENS,
+      label: "Gestão de tokens",
+      icon: Coins,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.TOKENS,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.TOKENS);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+  ];
+
   const participantRailItems = [
     {
       key: "messages",
@@ -3269,6 +3517,19 @@ function App() {
       run: () => {
         setParticipantPromptAnalysisOpen(true);
         setParticipantUtilityRailExpanded(false);
+        if (timeTeamIdx === null || !(effectiveTeamAnalysisEvent || effectiveTeamEvent)) return;
+        const analysisEvent = effectiveTeamAnalysisEvent || effectiveTeamEvent;
+        const participant = buildParticipantDescriptor(analysisEvent, timeTeamIdx, effectiveWorkspacePromptQualityModel);
+        if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
+        if (effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2) {
+          void runParticipantPromptQualityLabAnalysis(analysisEvent.id, timeTeamIdx, {
+            sourceEvent: analysisEvent,
+          });
+        } else {
+          void runParticipantJourneyAnalysis(analysisEvent.id, timeTeamIdx, {
+            sourceEvent: analysisEvent,
+          });
+        }
       },
     },
     {
@@ -3701,6 +3962,7 @@ function App() {
     if (!event) return {};
     const {
       id: _id,
+      participantAnalyses: _participantAnalyses,
       execucoes: _execucoes,
       trainingRuns: _trainingRuns,
       reflexoes: _reflexoes,
@@ -3798,15 +4060,49 @@ function App() {
     });
   }
 
-  function setParticipantAnalysisEntry(eventId, analysisKey, nextEntry) {
-    updateEvents((current) =>
+  function updateEventsLocal(updater) {
+    const previousEvents = currentEventsRef.current || [];
+    const nextEvents = updater(previousEvents);
+    if (nextEvents === previousEvents) return;
+    const stamped = stampUpdatedEvents(previousEvents, nextEvents);
+    currentEventsRef.current = stamped;
+    setStore((current) => ({ ...current, events: stamped }));
+  }
+
+  function setParticipantAnalysisEntry(eventId, analysisKey, nextEntry, { persist = false, model = PROMPT_QUALITY_MODEL_1 } = {}) {
+    const applyUpdate = persist ? updateEvents : updateEventsLocal;
+    applyUpdate((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
+        const currentBundle = event.participantAnalyses?.[analysisKey] || {};
         return {
           ...event,
           participantAnalyses: {
             ...(event.participantAnalyses || {}),
-            [analysisKey]: nextEntry,
+            [analysisKey]:
+              model === PROMPT_QUALITY_MODEL_1
+                ? {
+                    ...nextEntry,
+                    models: {
+                      ...(currentBundle.models || {}),
+                      [PROMPT_QUALITY_MODEL_1]: nextEntry,
+                    },
+                  }
+                : {
+                    ...currentBundle,
+                    analysisKey: nextEntry.analysisKey,
+                    participantId: nextEntry.participantId,
+                    displayName: nextEntry.displayName,
+                    teamIdx: nextEntry.teamIdx,
+                    teamName: nextEntry.teamName,
+                    confidence: nextEntry.confidence,
+                    confidenceLabel: nextEntry.confidenceLabel,
+                    source: nextEntry.source,
+                    models: {
+                      ...(currentBundle.models || {}),
+                      [model]: nextEntry,
+                    },
+                  },
           },
         };
       }),
@@ -3821,8 +4117,13 @@ function App() {
     const participant = buildParticipantDescriptor(latestEvent, teamIdx);
     if (participant.history.length < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
 
-    const existing = getParticipantAnalysisMap(latestEvent)[participant.analysisKey] || null;
-    if (!options.force && existing?.status === "ready" && existing.historySignature === participant.historySignature) {
+    const existing = getParticipantAnalysisEntry(latestEvent, participant.analysisKey, PROMPT_QUALITY_MODEL_1);
+    if (
+      !options.force &&
+      existing?.status === "ready" &&
+      existing.historySignature === participant.historySignature &&
+      existing.analysis
+    ) {
       return;
     }
 
@@ -3842,46 +4143,113 @@ function App() {
       status: "pending",
       historySignature: participant.historySignature,
       updatedAt: new Date().toISOString(),
-      generatedAt: existing?.generatedAt || null,
-      analysis: existing?.analysis || null,
-      usage: existing?.usage || null,
-      errorMessage: "",
+      generatedAt: null,
+      analysis: null,
+      usage: null,
+      errorMessage: "Preparando histórico da análise...",
     };
-    setParticipantAnalysisEntry(eventId, participant.analysisKey, pendingEntry);
+    setParticipantAnalysisEntry(eventId, participant.analysisKey, pendingEntry, { model: PROMPT_QUALITY_MODEL_1 });
 
     try {
-      await sleep(Math.random() * 1500);
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "pending",
+        updatedAt: new Date().toISOString(),
+        errorMessage: "Consultando a IA no histórico geral...",
+      }, { model: PROMPT_QUALITY_MODEL_1 });
       const result = await gerarLeituraPedagogicaParticipanteIA({
         participant,
         eventName: latestEvent.name,
         modelPricing: modelPricingMap,
       });
-      const refreshedEvent = (currentEventsRef.current || []).find((event) => event.id === eventId);
-      const refreshedEntry = refreshedEvent ? getParticipantAnalysisMap(refreshedEvent)[participant.analysisKey] : null;
-      if (!refreshedEntry || refreshedEntry.historySignature !== participant.historySignature) return;
-
       setParticipantAnalysisEntry(eventId, participant.analysisKey, {
         ...pendingEntry,
         status: result?.analysis ? "ready" : "unavailable",
-        generatedAt: new Date().toISOString(),
+        generatedAt: result?.analysis ? new Date().toISOString() : null,
         updatedAt: new Date().toISOString(),
         analysis: result?.analysis || null,
         usage: result?.usage || null,
         errorMessage: result?.analysis ? "" : "Nao foi possivel consolidar a leitura automaticamente.",
-      });
+      }, { model: PROMPT_QUALITY_MODEL_1 });
     } catch (error) {
       console.error("participant analysis:", error);
       setParticipantAnalysisEntry(eventId, participant.analysisKey, {
         ...pendingEntry,
         status: "unavailable",
-        generatedAt: new Date().toISOString(),
+        generatedAt: null,
         updatedAt: new Date().toISOString(),
         analysis: null,
         usage: null,
-        errorMessage: "Falha ao gerar a leitura pedagogica deste participante.",
-      });
+        errorMessage: error?.message || "Falha ao gerar a leitura pedagogica deste participante.",
+      }, { model: PROMPT_QUALITY_MODEL_1 });
     } finally {
       participantAnalysisInflightRef.current.delete(inflightKey);
+    }
+  }
+
+  async function runParticipantPromptQualityLabAnalysis(eventId, teamIdx, options = {}) {
+    const latestEvent = options.sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId);
+    if (!latestEvent) return;
+
+    const participant = buildParticipantDescriptor(latestEvent, teamIdx);
+    if (participant.history.length < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
+
+    const existing = getParticipantAnalysisEntry(latestEvent, participant.analysisKey, PROMPT_QUALITY_MODEL_2);
+    if (
+      !options.force &&
+      existing?.status === "ready" &&
+      existing.historySignature === participant.historySignature &&
+      existing.analysis
+    ) {
+      return;
+    }
+
+    const pendingEntry = {
+      analysisKey: participant.analysisKey,
+      participantId: participant.participantId,
+      displayName: participant.displayName,
+      teamIdx,
+      teamName: participant.teamName,
+      confidence: participant.confidence,
+      confidenceLabel: participant.confidenceLabel,
+      source: participant.source,
+      status: "pending",
+      historySignature: participant.historySignature,
+      updatedAt: new Date().toISOString(),
+      generatedAt: null,
+      analysis: null,
+      usage: null,
+      errorMessage: "Consolidando o Prompt Quality Lab...",
+    };
+
+    setParticipantAnalysisEntry(eventId, participant.analysisKey, pendingEntry, { model: PROMPT_QUALITY_MODEL_2 });
+
+    try {
+      const analysis = buildPromptQualityModel2Analysis({
+        participant,
+        eventName: latestEvent.name,
+        missions: latestEvent.missions || [],
+      });
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "ready",
+        generatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        analysis,
+        usage: null,
+        errorMessage: "",
+      }, { model: PROMPT_QUALITY_MODEL_2 });
+    } catch (error) {
+      console.error("prompt quality lab:", error);
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "unavailable",
+        generatedAt: null,
+        updatedAt: new Date().toISOString(),
+        analysis: null,
+        usage: null,
+        errorMessage: error?.message || "Falha ao consolidar o modelo 2 desta análise.",
+      }, { model: PROMPT_QUALITY_MODEL_2 });
     }
   }
 
@@ -4858,16 +5226,6 @@ function App() {
         }
       : null;
 
-  useEffect(() => {
-    if (!participantUtilityRailExpanded) return undefined;
-    function handlePointerDown(event) {
-      if (participantUtilityRailRef.current?.contains(event.target)) return;
-      setParticipantUtilityRailExpanded(false);
-    }
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [participantUtilityRailExpanded]);
-
     setStore((current) => ({
       ...current,
       events: nextEventsSnapshot,
@@ -4898,6 +5256,33 @@ function App() {
 
   function handleDeleteEvent(eventId) {
     void removeEventFromActiveList(eventId, { archive: false });
+  }
+
+  function handleRestoreHiddenEvents() {
+    const hiddenEvents = (store.events || []).filter((event) => isEventHidden(event));
+    if (!hiddenEvents.length) {
+      showToast("Nenhum evento oculto para reexibir");
+      return;
+    }
+    const hiddenIds = new Set(hiddenEvents.map((event) => event.id));
+    const nextEvents = (store.events || []).map((event) =>
+      hiddenIds.has(event.id)
+        ? {
+            ...event,
+            hiddenAt: null,
+            hiddenReason: null,
+          }
+        : event,
+    );
+    setStore((current) => ({
+      ...current,
+      events: nextEvents,
+      archivedEvents: (current.archivedEvents || []).filter((entry) => !hiddenIds.has(entry?.event?.id)),
+    }));
+    nextEvents.forEach((event) => {
+      if (hiddenIds.has(event.id)) void pushEventStateChange(event.id, event);
+    });
+    showToast(hiddenEvents.length === 1 ? "Evento reexibido" : "Eventos reexibidos");
   }
 
   function handleSetStatus(eventId, status) {
@@ -7252,9 +7637,6 @@ function App() {
                   <span className={`topbar-api-pill${apiConfigured ? " is-connected" : ""}`}>
                     {apiConfigured ? "API ligada" : "API não configurada"}
                   </span>
-                  {effectiveFacilitadorEvent && getOpenHelpRequests(effectiveFacilitadorEvent).length > 0 ? (
-                    <span className="topbar-help-pill">{getOpenHelpRequests(effectiveFacilitadorEvent).length} ajuda(s)</span>
-                  ) : null}
                   {selectedEventTimerRunning ? (
                     <span className="topbar-live-pill">
                       <Clock3 size={12} strokeWidth={1.8} aria-hidden="true" />
@@ -7264,29 +7646,54 @@ function App() {
                   {selectedEventScreenShare?.active ? <span className="topbar-live-pill">tela ao vivo</span> : null}
                 </div>
                 <div className="topbar-actions-main">
-                  <FacilitatorScreenShareButton
-                    event={selectedEvent}
-                    screenShare={selectedEventScreenShare}
-                    onPublishState={(nextState) => {
-                      if (!selectedEvent) return;
-                      handlePublishScreenShare(selectedEvent.id, nextState);
-                    }}
-                    iconOnly
-                  />
-                  <button
-                    className="btn btn-sm topbar-tools-btn"
-                    onClick={() => {
-                      setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
-                      setFacilitatorToolsOpen(true);
-                    }}
-                  >
-                    <SlidersHorizontal size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Ferramentas do facilitador
-                  </button>
                 </div>
               </>
             }
           />
+
+          <div
+            ref={facilitatorUtilityRailRef}
+            className={`participant-utility-rail facilitator-utility-rail${facilitatorUtilityRailExpanded ? " is-expanded" : ""}`}
+            aria-label="Ferramentas do facilitador"
+            onMouseLeave={() => {
+              if (facilitatorUtilityRailExpanded) setFacilitatorUtilityRailExpanded(false);
+            }}
+          >
+            {facilitatorRailItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.key} className="participant-utility-rail-item">
+                  {facilitatorUtilityRailExpanded ? (
+                    <button
+                      type="button"
+                      className={`participant-utility-rail-label${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                      onClick={item.run}
+                      disabled={item.disabled}
+                    >
+                      {item.label}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`participant-utility-rail-btn${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                    onClick={() => setFacilitatorUtilityRailExpanded((value) => !value)}
+                    disabled={item.disabled}
+                    title={item.label}
+                    aria-label={item.label}
+                  >
+                    <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+                    {item.indicator ? (
+                      <span
+                        className={`participant-utility-rail-indicator is-${item.indicator}`}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    {item.badge ? <span className="participant-utility-rail-badge">{item.badge}</span> : null}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
 
           <div className="fac-layout">
             <aside className="sidebar">
@@ -7413,6 +7820,30 @@ function App() {
               <button className="btn btn-add-full" onClick={() => setNewEventOpen(true)}>
                 + Novo evento
               </button>
+              {hiddenEventsCount ? (
+                <button
+                  className="event-restore-link"
+                  type="button"
+                  onClick={() =>
+                    openConfirm(
+                      "Reexibir eventos ocultos",
+                      "Para reexibir os eventos ocultados, digite a senha do facilitador.",
+                      handleRestoreHiddenEvents,
+                      {
+                        requiresPassword: true,
+                        confirmValue: FACILITATOR_PASSWORD,
+                        confirmLabel: "Senha do facilitador",
+                        confirmPlaceholder: "Digite a senha do facilitador",
+                        confirmHint: "Use a mesma senha usada para ocultar ou reexibir eventos.",
+                        confirmTone: "primary",
+                        confirmActionLabel: hiddenEventsCount === 1 ? "Reexibir evento" : "Reexibir eventos",
+                      },
+                    )
+                  }
+                >
+                  {hiddenEventsCount === 1 ? "Reexibir evento ocultado" : `Reexibir ${hiddenEventsCount} eventos ocultados`}
+                </button>
+              ) : null}
             </aside>
 
             <main className="fac-content">
@@ -7437,6 +7868,7 @@ function App() {
                       evento={effectiveFacilitadorEvent}
                       dashboardView={dashboardView}
                       setDashboardView={setDashboardView}
+                      promptQualityModel={effectivePromptQualityModel}
                       onRetryParticipantAnalysis={handleRetryParticipantAnalysis}
                       openConfirm={openConfirm}
                       openDeleteConfirm={openDeleteConfirm}
@@ -7470,7 +7902,12 @@ function App() {
                     />
                   )}
 
-                  {facTab === "prompts" && <PromptInsightsPanel evento={effectiveFacilitadorEvent} />}
+                  {facTab === "prompts" && (
+                    <PromptInsightsPanel
+                      evento={effectiveFacilitadorEvent}
+                      onOpenParticipant={handleOpenParticipantInsightsDrawer}
+                    />
+                  )}
 
                   {facTab === "anamnese" && <AnamnesisInsightsPanel evento={effectiveFacilitadorEvent} />}
 
@@ -8141,18 +8578,39 @@ function App() {
 
       {screen === "workspace" && participantPromptAnalysisOpen && currentParticipantInsights ? (
         <div className="side-sheet-backdrop" onClick={() => setParticipantPromptAnalysisOpen(false)}>
-          <aside className="side-sheet side-sheet-right participant-insights-drawer" onClick={(event) => event.stopPropagation()}>
+          <aside
+            className={`side-sheet side-sheet-right ${effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? "prompt-quality-lab-drawer" : "participant-insights-drawer"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="side-sheet-body participant-insights-drawer-body">
-              <ParticipantInsightsPanel
-                evento={effectiveTeamEvent}
-                participant={currentParticipantInsights}
-                compact
-                onClose={() => setParticipantPromptAnalysisOpen(false)}
-                onRetryParticipantAnalysis={() => {
-                  if (timeTeamIdx === null || !effectiveTeamEvent) return;
-                  void runParticipantJourneyAnalysis(effectiveTeamEvent.id, timeTeamIdx, { force: true });
-                }}
-              />
+              {effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? (
+                <PromptQualityLabPanel
+                  evento={effectiveTeamAnalysisEvent || effectiveTeamEvent}
+                  participant={currentParticipantInsights}
+                  onClose={() => setParticipantPromptAnalysisOpen(false)}
+                  onRetryParticipantAnalysis={() => {
+                    if (timeTeamIdx === null || !(effectiveTeamAnalysisEvent || effectiveTeamEvent)) return;
+                    void runParticipantPromptQualityLabAnalysis((effectiveTeamAnalysisEvent || effectiveTeamEvent).id, timeTeamIdx, {
+                      force: true,
+                      sourceEvent: effectiveTeamAnalysisEvent || effectiveTeamEvent,
+                    });
+                  }}
+                />
+              ) : (
+                <ParticipantInsightsPanel
+                  evento={effectiveTeamAnalysisEvent || effectiveTeamEvent}
+                  participant={currentParticipantInsights}
+                  compact
+                  onClose={() => setParticipantPromptAnalysisOpen(false)}
+                  onRetryParticipantAnalysis={() => {
+                    if (timeTeamIdx === null || !(effectiveTeamAnalysisEvent || effectiveTeamEvent)) return;
+                    void runParticipantJourneyAnalysis((effectiveTeamAnalysisEvent || effectiveTeamEvent).id, timeTeamIdx, {
+                      force: true,
+                      sourceEvent: effectiveTeamAnalysisEvent || effectiveTeamEvent,
+                    });
+                  }}
+                />
+              )}
             </div>
           </aside>
         </div>
@@ -8199,6 +8657,7 @@ function App() {
           event={selectedEvent}
           activeView={facilitatorToolView}
           apiConfigured={apiConfigured}
+          promptQualityModel={getEventPromptQualityModel(selectedEvent)}
           announcement={selectedEventLatestAnnouncement}
           announcementCount={selectedEventAnnouncements.length}
           timer={selectedEventTimer}
@@ -8207,6 +8666,10 @@ function App() {
           timerNotice={selectedEventTimerNotice}
           timerMinutesInput={timerMinutesInput}
           onChangeTimerMinutes={setTimerMinutesInput}
+          onChangePromptQualityModel={(nextModel) => {
+            if (!selectedEvent) return;
+            handleSetPromptQualityModel(selectedEvent.id, nextModel);
+          }}
           onChangeView={setFacilitatorToolView}
           onClose={() => {
             setFacilitatorToolsOpen(false);
@@ -8243,6 +8706,40 @@ function App() {
           onChangeTokenPolicyCustomInput={setTokenPolicyCustomInput}
           onSaveMissionTokenPolicy={handleSaveMissionTokenPolicy}
         />
+      ) : null}
+
+      {screen === "facilitador" && participantInsightsDrawerState.open && selectedParticipantInsights ? (
+        <div className="side-sheet-backdrop" onClick={handleCloseParticipantInsightsDrawer}>
+          <aside
+            className={`side-sheet side-sheet-right ${effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? "prompt-quality-lab-drawer" : "participant-insights-drawer"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="side-sheet-body participant-insights-drawer-body">
+              {effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? (
+                <PromptQualityLabPanel
+                  evento={effectiveFacilitadorEvent}
+                  participant={selectedParticipantInsights}
+                  onClose={handleCloseParticipantInsightsDrawer}
+                  onSelectParticipant={(teamIdx) => setParticipantInsightsDrawerState({ open: true, teamIdx })}
+                  onRetryParticipantAnalysis={(teamIdx) => {
+                    handleRetryParticipantAnalysis(teamIdx, PROMPT_QUALITY_MODEL_2);
+                  }}
+                />
+              ) : (
+                <ParticipantInsightsPanel
+                  evento={effectiveFacilitadorEvent}
+                  participant={selectedParticipantInsights}
+                  compact
+                  onClose={handleCloseParticipantInsightsDrawer}
+                  onRetryParticipantAnalysis={() => {
+                    if (participantInsightsDrawerState.teamIdx === null) return;
+                    handleRetryParticipantAnalysis(participantInsightsDrawerState.teamIdx, PROMPT_QUALITY_MODEL_1);
+                  }}
+                />
+              )}
+            </div>
+          </aside>
+        </div>
       ) : null}
 
       <Modal open={tokenLimitModalOpen} onClose={() => setTokenLimitModalOpen(false)} small className="token-limit-modal">

@@ -4,6 +4,7 @@ import { formatDateTime, TRAINING_THREAD_ID } from "../../utils.js";
 import {
   MIN_PARTICIPANT_ANALYSIS_PROMPTS,
   PROMPT_QUALITY_MODEL_2,
+  buildParticipantDescriptor,
   getAllParticipantDescriptors,
   getParticipantAnalysisEntry,
 } from "./participantAnalysisUtils.js";
@@ -239,19 +240,25 @@ export function PromptQualityLabPanel({
 }) {
   const [activeTab, setActiveTab] = useState("geral");
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
-  const participants = useMemo(() => getAllParticipantDescriptors(evento), [evento]);
+  const participants = useMemo(() => {
+    const teamCount = Array.isArray(evento?.teams) ? evento.teams.length : 0;
+    if (!teamCount) return getAllParticipantDescriptors(evento);
+    return Array.from({ length: teamCount }, (_, index) => buildParticipantDescriptor(evento, index, PROMPT_QUALITY_MODEL_2))
+      .filter((entry) => entry.history.length || entry.analysisEntry);
+  }, [evento]);
   const previewEntries = useMemo(
     () =>
       participants.map((entry) => ({
         participant: entry,
         analysis:
-          entry.history.length >= MIN_PARTICIPANT_ANALYSIS_PROMPTS
+          entry.history.length > 0
             ? buildPromptQualityModel2Analysis({
                 participant: entry,
                 eventName: evento?.name || "",
                 missions: evento?.missions || [],
               })
             : null,
+        eligible: entry.history.length >= MIN_PARTICIPANT_ANALYSIS_PROMPTS,
       })),
     [participants, evento],
   );
@@ -352,32 +359,32 @@ export function PromptQualityLabPanel({
             <div className="pql-grid-wrap">
               <div className="pql-grid">
                 <div className="pql-quadrant pql-quadrant-tl">
-                  <strong>Econômico Impreciso</strong>
+                  <strong>Conciso</strong>
                   <p>Prompts vagos com contexto insuficiente.</p>
                 </div>
                 <div className="pql-quadrant pql-quadrant-tr">
-                  <strong>Avançado</strong>
+                  <strong>Estrategista</strong>
                   <p>Clareza alta com uso calibrado de recursos.</p>
                 </div>
                 <div className="pql-quadrant pql-quadrant-bl">
-                  <strong>Iniciante</strong>
+                  <strong>Descobridor</strong>
                   <p>Prompts frágeis com escolhas operacionais ainda instáveis.</p>
                 </div>
                 <div className="pql-quadrant pql-quadrant-br">
-                  <strong>Eloquente Desperdiçador</strong>
+                  <strong>Articulado</strong>
                   <p>Boa articulação, mas com excesso de recursos.</p>
                 </div>
                 <div className="pql-dots-layer">
-                  {previewEntries.map(({ participant: item, analysis }) => {
+                  {previewEntries.map(({ participant: item, analysis, eligible }) => {
                     if (!analysis) return null;
                     const isActive = item.analysisKey === selectedParticipant?.analysisKey;
                     return (
                       <button
                         key={item.analysisKey}
                         type="button"
-                        className={`pql-dot${isActive ? " is-active" : ""}`}
+                        className={`pql-dot${isActive ? " is-active" : ""}${eligible ? "" : " is-preview-only"}`}
                         style={{ left: `${analysis.qx}%`, top: `${analysis.qy}%` }}
-                        title={item.displayName}
+                        title={eligible ? item.displayName : `${item.displayName} · amostra insuficiente`}
                         onClick={() => {
                           setActiveTab("geral");
                           onSelectParticipant?.(item.teamIdx);

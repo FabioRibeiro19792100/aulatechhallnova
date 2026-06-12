@@ -14,6 +14,7 @@ import { HtmlArtifactCard, GeneratedArtifactsPanel } from "./components/conversa
 import { PromptConversation } from "./components/conversation/PromptConversation.jsx";
 import { GuidedSection, LearningSlide, TechnicalReadingList, TechnicalReadingBlock, GuidedReading, MissionReadingPanel, MissionClosurePanel } from "./components/mission/MissionComponents.jsx";
 import { OutputCard, HistorySection, MissionTokenRail, ReflectionSummary } from "./components/mission/MissionOutput.jsx";
+import { AgentMissionPanel } from "./components/mission/AgentMissionPanel.jsx";
 import { EventCardSectionLabel, FacilitatorTabLabel, FacilitatorScreenSharePanel, TeamScreenShareViewer, RoomMapPanel, TokenManagementPanel, FacilitatorToolsDrawer } from "./components/facilitator/FacilitatorComponents.jsx";
 import { PromptInsightsPanel } from "./components/facilitator/PromptInsightsPanel.jsx";
 import { AnamnesisInsightsPanel } from "./components/facilitator/AnamnesisInsightsPanel.jsx";
@@ -52,8 +53,9 @@ import {
 } from "./utils.js";
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
+import { AGENT_MISSION_ID, AGENT_ONBOARDING_SLIDES, AGENT_COMPOSER_STEPS, createDefaultAgentMissionState, normalizeAgentMissionState, buildAgentDemoResult, createDefaultAgentDraft, getAgentMissionExplainContent } from "./data/agentMission.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode, supportsWebSearch, getDefaultWebSearchModel } from "./data/models.js";
-import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, postHelpRequest, deleteAllEventData, deleteTeamScopedData, deleteTeamExecutions } from "./api/perTeam.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, postHelpRequest, deleteAllEventData, deleteTeamScopedData, listTeamExecutions } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
 import { useTeamState } from "./hooks/useTeamState.js";
 import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
@@ -114,6 +116,12 @@ function buildDashboardEnrichedEvent(baseEvent, dash) {
   if (!baseEvent) return baseEvent;
   if (!dash) return baseEvent;
   const eventPayload = dash.event?.payload || {};
+  const mergedEvent = migrateEventToFixedMissions({
+    ...baseEvent,
+    ...eventPayload,
+    participantAnalyses: baseEvent.participantAnalyses || eventPayload.participantAnalyses || {},
+    promptQualityModel: getEventPromptQualityModel(baseEvent || eventPayload),
+  });
   const teamRows = dash.teams || [];
   const reKeyAllTeams = (selector) => {
     const out = {};
@@ -123,60 +131,85 @@ function buildDashboardEnrichedEvent(baseEvent, dash) {
       Object.entries(map).forEach(([missionId, val]) => {
         out[`${row.team_idx}__${missionId}`] = val;
       });
-    });
+      });
     return out;
   };
+  const mergeExecutionGroups = (summaryGroups = {}, detailedGroups = {}) => {
+    const merged = { ...summaryGroups };
+    Object.entries(detailedGroups || {}).forEach(([key, value]) => {
+      if (!Array.isArray(value) || !value.length) return;
+      const hasDetailedPrompt = value.some((exec) => typeof exec?.input === "string" && exec.input.trim().length > 0);
+      if (hasDetailedPrompt || !Array.isArray(merged[key]) || !merged[key]?.length) {
+        merged[key] = value;
+      }
+    });
+    return merged;
+  };
+  const resolveDashboardTokenValue = (row) => {
+    if (typeof row?.tokens === "number") return row.tokens;
+    return row?.tokens?.total ?? 0;
+  };
+  const resolveDashboardInputTokens = (row) => {
+    if (typeof row?.tokens === "number") return 0;
+    return row?.tokens?.input ?? 0;
+  };
+  const resolveDashboardOutputTokens = (row) => {
+    if (typeof row?.tokens === "number") return 0;
+    return row?.tokens?.output ?? 0;
+  };
+  const summarizedExecucoes = (() => {
+    const groups = {};
+    (dash.recentExecutions || []).forEach((row) => {
+      if (row.mission_id === "__training__") return;
+      const key = `${row.team_idx}__${row.mission_id}`;
+      const payload = row.payload || {};
+      (groups[key] ||= []).push({
+        ...payload,
+        id: row.id,
+        ts: payload.ts || row.created_at,
+        tokens: payload.tokens ?? resolveDashboardTokenValue(row),
+        inputTokens: payload.inputTokens ?? resolveDashboardInputTokens(row),
+        outputTokens: payload.outputTokens ?? resolveDashboardOutputTokens(row),
+        custo: payload.custo ?? row.custo ?? 0,
+        aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+      });
+    });
+    return groups;
+  })();
+  const summarizedTrainingRuns = (() => {
+    const groups = {};
+    (dash.trainingExecutions || dash.recentExecutions || []).forEach((row) => {
+      if (row.mission_id !== "__training__") return;
+      const payload = row.payload || {};
+      (groups[`${row.team_idx}`] ||= []).push({
+        ...payload,
+        id: row.id,
+        ts: payload.ts || row.created_at,
+        tokens: payload.tokens ?? resolveDashboardTokenValue(row),
+        inputTokens: payload.inputTokens ?? resolveDashboardInputTokens(row),
+        outputTokens: payload.outputTokens ?? resolveDashboardOutputTokens(row),
+        custo: payload.custo ?? row.custo ?? 0,
+        aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+      });
+    });
+    return groups;
+  })();
   return {
-    ...baseEvent,
-    ...eventPayload,
-    participantAnalyses: baseEvent.participantAnalyses || {},
+    ...mergedEvent,
+    participantAnalyses: baseEvent.participantAnalyses || mergedEvent.participantAnalyses || {},
     reflexoes: reKeyAllTeams((p) => p.reflexoes),
     conclusoes: reKeyAllTeams((p) => p.conclusoes),
     questionariosPendentes: reKeyAllTeams((p) => p.questionariosPendentes),
     missionGlossaries: reKeyAllTeams((p) => p.missionGlossaries),
     preservedMissionUsage: reKeyAllTeams((p) => p.preservedMissionUsage),
+    agentMissionParticipants: reKeyAllTeams((p) => p.agentMissionParticipants),
     anamnesisResponses: Object.fromEntries(
       teamRows
         .filter((row) => row.payload?.anamnese)
         .map((row) => [row.team_idx, row.payload.anamnese]),
     ),
-    execucoes: (() => {
-      const groups = {};
-      (dash.recentExecutions || []).forEach((row) => {
-        if (row.mission_id === "__training__") return;
-        const key = `${row.team_idx}__${row.mission_id}`;
-        const payload = row.payload || {};
-        (groups[key] ||= []).push({
-          ...payload,
-          id: row.id,
-          ts: payload.ts || row.created_at,
-          tokens: payload.tokens ?? row.tokens?.total ?? 0,
-          inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
-          outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
-          custo: payload.custo ?? row.custo ?? 0,
-          aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
-        });
-      });
-      return groups;
-    })(),
-    trainingRuns: (() => {
-      const groups = {};
-      (dash.trainingExecutions || dash.recentExecutions || []).forEach((row) => {
-        if (row.mission_id !== "__training__") return;
-        const payload = row.payload || {};
-        (groups[`${row.team_idx}`] ||= []).push({
-          ...payload,
-          id: row.id,
-          ts: payload.ts || row.created_at,
-          tokens: payload.tokens ?? row.tokens?.total ?? 0,
-          inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
-          outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
-          custo: payload.custo ?? row.custo ?? 0,
-          aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
-        });
-      });
-      return groups;
-    })(),
+    execucoes: mergeExecutionGroups(summarizedExecucoes, baseEvent.execucoes || {}),
+    trainingRuns: mergeExecutionGroups(summarizedTrainingRuns, baseEvent.trainingRuns || {}),
     helpRequests: (dash.helpRequests || []).map((row) => ({
       id: row.id,
       teamIdx: row.team_idx,
@@ -197,6 +230,23 @@ function buildDashboardEnrichedEvent(baseEvent, dash) {
   };
 }
 
+function reshapeDashboardExecutionRow(row) {
+  const payload = row?.payload || {};
+  const totalTokens = typeof row?.tokens === "number" ? row.tokens : row?.tokens?.total ?? 0;
+  const inputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.input ?? 0;
+  const outputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.output ?? 0;
+  return {
+    ...payload,
+    id: row.id,
+    ts: payload.ts || row.created_at,
+    tokens: payload.tokens ?? totalTokens,
+    inputTokens: payload.inputTokens ?? inputTokens,
+    outputTokens: payload.outputTokens ?? outputTokens,
+    custo: payload.custo ?? row.custo ?? 0,
+    aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+  };
+}
+
 function buildRunSteps(apiConfigured) {
   if (apiConfigured) {
     return [];
@@ -206,6 +256,25 @@ function buildRunSteps(apiConfigured) {
     status: index === 0 ? "active" : "pending",
     label: step.label,
   }));
+}
+
+function isAgentMission(mission) {
+  return mission?.id === AGENT_MISSION_ID;
+}
+
+function getAgentParticipantStateKey(teamIdx, participantKey) {
+  return `${teamIdx}__${participantKey}`;
+}
+
+function getActiveAgentParticipantKey(memberName = "", teamName = "") {
+  const normalized = normalizeStudentName(memberName || "") || normalizeStudentName(teamName || "") || "participant";
+  return normalized.toLowerCase();
+}
+
+function getAgentMissionParticipantState(evento, teamIdx, participantKey) {
+  if (!evento || teamIdx === null || teamIdx === undefined || !participantKey) return createDefaultAgentMissionState();
+  const key = getAgentParticipantStateKey(teamIdx, participantKey);
+  return normalizeAgentMissionState(evento.agentMissionParticipants?.[key] || null);
 }
 function loadStore() {
   try {
@@ -368,6 +437,7 @@ function makeEvent({ name, desc, rawTeams }) {
     preservedMissionUsage: {},
     missionGlossaries: {},
     missionTokenPolicies: {},
+    agentMissionParticipants: {},
     tokenGrants: [],
     tokenOperationalLogs: [],
     helpRequests: [],
@@ -436,7 +506,22 @@ function getExecucoes(evento, teamIdx, missionId) {
 }
 
 function getTrainingRuns(evento, teamIdx) {
-  return evento.trainingRuns?.[`${teamIdx}`] || [];
+  const runs = evento.trainingRuns?.[`${teamIdx}`] || [];
+  const resetAt = getMissionResetAt(evento, teamIdx, "__training__");
+  if (!resetAt) return runs;
+  return runs.filter((exec) => exec.ts && exec.ts >= resetAt);
+}
+
+function getMissionHasAnyHistory(evento, teamIdx, missionId) {
+  if (!evento || teamIdx === null || teamIdx === undefined || !missionId) return false;
+  const rawExecs = evento.execucoes?.[`${teamIdx}__${missionId}`] || [];
+  const reflexao = evento.reflexoes?.[`${teamIdx}__${missionId}`] || null;
+  const pending = evento.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+  const conclusao = evento.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+  const preserved = getPreservedMissionUsage(evento, teamIdx, missionId);
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const preservedTotal = Number(preserved?.total || 0);
+  return rawExecs.length > 0 || Boolean(reflexao) || Boolean(pending) || Boolean(conclusao) || preservedTotal > 0 || Boolean(resetAt);
 }
 
 function getReflexao(evento, teamIdx, missionId) {
@@ -918,6 +1003,7 @@ function migrateEventToFixedMissions(event) {
     announcement: null,
     sessionTimerNotice: event.sessionTimerNotice || null,
     missionGlossaries: event.missionGlossaries || {},
+    agentMissionParticipants: event.agentMissionParticipants || {},
     missionTokenPolicies: event.missionTokenPolicies || {},
     tokenGrants: event.tokenGrants || [],
     tokenOperationalLogs: event.tokenOperationalLogs || [],
@@ -954,6 +1040,7 @@ function migrateEventToFixedMissions(event) {
     conclusoes: alreadyCanonical ? baseEvent.conclusoes || {} : {},
     preservedMissionUsage: alreadyCanonical ? baseEvent.preservedMissionUsage || {} : {},
     missionGlossaries: alreadyCanonical ? baseEvent.missionGlossaries || {} : {},
+    agentMissionParticipants: alreadyCanonical ? baseEvent.agentMissionParticipants || {} : {},
     helpRequests: alreadyCanonical ? baseEvent.helpRequests || [] : [],
     helpDisabledMap: alreadyCanonical ? baseEvent.helpDisabledMap || {} : {},
   };
@@ -3076,6 +3163,10 @@ function App() {
     }
   }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
+  const currentAgentParticipantKey = useMemo(
+    () => getActiveAgentParticipantKey(activeStudentName, team?.name || ""),
+    [activeStudentName, team?.name],
+  );
 
   const workspaceActive = screen === "workspace";
   const perTeamEventId = workspaceActive ? timeEventId : null;
@@ -3103,13 +3194,16 @@ function App() {
       Object.fromEntries(Object.entries(map || {}).map(([mid, val]) => [`${perTeamTeamIdx}__${mid}`, val]));
     const reshapeExec = (row) => {
       const payload = row?.payload || {};
+      const totalTokens = typeof row?.tokens === "number" ? row.tokens : row?.tokens?.total ?? 0;
+      const inputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.input ?? 0;
+      const outputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.output ?? 0;
       return {
         ...payload,
         id: row.id,
         ts: payload.ts || row.created_at,
-        tokens: payload.tokens ?? row.tokens?.total ?? 0,
-        inputTokens: payload.inputTokens ?? row.tokens?.input ?? 0,
-        outputTokens: payload.outputTokens ?? row.tokens?.output ?? 0,
+        tokens: payload.tokens ?? totalTokens,
+        inputTokens: payload.inputTokens ?? inputTokens,
+        outputTokens: payload.outputTokens ?? outputTokens,
         custo: payload.custo ?? row.custo ?? 0,
         aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
       };
@@ -3127,6 +3221,10 @@ function App() {
       questionariosPendentes: reKey(teamPayload.questionariosPendentes),
       missionGlossaries: reKey(teamPayload.missionGlossaries),
       preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
+      agentMissionParticipants: {
+        ...reKey(teamPayload.agentMissionParticipants),
+        ...(teamEvent.agentMissionParticipants || {}),
+      },
       trainingRuns: isTraining ? { [perTeamTeamIdx]: reshapedExecs } : {},
       anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
       helpRequests: (perTeamHelpHook.items || [])
@@ -3218,6 +3316,17 @@ function App() {
   const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
     ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission
     : currentMission;
+  const currentAgentMissionState = useMemo(
+    () =>
+      liveCurrentMission && isAgentMission(liveCurrentMission)
+        ? getAgentMissionParticipantState(effectiveTeamEvent || teamEvent, timeTeamIdx, currentAgentParticipantKey)
+        : createDefaultAgentMissionState(),
+    [currentAgentParticipantKey, effectiveTeamEvent, liveCurrentMission, teamEvent, timeTeamIdx],
+  );
+  const currentAgentExplainContent = useMemo(
+    () => getAgentMissionExplainContent(currentAgentMissionState),
+    [currentAgentMissionState],
+  );
   const currentMissionLocked = Boolean(!isTrainingEvent && liveCurrentMission && !liveCurrentMission.unlocked);
   const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
@@ -3279,9 +3388,13 @@ function App() {
     );
   }, [updateEvents]);
   const handleRetryParticipantAnalysis = useCallback(
-    (teamIdx, requestedModel = effectivePromptQualityModel) => {
+    async (teamIdx, requestedModel = effectivePromptQualityModel) => {
       if (!effectiveFacilitadorEvent) return;
-      const participant = buildParticipantDescriptor(effectiveFacilitadorEvent, teamIdx);
+      const hydratedEvent =
+        requestedModel === PROMPT_QUALITY_MODEL_2
+          ? await hydrateDetailedEventHistory(effectiveFacilitadorEvent.id, effectiveFacilitadorEvent)
+          : await hydrateDetailedTeamHistory(effectiveFacilitadorEvent.id, teamIdx, effectiveFacilitadorEvent);
+      const participant = buildParticipantDescriptor(hydratedEvent, teamIdx);
       if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) {
         setParticipantAnalysisEntry(effectiveFacilitadorEvent.id, participant.analysisKey, {
           analysisKey: participant.analysisKey,
@@ -3326,31 +3439,35 @@ function App() {
       if (requestedModel === PROMPT_QUALITY_MODEL_2) {
         void runParticipantPromptQualityLabAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
           force: true,
-          sourceEvent: effectiveFacilitadorEvent,
+          sourceEvent: hydratedEvent,
         });
       } else {
         void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
           force: true,
-          sourceEvent: effectiveFacilitadorEvent,
+          sourceEvent: hydratedEvent,
         });
       }
     },
     [effectiveFacilitadorEvent, effectivePromptQualityModel],
   );
-  const handleOpenParticipantInsightsDrawer = useCallback((teamIdx) => {
+  const handleOpenParticipantInsightsDrawer = useCallback(async (teamIdx) => {
     setParticipantInsightsDrawerState({ open: true, teamIdx });
     if (!effectiveFacilitadorEvent) return;
-    const participant = buildParticipantDescriptor(effectiveFacilitadorEvent, teamIdx);
+    const hydratedEvent =
+      effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2
+        ? await hydrateDetailedEventHistory(effectiveFacilitadorEvent.id, effectiveFacilitadorEvent)
+        : await hydrateDetailedTeamHistory(effectiveFacilitadorEvent.id, teamIdx, effectiveFacilitadorEvent);
+    const participant = buildParticipantDescriptor(hydratedEvent, teamIdx);
     if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) {
       return;
     }
     if (effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2) {
       void runParticipantPromptQualityLabAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
-        sourceEvent: effectiveFacilitadorEvent,
+        sourceEvent: hydratedEvent,
       });
     } else {
       void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
-        sourceEvent: effectiveFacilitadorEvent,
+        sourceEvent: hydratedEvent,
       });
     }
   }, [effectiveFacilitadorEvent, effectivePromptQualityModel]);
@@ -3519,17 +3636,23 @@ function App() {
         setParticipantUtilityRailExpanded(false);
         if (timeTeamIdx === null || !(effectiveTeamAnalysisEvent || effectiveTeamEvent)) return;
         const analysisEvent = effectiveTeamAnalysisEvent || effectiveTeamEvent;
-        const participant = buildParticipantDescriptor(analysisEvent, timeTeamIdx, effectiveWorkspacePromptQualityModel);
-        if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
-        if (effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2) {
-          void runParticipantPromptQualityLabAnalysis(analysisEvent.id, timeTeamIdx, {
-            sourceEvent: analysisEvent,
-          });
-        } else {
-          void runParticipantJourneyAnalysis(analysisEvent.id, timeTeamIdx, {
-            sourceEvent: analysisEvent,
-          });
-        }
+        void (async () => {
+          const hydratedEvent =
+            effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2
+              ? await hydrateDetailedEventHistory(analysisEvent.id, analysisEvent)
+              : await hydrateDetailedTeamHistory(analysisEvent.id, timeTeamIdx, analysisEvent);
+          const participant = buildParticipantDescriptor(hydratedEvent, timeTeamIdx, effectiveWorkspacePromptQualityModel);
+          if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
+          if (effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2) {
+            void runParticipantPromptQualityLabAnalysis(analysisEvent.id, timeTeamIdx, {
+              sourceEvent: hydratedEvent,
+            });
+          } else {
+            void runParticipantJourneyAnalysis(analysisEvent.id, timeTeamIdx, {
+              sourceEvent: hydratedEvent,
+            });
+          }
+        })();
       },
     },
     {
@@ -4107,6 +4230,110 @@ function App() {
         };
       }),
     );
+  }
+
+  async function hydrateDetailedTeamHistory(eventId, teamIdx, sourceEvent = null) {
+    const eventRef = sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId) || null;
+    if (!eventRef) return eventRef;
+    const rows = await listTeamExecutions(eventId, teamIdx, { limit: 5000 });
+    const missionGroups = {};
+    const trainingRuns = [];
+
+    (rows || []).forEach((row) => {
+      const exec = reshapeDashboardExecutionRow(row);
+      if (row.mission_id === "__training__") {
+        trainingRuns.push({ ...exec, missionId: TRAINING_THREAD_ID });
+        return;
+      }
+      const key = `${teamIdx}__${row.mission_id}`;
+      (missionGroups[key] ||= []).push({ ...exec, missionId: row.mission_id });
+    });
+
+    let hydratedEvent = null;
+    updateEventsLocal((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const nextEvent = {
+          ...event,
+          execucoes: {
+            ...(event.execucoes || {}),
+            ...missionGroups,
+          },
+          trainingRuns: {
+            ...(event.trainingRuns || {}),
+            [`${teamIdx}`]: trainingRuns,
+          },
+        };
+        hydratedEvent = nextEvent;
+        return nextEvent;
+      }),
+    );
+
+    if (hydratedEvent) return hydratedEvent;
+    return {
+      ...eventRef,
+      execucoes: {
+        ...(eventRef.execucoes || {}),
+        ...missionGroups,
+      },
+      trainingRuns: {
+        ...(eventRef.trainingRuns || {}),
+        [`${teamIdx}`]: trainingRuns,
+      },
+    };
+  }
+
+  async function hydrateDetailedEventHistory(eventId, sourceEvent = null) {
+    const eventRef = sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId) || null;
+    if (!eventRef) return eventRef;
+    const teamIndexes = Array.from({ length: Array.isArray(eventRef.teams) ? eventRef.teams.length : 0 }, (_, index) => index);
+    if (!teamIndexes.length) return eventRef;
+
+    const perTeamRows = await Promise.all(
+      teamIndexes.map(async (teamIdx) => ({
+        teamIdx,
+        rows: await listTeamExecutions(eventId, teamIdx, { limit: 5000 }),
+      })),
+    );
+
+    const nextExecucoes = { ...(eventRef.execucoes || {}) };
+    const nextTrainingRuns = { ...(eventRef.trainingRuns || {}) };
+
+    perTeamRows.forEach(({ teamIdx, rows }) => {
+      const missionGroups = {};
+      const trainingRuns = [];
+      (rows || []).forEach((row) => {
+        const exec = reshapeDashboardExecutionRow(row);
+        if (row.mission_id === "__training__") {
+          trainingRuns.push({ ...exec, missionId: TRAINING_THREAD_ID });
+          return;
+        }
+        const key = `${teamIdx}__${row.mission_id}`;
+        (missionGroups[key] ||= []).push({ ...exec, missionId: row.mission_id });
+      });
+      Object.assign(nextExecucoes, missionGroups);
+      nextTrainingRuns[`${teamIdx}`] = trainingRuns;
+    });
+
+    let hydratedEvent = null;
+    updateEventsLocal((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const nextEvent = {
+          ...event,
+          execucoes: nextExecucoes,
+          trainingRuns: nextTrainingRuns,
+        };
+        hydratedEvent = nextEvent;
+        return nextEvent;
+      }),
+    );
+
+    return hydratedEvent || {
+      ...eventRef,
+      execucoes: nextExecucoes,
+      trainingRuns: nextTrainingRuns,
+    };
   }
 
   async function runParticipantJourneyAnalysis(eventId, teamIdx, options = {}) {
@@ -5446,6 +5673,7 @@ function App() {
           questionariosPendentes: filterMissionKeyMap(event.questionariosPendentes),
           conclusoes: filterMissionKeyMap(event.conclusoes),
           preservedMissionUsage: filterMissionKeyMap(event.preservedMissionUsage),
+          agentMissionParticipants: filterMissionKeyMap(event.agentMissionParticipants),
           helpRequests: (event.helpRequests || []).filter((request) => request.teamIdx !== index),
           helpDisabledMap: remapTeamScopedMap(event.helpDisabledMap),
           trainingRuns: Object.fromEntries(
@@ -5838,6 +6066,111 @@ function App() {
     setTimeMissionIdx(index);
   }
 
+  function handleAdvanceAgentSlide() {
+    patchCurrentAgentMissionState((current) => ({
+      ...current,
+      slideIndex: Math.min(AGENT_ONBOARDING_SLIDES.length - 1, (current.slideIndex || 0) + 1),
+    }));
+  }
+
+  function handleBackAgentSlide() {
+    patchCurrentAgentMissionState((current) => ({
+      ...current,
+      slideIndex: Math.max(0, (current.slideIndex || 0) - 1),
+    }));
+  }
+
+  function handleJumpAgentToComposer() {
+    patchCurrentAgentMissionState((current) => ({
+      ...current,
+      agentOnboardingCompleted: true,
+      currentStep: "composer",
+      slideIndex: AGENT_ONBOARDING_SLIDES.length - 1,
+      composerStep: Math.max(0, current.composerStep || 0),
+      completedSteps: Array.isArray(current.completedSteps) ? current.completedSteps : [],
+    }));
+  }
+
+  function handleUpdateAgentDraft(patch) {
+    patchCurrentAgentMissionState((current) => {
+      const nextDraft = {
+        ...createDefaultAgentDraft(),
+        ...(current.agentDraft || {}),
+        ...(patch || {}),
+      };
+      return {
+        ...current,
+        currentStep: current.agentOnboardingCompleted ? current.currentStep : "composer",
+        agentDraft: nextDraft,
+      };
+    });
+  }
+
+  function handleGoToAgentComposerStep(nextStepIndex) {
+    patchCurrentAgentMissionState((current) => {
+      const boundedNextStep = Math.max(0, Math.min(AGENT_COMPOSER_STEPS.length - 1, nextStepIndex));
+      const currentStepKey = AGENT_COMPOSER_STEPS[Math.max(0, current.composerStep || 0)] || AGENT_COMPOSER_STEPS[0];
+      const completedSteps = Array.isArray(current.completedSteps) ? [...current.completedSteps] : [];
+      if (boundedNextStep > (current.composerStep || 0) && !completedSteps.includes(currentStepKey)) {
+        completedSteps.push(currentStepKey);
+      }
+      return {
+        ...current,
+        agentOnboardingCompleted: true,
+        currentStep: "composer",
+        composerStep: boundedNextStep,
+        completedSteps,
+      };
+    });
+  }
+
+  function handleExecuteAgentMission() {
+    if (!teamEvent || timeTeamIdx === null) return;
+    const nextDraft = currentAgentMissionState.agentDraft || createDefaultAgentDraft();
+    patchCurrentAgentMissionState((current) => ({
+      ...current,
+      agentOnboardingCompleted: true,
+      currentStep: "running",
+      composerStep: AGENT_COMPOSER_STEPS.length - 1,
+      agentDraft: nextDraft,
+    }));
+    setRunning(true);
+    setRunError("");
+    window.setTimeout(() => {
+      const result = buildAgentDemoResult(nextDraft);
+      patchCurrentAgentMissionState((current) => ({
+        ...current,
+        agentOnboardingCompleted: true,
+        currentStep: "result",
+        composerStep: AGENT_COMPOSER_STEPS.length - 1,
+        agentLastRun: {
+          ts: new Date().toISOString(),
+          source: "demo",
+          inboxSize: result.inboxSize,
+        },
+        agentDemoResult: result,
+      }));
+      setRunning(false);
+      showToast("Agente executado em modo demonstração");
+    }, 900);
+  }
+
+  function handleOpenAgentRealConnection() {
+    patchCurrentAgentMissionState((current) => ({
+      ...current,
+      currentStep: "connect",
+      agentRealConnectionStatus: "requested",
+    }));
+    showToast("Conexão Gmail preparada para a próxima etapa");
+  }
+
+  function handleResetAgentMission() {
+    patchCurrentAgentMissionState(() => createDefaultAgentMissionState());
+    setRunning(false);
+    setRunError("");
+    showToast("Jornada do agente reiniciada");
+  }
+
   function saveExecution(eventId, teamIdx, missionId, execData) {
     const executionId = `${execData.id || `${teamIdx}_${missionId}_${execData.ts || Date.now()}`}`;
     void perTeamExecutionsHook.append({
@@ -6103,6 +6436,42 @@ function App() {
     }
   }
 
+  function patchAgentMissionState(eventId, teamIdx, participantKey, updater) {
+    if (!eventId || teamIdx === null || teamIdx === undefined || !participantKey) return;
+    void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+      const existing = payload || {};
+      const currentState = normalizeAgentMissionState(existing.agentMissionParticipants?.[participantKey] || null);
+      const nextState = normalizeAgentMissionState(updater(currentState));
+      return {
+        ...existing,
+        agentMissionParticipants: {
+          ...(existing.agentMissionParticipants || {}),
+          [participantKey]: nextState,
+        },
+      };
+    });
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const scopedKey = getAgentParticipantStateKey(teamIdx, participantKey);
+        const currentState = normalizeAgentMissionState(event.agentMissionParticipants?.[scopedKey] || null);
+        const nextState = normalizeAgentMissionState(updater(currentState));
+        return {
+          ...event,
+          agentMissionParticipants: {
+            ...(event.agentMissionParticipants || {}),
+            [scopedKey]: nextState,
+          },
+        };
+      }),
+    );
+  }
+
+  function patchCurrentAgentMissionState(updater) {
+    if (!teamEvent || timeTeamIdx === null || !currentAgentParticipantKey) return;
+    patchAgentMissionState(teamEvent.id, timeTeamIdx, currentAgentParticipantKey, updater);
+  }
+
   function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
     if (!teamIndexes.length) return;
     const openedAt = new Date().toISOString();
@@ -6223,9 +6592,6 @@ function App() {
     }
     const resetAt = new Date(getSyncedNowMs()).toISOString();
     teamIndexes.forEach((teamIdx) => {
-      void deleteTeamExecutions(eventId, teamIdx, { missionId }).catch((err) =>
-        console.error(`handleFacilitatorReopenMission delete:`, err),
-      );
       void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
         const existing = payload || {};
         const reflexoes = { ...(existing.reflexoes || {}) };
@@ -6736,15 +7102,42 @@ function App() {
     stampedEvents.forEach((event) => void pushEventStateChange(event.id, event));
   }
 
-  function handleResetMissionFromZero() {
-    if (!teamEvent || timeTeamIdx === null || !currentMission) return;
-    const key = getMissionUsageKey(timeTeamIdx, currentMission.id);
+  function handleResetMissionFromZero(missionId = currentMission?.id, missionIndex = timeMissionIdx) {
+    if (!teamEvent || timeTeamIdx === null || !missionId) return;
+    if (isAgentMission({ id: missionId })) {
+      if (!currentAgentParticipantKey) return;
+      const targetEventId = teamEvent.id;
+      const targetTeamIdx = timeTeamIdx;
+      const participantKey = currentAgentParticipantKey;
+      patchAgentMissionState(targetEventId, targetTeamIdx, participantKey, () => createDefaultAgentMissionState());
+      updateCriticalEvents((current) =>
+        current.map((event) => {
+          if (event.id !== targetEventId) return event;
+          const scopedKey = getAgentParticipantStateKey(targetTeamIdx, participantKey);
+          const nextParticipants = { ...(event.agentMissionParticipants || {}) };
+          nextParticipants[scopedKey] = createDefaultAgentMissionState();
+          return {
+            ...event,
+            agentMissionParticipants: nextParticipants,
+          };
+        }),
+      );
+      setMissionInput("");
+      setRunError("");
+      setRunState(null);
+      setMissionFlow({ stage: "idle", exec: null });
+      showToast("Missão reaberta do zero");
+      return;
+    }
+
+    const key = getMissionUsageKey(timeTeamIdx, missionId);
     const resetAt = new Date(getSyncedNowMs()).toISOString();
     const targetEventId = teamEvent.id;
     const targetTeamIdx = timeTeamIdx;
-    const targetMissionId = currentMission.id;
+    const targetMissionId = missionId;
+    const targetExecs = getExecucoes(effectiveTeamEvent || teamEvent, targetTeamIdx, targetMissionId);
 
-    const removedTotals = currentExecs.reduce(
+    const removedTotals = targetExecs.reduce(
       (acc, exec) => ({
         total: acc.total + (exec.tokens || 0),
         input: acc.input + (exec.inputTokens || 0),
@@ -6756,10 +7149,6 @@ function App() {
         explanationCost: acc.explanationCost + (exec.technicalAnalysisUsage?.cost || 0),
       }),
       { total: 0, input: 0, output: 0, cost: 0, explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0 },
-    );
-
-    void deleteTeamExecutions(targetEventId, targetTeamIdx, { missionId: targetMissionId }).catch((err) =>
-      console.error(`handleResetMissionFromZero delete executions:`, err),
     );
 
     void patchTeamStatePerTeamWithFallback(targetEventId, targetTeamIdx, (payload) => {
@@ -6828,18 +7217,14 @@ function App() {
     if (!teamEvent || timeTeamIdx === null) return;
     const eventId = teamEvent.id;
     const targetTeamIdx = timeTeamIdx;
-    void deleteTeamExecutions(eventId, targetTeamIdx, { missionId: "__training__" }).catch((err) =>
-      console.error(`handleResetTrainingConversation:`, err),
-    );
+    const resetAt = new Date(getSyncedNowMs()).toISOString();
 
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const trainingRuns = { ...(event.trainingRuns || {}) };
-        delete trainingRuns[`${targetTeamIdx}`];
         return {
           ...event,
-          trainingRuns,
+          missionResets: { ...(event.missionResets || {}), [`${targetTeamIdx}____training__`]: resetAt },
           trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== targetTeamIdx),
           participantAnalyses: Object.fromEntries(
             Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== targetTeamIdx),
@@ -7655,6 +8040,9 @@ function App() {
             ref={facilitatorUtilityRailRef}
             className={`participant-utility-rail facilitator-utility-rail${facilitatorUtilityRailExpanded ? " is-expanded" : ""}`}
             aria-label="Ferramentas do facilitador"
+            onMouseEnter={() => {
+              if (!facilitatorUtilityRailExpanded) setFacilitatorUtilityRailExpanded(true);
+            }}
             onMouseLeave={() => {
               if (facilitatorUtilityRailExpanded) setFacilitatorUtilityRailExpanded(false);
             }}
@@ -8044,6 +8432,9 @@ function App() {
               ref={participantUtilityRailRef}
               className={`participant-utility-rail${participantUtilityRailExpanded ? " is-expanded" : ""}`}
               aria-label="Ações do participante"
+              onMouseEnter={() => {
+                if (!participantUtilityRailExpanded) setParticipantUtilityRailExpanded(true);
+              }}
               onMouseLeave={() => {
                 if (participantUtilityRailExpanded) setParticipantUtilityRailExpanded(false);
               }}
@@ -8147,7 +8538,7 @@ function App() {
                               ? "em andamento"
                               : "liberada";
                       const isCurrentMission = timeMissionIdx === index;
-                      const canResetMission = isCurrentMission && hasMissionHistory;
+                      const canResetMission = getMissionHasAnyHistory(effectiveTeamEvent, timeTeamIdx, mission.id);
                       return (
                         <div className="mission-item-wrap" key={`${mission.id}-${index}`}>
                           <button
@@ -8171,7 +8562,7 @@ function App() {
                           {isCurrentMission ? (
                             <div className="mission-item-brief">
                               <div className="mission-item-brief-meta">
-                                <span>IA: {AI_MODE_LABELS[getMissionAiMode(mission)]}</span>
+                                <span>{isAgentMission(mission) ? "Modo: Agente" : `IA: ${AI_MODE_LABELS[getMissionAiMode(mission)]}`}</span>
                               </div>
                               <div className="mission-item-brief-block">
                                 <strong className="mini-label mission-brief-label">
@@ -8196,7 +8587,7 @@ function App() {
                                 openConfirm(
                                   "Reabrir missão do zero",
                                   "Isso vai apagar respostas, explicações, histórico, questionário e status de concluída desta missão para o time atual. Os tokens consumidos permanecerão no acumulado histórico. Deseja continuar?",
-                                  handleResetMissionFromZero,
+                                  () => handleResetMissionFromZero(mission.id, index),
                                 )
                               }
                             >
@@ -8227,7 +8618,7 @@ function App() {
                 />
               ) : (
                 <>
-                  {!isTrainingEvent && !currentConcluida && !currentQuestionarioPendente ? (
+                  {!isTrainingEvent && !isAgentMission(currentMission) && !currentConcluida && !currentQuestionarioPendente ? (
                     <div className="workspace-mission-top-actions">
                       <button
                         className="mission-close-btn is-compact"
@@ -8248,17 +8639,31 @@ function App() {
                   ) : null}
                   <div className="workspace-col-label is-block">
                     <span className="ws-column-label-icon" aria-hidden="true">
-                      <MessageSquareText size={15} strokeWidth={1.7} />
+                      {isAgentMission(currentMission) ? <Waypoints size={15} strokeWidth={1.7} /> : <MessageSquareText size={15} strokeWidth={1.7} />}
                     </span>
                     <div className="workspace-col-label-copy workspace-col-label-copy-inline">
-                      <span className="workspace-col-label-title">TECH HALL GPT</span>
+                      <span className="workspace-col-label-title">{isAgentMission(currentMission) ? "TECH HALL AGENTE" : "TECH HALL GPT"}</span>
                       <span className="workspace-col-label-sub workspace-col-label-sub-inline">
-                        {apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
+                        {isAgentMission(currentMission) ? "GUIDED DEMO EXPERIENCE" : apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
                       </span>
                     </div>
                   </div>
                   <div className="workspace-chat-body">
-                    {(!currentConcluida && !currentQuestionarioPendente) ? (
+                    {isAgentMission(currentMission) ? (
+                      <AgentMissionPanel
+                        participantName={activeStudentName}
+                        missionState={currentAgentMissionState}
+                        running={running}
+                        onAdvanceSlide={handleAdvanceAgentSlide}
+                        onBackSlide={handleBackAgentSlide}
+                        onJumpToComposer={handleJumpAgentToComposer}
+                        onUpdateDraft={handleUpdateAgentDraft}
+                        onGoToComposerStep={handleGoToAgentComposerStep}
+                        onExecuteAgent={handleExecuteAgentMission}
+                        onOpenRealConnection={handleOpenAgentRealConnection}
+                        onResetAgentMission={handleResetAgentMission}
+                      />
+                    ) : (!currentConcluida && !currentQuestionarioPendente) ? (
                       <div className="input-card input-card-chat">
                         <div className="prompt-composer">
                           <PromptConversation
@@ -8377,7 +8782,7 @@ function App() {
                       </div>
                     ) : null}
 
-                    {!isTrainingEvent ? (
+                    {!isTrainingEvent && !isAgentMission(currentMission) ? (
                       <>
                         <MissionClosurePanel
                           stage={missionFlow.stage}
@@ -8429,7 +8834,23 @@ function App() {
                   </div>
                 </div>
                 <div className="workspace-explain-body">
-                  {readingStage && readingExec ? (
+                  {isAgentMission(currentMission) ? (
+                    <div className="agent-explain-placeholder">
+                      <div className="agent-explain-card">
+                        <div className="agent-explain-kicker">Componente em foco</div>
+                        <div className="agent-explain-title">{currentAgentExplainContent.title}</div>
+                        <div className="agent-explain-copy">{currentAgentExplainContent.body}</div>
+                        <div className="agent-explain-list">
+                          {(currentAgentExplainContent.items || []).map((item) => (
+                            <div className="agent-explain-list-item" key={item}>
+                              <span className="agent-explain-list-dot" />
+                              <span>{item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : readingStage && readingExec ? (
                     <MissionReadingPanel
                       exec={readingExec}
                       onSubmitFeedback={(feedback) => {

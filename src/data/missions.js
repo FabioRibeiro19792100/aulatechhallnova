@@ -1,5 +1,4 @@
 import { CHAT_AI_MODE, CODING_AI_MODE, TRAINING_THREAD_ID } from "../utils.js";
-
 export const TRAINING_MISSION = {
   id: TRAINING_THREAD_ID,
   num: 0,

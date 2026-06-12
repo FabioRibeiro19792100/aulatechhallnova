@@ -31,7 +31,10 @@ function getExecucoesRaw(evento, teamIdx, missionId) {
 }
 
 function getTrainingRuns(evento, teamIdx) {
-  return evento.trainingRuns?.[`${teamIdx}`] || [];
+  const runs = evento.trainingRuns?.[`${teamIdx}`] || [];
+  const resetAt = getMissionResetAt(evento, teamIdx, "__training__");
+  if (!resetAt) return runs;
+  return runs.filter((exec) => exec?.ts && exec.ts >= resetAt);
 }
 
 function getLatestTrainingRun(evento, teamIdx) {
@@ -383,6 +386,7 @@ export function DashboardPanel({
 
   const openHelpRequests = getOpenHelpRequests(evento);
   const unlockedMissions = evento.missions.filter((mission) => mission.unlocked);
+  const visibleMissions = evento.missions || [];
   const trainingMissionSummary = {
     id: TRAINING_MISSION_CARD_ID,
     name: "Treino",
@@ -643,7 +647,7 @@ export function DashboardPanel({
                       <div className="team-mission-section-head">
                         <span className="mini-label team-mission-section-label">
                           <ListChecks size={16} strokeWidth={1.6} aria-hidden="true" />
-                          <span>Missões liberadas</span>
+                          <span>Missões do evento</span>
                         </span>
                       </div>
                       <div className="team-mission-list">
@@ -732,7 +736,7 @@ export function DashboardPanel({
             </div>
           ) : (
             <div className="mission-admin-grid">
-              {[trainingMissionSummary, ...unlockedMissions].map((mission, missionIndex) => {
+              {[trainingMissionSummary, ...visibleMissions].map((mission, missionIndex) => {
                 let missionTokens = 0;
                 let missionCusto = 0;
                 let missionRuns = 0;
@@ -796,7 +800,7 @@ export function DashboardPanel({
                           {isTrainingCard ? "Treino" : `${missionIndex}. ${mission.name}`}
                         </div>
                         <div className="mission-admin-sub">
-                          {missionConcluded}/{evento.teams.length} {isTrainingCard ? "times utilizaram" : "times concluíram"}
+                          {missionConcluded}/{evento.teams.length} {isTrainingCard ? "times utilizaram" : mission.unlocked ? "times concluíram" : "missão ainda não liberada"}
                         </div>
                       </div>
                       {missionHelpOpen ? (
@@ -827,7 +831,7 @@ export function DashboardPanel({
                                     )
                                   : null
                             }
-                            disabled={!missionHasOpenTeams && !missionHasReopenableTeams}
+                            disabled={!mission.unlocked || (!missionHasOpenTeams && !missionHasReopenableTeams)}
                           >
                             {missionHasOpenTeams ? "Encerrar missão" : "Reabrir missão"}
                           </button>
@@ -842,7 +846,7 @@ export function DashboardPanel({
                                 { confirmTone: "primary" },
                               )
                             }
-                            disabled={!missionHasOpenTeams}
+                            disabled={!mission.unlocked || !missionHasOpenTeams}
                           >
                             Encerrar sem avaliação
                           </button>

@@ -38,7 +38,7 @@ function getStatusClassName(entry) {
 }
 
 function getStatusText(entry) {
-  if (entry?.status === "ready") return "Leitura pronta";
+  if (entry?.status === "ready") return "Leitura disponível";
   if (entry?.status === "unavailable") return "Analise indisponivel";
   if (entry?.status === "pending") return "Analise em processamento";
   return "A leitura sera gerada automaticamente conforme novas rodadas entram.";
@@ -49,6 +49,13 @@ function isEntryTrusted({ participant, entry }) {
   if (entry.status !== "ready") return false;
   if (entry.historySignature !== participant.historySignature) return false;
   return Boolean(entry.analysis);
+}
+
+function isEntryStale({ participant, entry }) {
+  if (!participant || !entry) return false;
+  if (entry.status !== "ready") return false;
+  if (!entry.analysis) return false;
+  return entry.historySignature !== participant.historySignature;
 }
 
 function toPrettyJson(value) {
@@ -243,7 +250,11 @@ export function ParticipantInsightsPanel({ evento, participant = null, compact =
     participant: selectedParticipant,
     entry: selectedEntry,
   });
-  const payload = trustedEntry ? selectedEntry?.analysis || null : null;
+  const staleEntry = isEntryStale({
+    participant: selectedParticipant,
+    entry: selectedEntry,
+  });
+  const payload = trustedEntry || staleEntry ? selectedEntry?.analysis || null : null;
   const dimensions = payload?.dimensions || {};
   const unlockedMissionCount = Array.isArray(evento?.missions)
     ? evento.missions.filter((mission) => mission.unlocked).length
@@ -499,7 +510,9 @@ export function ParticipantInsightsPanel({ evento, participant = null, compact =
                     <strong>{hasMinimumHistory ? getStatusText(selectedEntry) : `A análise só acontece a partir de ${MIN_PARTICIPANT_ANALYSIS_PROMPTS} prompts`}</strong>
                     <span>
                       {hasMinimumHistory
-                        ? selectedEntry?.errorMessage || "Assim que houver historico suficiente, o sistema consolida as rodadas e monta a leitura pedagogica."
+                        ? staleEntry
+                          ? "A leitura disponível ficou desatualizada depois de novas rodadas. Regenerar agora sincroniza a leitura com o histórico atual."
+                          : selectedEntry?.errorMessage || "Assim que houver histórico suficiente, o sistema consolida as rodadas e monta a leitura pedagógica."
                         : `Este participante ainda tem ${historyCount} prompt${historyCount === 1 ? "" : "s"}.`}
                     </span>
                   </>

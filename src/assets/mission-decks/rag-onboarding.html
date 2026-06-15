@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG · A IA que consulta antes de responder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F6F6F2;
+    --ink:#15171B;
+    --ink-soft:#5A5E66;
+    --line:#D8D9D2;
+    --card:#FFFFFF;
+    --preparar:#2742F0;
+    --buscar:#15171B;
+    --responder:#0E9F2E;
+    --neon:#39FF14;
+    --display:'Archivo Black', 'Archivo', sans-serif;
+    --body:'Archivo', system-ui, sans-serif;
+    --mono:'IBM Plex Mono', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; background:var(--paper); overflow:hidden;}
+  body{font-family:var(--body); color:var(--ink);}
+
+  #viewport{position:fixed; inset:0; display:flex; align-items:center; justify-content:center;}
+  #stage{width:1280px; height:720px; position:relative; transform-origin:center center; background:var(--paper);}
+
+  .slide{
+    position:absolute; inset:0; padding:64px 88px 96px; overflow:hidden;
+    opacity:0; visibility:hidden; transform:translateX(28px);
+    transition:opacity .38s ease, transform .38s ease, visibility 0s linear .38s;
+  }
+  .slide.active{
+    opacity:1; visibility:visible; transform:translateX(0);
+    transition:opacity .38s ease, transform .38s ease;
+  }
+  @media (prefers-reduced-motion: reduce){
+    .slide, .slide.active{transition:none; transform:none;}
+  }
+
+  .kicker{
+    font-family:var(--mono); font-size:13px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-soft); margin-bottom:22px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .kicker .tick{width:28px; height:2px; background:var(--ink);}
+  .kicker .tag{
+    padding:3px 10px; border:1px solid var(--line); border-radius:99px;
+    background:var(--card); letter-spacing:.1em;
+  }
+  .kicker .tag.p{border-color:var(--preparar); color:var(--preparar);}
+  .kicker .tag.b{border-color:var(--buscar); color:var(--buscar);}
+  .kicker .tag.r{border-color:var(--responder); color:var(--responder);}
+
+  h1{
+    font-family:var(--display); font-weight:400;
+    font-size:60px; line-height:1.05; letter-spacing:-.01em;
+    max-width:780px; margin-bottom:22px;
+  }
+  .lead{font-size:21px; line-height:1.55; color:var(--ink-soft); max-width:620px;}
+  .lead strong{color:var(--ink); font-weight:600;}
+  .bigdef{font-size:26px; font-weight:600; line-height:1.45; max-width:880px; margin-bottom:24px;}
+  .bigdef em{font-style:normal; color:var(--responder);}
+  .caption{font-size:15px; color:var(--ink-soft); margin-top:20px; max-width:680px; line-height:1.6;}
+  .caption strong{color:var(--ink);}
+
+  .split{display:grid; grid-template-columns:1fr 430px; gap:40px; height:100%; align-items:center;}
+  .split h1{font-size:46px;}
+
+  /* trio (slide 1) */
+  .trio{display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-top:48px;}
+  .trio .cell{border:1px solid var(--line); background:var(--card); border-radius:10px; padding:28px; position:relative;}
+  .trio .cell .mode{font-family:var(--mono); font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft);}
+  .trio .cell .verb{font-family:var(--display); font-size:32px; margin-top:13px;}
+  .trio .cell .desc{font-size:15px; color:var(--ink-soft); margin-top:10px; line-height:1.5;}
+  .trio .cell.hot{border:2px solid var(--responder);}
+  .trio .cell.hot .badge{
+    position:absolute; top:-13px; left:24px; background:var(--neon); color:var(--ink);
+    font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    padding:4px 10px; border-radius:99px;
+  }
+
+  /* duo compare */
+  .duo{display:grid; grid-template-columns:1fr 1fr; gap:18px; max-width:880px; margin-bottom:18px;}
+  .duo .dcard{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px 24px;}
+  .duo .dcard.hot{border:2px solid var(--responder);}
+  .duo .dlabel{font-family:var(--mono); font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-soft);}
+  .duo .dcard.hot .dlabel{color:var(--responder);}
+  .duo .dtitle{font-family:var(--display); font-size:24px; margin-top:8px;}
+  .duo .ddesc{font-size:15px; color:var(--ink-soft); margin-top:8px; line-height:1.55;}
+  .duo .dquote{font-size:16px; font-weight:600; margin-top:10px; line-height:1.5;}
+  .duo .dnote{font-family:var(--mono); font-size:12px; margin-top:10px; color:var(--ink-soft);}
+  .duo .dcard.hot .dnote{color:var(--responder);}
+
+  .band{display:flex; align-items:baseline; gap:16px; border-radius:10px; padding:14px 22px;}
+  .band.dark{background:var(--ink); color:#fff;}
+  .band.dash{background:var(--card); border:1px dashed var(--ink-soft); color:var(--ink);}
+  .band .bterm{font-family:var(--mono); font-size:13px; letter-spacing:.14em; text-transform:uppercase; font-weight:500; flex-shrink:0;}
+  .band .bdef{font-size:15px; opacity:.85; line-height:1.45;}
+
+  /* numbered legend (cycle slide) */
+  .legend-list{display:flex; flex-direction:column; gap:18px; max-width:560px; margin-top:6px;}
+  .legend-item{display:flex; gap:16px; align-items:flex-start;}
+  .legend-item .num{
+    width:32px; height:32px; border-radius:50%; color:#fff; flex-shrink:0;
+    font-family:var(--mono); font-size:15px; font-weight:500;
+    display:flex; align-items:center; justify-content:center; margin-top:1px;
+  }
+  .legend-item .lt{font-size:16px; line-height:1.5; color:var(--ink-soft);}
+  .legend-item .lt strong{color:var(--ink); font-weight:600;}
+
+  /* example card */
+  .agent-card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:34px 34px; box-shadow:0 18px 50px rgba(21,23,27,.07);
+  }
+  .agent-card .avatar{
+    width:68px; height:68px; border-radius:16px; background:var(--ink);
+    display:flex; align-items:center; justify-content:center; margin-bottom:20px;
+  }
+  .agent-card .name{font-family:var(--display); font-size:28px;}
+  .agent-card .role{font-family:var(--mono); font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); margin-top:6px;}
+  .agent-card .files{font-family:var(--mono); font-size:13px; line-height:1.9; color:var(--ink-soft); margin-top:16px;}
+  .agent-card .mission{
+    margin-top:20px; padding:18px 20px; border-left:4px solid var(--responder);
+    background:#EFFBEA; border-radius:0 10px 10px 0;
+  }
+  .agent-card .mission .mlabel{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--responder);}
+  .agent-card .mission .mtext{font-size:19px; font-weight:600; margin-top:8px; line-height:1.4;}
+
+  /* UI mocks */
+  .mockpanel{margin-top:28px; max-width:660px; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden;}
+  .mockhead{background:#ECEDE8; padding:9px 18px; font-family:var(--mono); font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-soft); border-bottom:1px solid var(--line);}
+  .mockbody{padding:16px 18px; display:flex; flex-direction:column; gap:10px;}
+  .fieldrow{display:flex; flex-direction:column; gap:6px;}
+  .flabel{font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft);}
+  .finput{border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:16px; background:#FBFBF9; max-width:520px;}
+  .finput.mono{font-family:var(--mono); font-size:14px;}
+  .ftext{border:1px solid var(--line); border-radius:8px; padding:12px 14px; background:#FBFBF9; font-size:15.5px; line-height:1.65; max-width:560px;}
+  .ftext.mono{font-family:var(--mono); font-size:13.5px;}
+  .dropzone{border:1.5px dashed var(--ink-soft); border-radius:8px; padding:16px; text-align:center; font-size:15px; color:var(--ink-soft); max-width:520px; background:#FBFBF9;}
+  .fbtn{display:inline-flex; align-self:flex-start; background:var(--preparar); color:#fff; border-radius:8px; padding:9px 18px; font-size:14px; font-weight:600;}
+  .fnote{font-size:13px; color:var(--ink-soft); line-height:1.5;}
+  .status-ok{display:inline-flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:#0B7A3E;}
+  .scorerow{display:flex; justify-content:space-between; align-items:center; gap:12px; font-size:15px; border:1px solid var(--line); border-radius:8px; padding:9px 13px; background:#FBFBF9; max-width:480px;}
+  .pill{font-family:var(--mono); font-size:12px; padding:4px 10px; border-radius:99px; flex-shrink:0; background:var(--ink); color:#fff;}
+
+  /* result card */
+  .result-card{
+    margin-top:28px; max-width:600px; background:var(--card);
+    border:1px solid var(--line); border-left:5px solid var(--responder);
+    border-radius:12px; padding:22px 24px; box-shadow:0 12px 30px rgba(21,23,27,.07);
+  }
+  .result-card .rhead{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft);}
+  .result-card .rbody{font-size:18px; font-weight:600; margin-top:9px; line-height:1.55;}
+  .result-card .rmeta{font-family:var(--mono); font-size:13px; color:var(--responder); margin-top:12px;}
+
+  /* recap board */
+  .archgrid{margin-top:18px; display:flex; flex-direction:column; gap:12px;}
+  .regions{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
+  .region{background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  .region header{padding:10px 16px; color:#fff; display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+  .region.p header{background:var(--preparar);}
+  .region.b header{background:var(--buscar);}
+  .region.r header{background:var(--responder);}
+  .region header .rname{font-family:var(--display); font-size:16px;}
+  .region header .rsub{font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; opacity:.8; text-align:right;}
+  .region .row{padding:9px 16px; border-top:1px solid var(--line);}
+  .region .row:first-of-type{border-top:none;}
+  .region .row .term{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; font-weight:500;}
+  .region.p .row .term{color:var(--preparar);}
+  .region.b .row .term{color:var(--buscar);}
+  .region.r .row .term{color:var(--responder);}
+  .region .row .def{font-size:13px; color:var(--ink-soft); line-height:1.4; margin-top:3px;}
+
+  /* final */
+  .final{display:flex; flex-direction:column; align-items:flex-start; justify-content:center; height:100%;}
+  .final h1{font-size:84px; max-width:900px;}
+  .btn-start{
+    margin-top:42px; font-family:var(--mono); font-size:17px; letter-spacing:.1em;
+    text-transform:uppercase; background:var(--neon); color:var(--ink); border:none;
+    padding:20px 52px; border-radius:99px; cursor:pointer;
+    transition:transform .15s ease, box-shadow .15s ease;
+    box-shadow:0 12px 32px rgba(20,160,40,.30);
+  }
+  .btn-start:hover{transform:translateY(-2px); box-shadow:0 18px 40px rgba(20,160,40,.38);}
+  .btn-start:focus-visible{outline:3px solid var(--ink); outline-offset:3px;}
+
+  /* tech->hall logo */
+  .tlogo{display:inline-flex; align-items:center; gap:7px; font-family:var(--body); font-weight:600; letter-spacing:-.02em; color:var(--ink); text-transform:lowercase;}
+  .tlogo svg{display:block; flex-shrink:0;}
+  .tlogo.foot{font-size:17px;}
+  .tlogo.hero{position:absolute; top:60px; right:88px; font-size:30px; gap:10px;}
+
+  /* chrome */
+  .chrome{
+    position:absolute; left:88px; right:88px; bottom:34px;
+    display:flex; align-items:center; justify-content:space-between;
+    font-family:var(--mono); font-size:12px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-soft); z-index:50;
+  }
+  .chrome .brand{display:flex; align-items:center; gap:10px;}
+  .chrome .nav{display:flex; align-items:center; gap:18px;}
+  .chrome button{
+    font-family:var(--mono); background:var(--card); border:1px solid var(--line);
+    width:38px; height:38px; border-radius:50%; cursor:pointer; font-size:15px;
+    color:var(--ink); transition:background .15s ease;
+  }
+  .chrome button:hover{background:var(--ink); color:#fff;}
+  .chrome button:focus-visible{outline:2px solid var(--ink); outline-offset:2px;}
+  .progress{position:absolute; left:0; right:0; bottom:0; height:4px; background:var(--line); z-index:50;}
+  .progress .bar{height:100%; background:var(--neon); width:0%; transition:width .38s ease;}
+
+  text.loop-label{font-family:'IBM Plex Mono', monospace; font-size:26px; letter-spacing:.1em; text-transform:uppercase; font-weight:500;}
+</style>
+</head>
+<body>
+
+<div id="viewport">
+  <div id="stage">
+
+    <!-- ============ 1 · ABERTURA ============ -->
+    <section class="slide" data-i="0">
+      <span class="tlogo hero">tech<svg width="40" height="22" viewBox="0 0 36 20"><path d="M2 10 H21" stroke="#39FF14" stroke-width="5"/><path d="M19 2 L34 10 L19 18 Z" fill="#39FF14"/></svg>hall</span>
+      <div class="kicker"><span class="tick"></span> Aula · RAG</div>
+      <h1>A IA que consulta antes de responder</h1>
+      <p class="lead">Até aqui, a IA respondia de memória, com o que aprendeu no treinamento. Nesta aula, ela vai responder lendo documentos.</p>
+      <div class="trio">
+        <div class="cell">
+          <div class="mode">Chat</div>
+          <div class="verb">Conversar</div>
+          <div class="desc">Você pergunta, a IA responde.</div>
+        </div>
+        <div class="cell">
+          <div class="mode">Agente</div>
+          <div class="verb">Delegar</div>
+          <div class="desc">Você define o objetivo, a IA executa o trabalho.</div>
+        </div>
+        <div class="cell hot">
+          <div class="badge">Hoje</div>
+          <div class="mode">RAG</div>
+          <div class="verb">Consultar</div>
+          <div class="desc">A IA responde com base nos seus documentos.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 2 · O QUE É RAG ============ -->
+    <section class="slide" data-i="1">
+      <div class="kicker"><span class="tick"></span> Começando do zero</div>
+      <h1>O que é RAG?</h1>
+      <p class="bigdef">RAG faz a IA <em>ler documentos</em> antes de responder.</p>
+      <p class="lead" style="font-size:16px; margin-bottom:22px;">A sigla vem do inglês, Retrieval-Augmented Generation. Em português, geração com busca.</p>
+      <div class="duo">
+        <div class="dcard">
+          <div class="dlabel">IA sem RAG</div>
+          <div class="dtitle">Memória</div>
+          <div class="ddesc">Responde com o que aprendeu no treinamento. Sobre os seus documentos, ela inventa ou diz que sabe pouco.</div>
+        </div>
+        <div class="dcard hot">
+          <div class="dlabel">IA com RAG</div>
+          <div class="dtitle">Consulta</div>
+          <div class="ddesc">Busca nos seus documentos e responde com base neles, indicando a fonte.</div>
+        </div>
+      </div>
+      <div class="band dash" style="max-width:880px;">
+        <span class="bterm">Em resumo</span>
+        <span class="bdef">Sem RAG, a IA responde de cabeça. Com RAG, ela consulta os documentos primeiro.</span>
+      </div>
+    </section>
+
+    <!-- ============ 3 · O CICLO ============ -->
+    <section class="slide" data-i="2">
+      <div class="split">
+        <div class="copy">
+          <div class="kicker"><span class="tick"></span> O mapa da aula</div>
+          <h1 style="font-size:42px; max-width:560px;">RAG funciona em três passos</h1>
+          <div class="legend-list">
+            <div class="legend-item">
+              <span class="num" style="background:var(--preparar);">1</span>
+              <span class="lt"><strong>Preparar.</strong> Os documentos são cortados em trechos e organizados para busca. Acontece uma vez, na entrada dos arquivos.</span>
+            </div>
+            <div class="legend-item">
+              <span class="num" style="background:var(--buscar);">2</span>
+              <span class="lt"><strong>Buscar.</strong> A cada pergunta, o sistema encontra os trechos mais relacionados a ela.</span>
+            </div>
+            <div class="legend-item">
+              <span class="num" style="background:var(--responder);">3</span>
+              <span class="lt"><strong>Responder.</strong> O modelo escreve a resposta usando os trechos encontrados.</span>
+            </div>
+          </div>
+          <p class="lead" style="margin-top:26px; font-size:16px;">O passo 1 acontece uma vez. Os passos 2 e 3 rodam de novo a cada pergunta. Cada conceito desta aula pertence a um desses três passos.</p>
+        </div>
+        <div id="bigloop"></div>
+      </div>
+    </section>
+
+
+    <!-- ============ V1 · BASE DE CONHECIMENTO ============ -->
+    <section class="slide" data-i="4">
+      <div class="kicker"><span class="tick"></span> <span class="tag p">Passo 1 · Preparar</span> Vocabulário 1 de 10</div>
+      <h1>Base de conhecimento</h1>
+      <p class="bigdef">A base de conhecimento são os documentos que a IA pode consultar.</p>
+      <div class="mockpanel">
+        <div class="mockhead">Na prática · entrada de documentos</div>
+        <div class="mockbody">
+          <div class="dropzone">Arraste arquivos aqui (.txt, .md, .pdf)</div>
+          <div class="fbtn">Usar o pack de exemplo</div>
+          <div class="fnote">Servem documentos de qualquer assunto. Uma prova, um contrato, um manual.</div>
+        </div>
+      </div>
+      <p class="caption">A IA só responde sobre o que está na base. Documento fora da base, assunto fora do alcance dela.</p>
+    </section>
+
+    <!-- ============ V2 · INDEXAÇÃO ============ -->
+    <section class="slide" data-i="5">
+      <div class="kicker"><span class="tick"></span> <span class="tag p">Passo 1 · Preparar</span> Vocabulário 2 de 10</div>
+      <h1>Indexação</h1>
+      <p class="bigdef">A indexação prepara os documentos para a busca. Acontece uma vez, logo depois do envio.</p>
+      <div class="mockpanel">
+        <div class="mockhead">Na prática · indexação</div>
+        <div class="mockbody">
+          <div class="ftext mono">Indexando 3 documentos…</div>
+          <div class="status-ok">✓ 47 trechos prontos para busca</div>
+          <div class="fnote">Leva segundos. Você acompanha o progresso na tela.</div>
+        </div>
+      </div>
+      <p class="caption">Depois da indexação, toda pergunta busca nesses 47 trechos. Os próximos dois slides mostram o que são trechos e como a busca os encontra.</p>
+    </section>
+
+    <!-- ============ V3 · TRECHO ============ -->
+    <section class="slide" data-i="6">
+      <div class="kicker"><span class="tick"></span> <span class="tag p">Passo 1 · Preparar</span> Vocabulário 3 de 10</div>
+      <h1>Trecho</h1>
+      <p class="bigdef">O trecho é um pedaço pequeno de documento. Em inglês, chunk.</p>
+      <div class="mockpanel">
+        <div class="mockhead">Na prática · um trecho da base</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">trecho 12 de 47 · politica-de-ferias.pdf</div>
+            <div class="ftext">“As férias podem ser emendadas com feriados nacionais, desde que a solicitação seja feita com 30 dias de antecedência.”</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Cortar em trechos permite que a busca aponte o pedaço exato, em vez do documento inteiro. O tamanho do trecho é ajustável e muda a qualidade da busca.</p>
+    </section>
+
+    <!-- ============ V4 · EMBEDDING ============ -->
+    <section class="slide" data-i="7">
+      <div class="kicker"><span class="tick"></span> <span class="tag p">Passo 1 · Preparar</span> Vocabulário 4 de 10</div>
+      <h1>Embedding</h1>
+      <p class="bigdef">O embedding é uma lista de números que representa o significado de um trecho.</p>
+      <div class="mockpanel">
+        <div class="mockhead">Na prática · trecho 12 vira números</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">Texto do trecho</div>
+            <div class="ftext">“As férias podem ser emendadas com feriados nacionais…”</div>
+          </div>
+          <div class="fieldrow">
+            <div class="flabel">Embedding do trecho</div>
+            <div class="finput mono">[ 0.012, −0.348, 0.901, 0.077, −0.512, … ]  · 1536 números</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Cada trecho ganha a sua lista. Trechos com significados parecidos ganham números parecidos. É isso que torna a busca do próximo passo possível.</p>
+    </section>
+
+    <!-- ============ V5 · BUSCA SEMÂNTICA ============ -->
+    <section class="slide" data-i="8">
+      <div class="kicker"><span class="tick"></span> <span class="tag b">Passo 2 · Buscar</span> Vocabulário 5 de 10</div>
+      <h1>Busca semântica</h1>
+      <p class="bigdef">A busca semântica encontra trechos pelo significado, mesmo quando as palavras são diferentes.</p>
+      <div class="mockpanel">
+        <div class="mockhead">Na prática · busca</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">Sua pergunta</div>
+            <div class="finput">Posso emendar o descanso com o feriado?</div>
+          </div>
+          <div class="fieldrow">
+            <div class="flabel">Trecho encontrado</div>
+            <div class="ftext">“As <strong>férias</strong> podem ser emendadas com feriados nacionais…”</div>
+          </div>
+          <div class="fnote">A pergunta diz descanso. O documento diz férias. A busca encontra mesmo assim.</div>
+        </div>
+      </div>
+      <p class="caption">Um Ctrl+F procura a palavra exata. A busca semântica compara significados, por isso encontra o trecho certo.</p>
+    </section>
+
+    <!-- ============ V6 · RECUPERAÇÃO ============ -->
+    <section class="slide" data-i="9">
+      <div class="kicker"><span class="tick"></span> <span class="tag b">Passo 2 · Buscar</span> Vocabulário 6 de 10</div>
+      <h1>Recuperação</h1>
+      <p class="bigdef">A recuperação seleciona os trechos mais parecidos com a pergunta.</p>
+      <div class="mockpanel">
+        <div class="mockhead">Na prática · os 3 melhores entre 47</div>
+        <div class="mockbody">
+          <div class="scorerow"><span>trecho 12 · politica-de-ferias.pdf</span><span class="pill">0.87</span></div>
+          <div class="scorerow"><span>trecho 31 · politica-de-ferias.pdf</span><span class="pill">0.81</span></div>
+          <div class="scorerow"><span>trecho 07 · manual-de-reembolso.pdf</span><span class="pill">0.74</span></div>
+          <div class="fnote">O número é a similaridade com a pergunta. Quanto mais perto de 1, mais parecido.</div>
+        </div>
+      </div>
+      <p class="caption">A quantidade de trechos selecionados se chama top k. Aqui, k é 3. Com k maior, mais trechos entram na resposta.</p>
+    </section>
+
+    <!-- ============ V7 · CONTEXTO ============ -->
+    <section class="slide" data-i="10">
+      <div class="kicker"><span class="tick"></span> <span class="tag r">Passo 3 · Responder</span> Vocabulário 7 de 10</div>
+      <h1>Contexto</h1>
+      <p class="bigdef">O contexto é a mensagem final enviada ao modelo, a pergunta junto com os trechos.</p>
+      <div class="mockpanel">
+        <div class="mockhead">Na prática · a mensagem montada</div>
+        <div class="mockbody">
+          <div class="ftext mono">Responda usando apenas os trechos abaixo.<br><br>Trecho 1: “As férias podem ser emendadas com feriados nacionais…”<br>Trecho 2: “A solicitação deve ser registrada no sistema de RH…”<br><br>Pergunta: Posso emendar as férias com o feriado?</div>
+        </div>
+      </div>
+      <p class="caption">Esta é a parte central do RAG. <strong>Os documentos entram dentro da mensagem.</strong> O modelo recebe tudo junto, como um texto só.</p>
+    </section>
+
+    <!-- ============ V8 · GERAÇÃO ============ -->
+    <section class="slide" data-i="11">
+      <div class="kicker"><span class="tick"></span> <span class="tag r">Passo 3 · Responder</span> Vocabulário 8 de 10</div>
+      <h1>Geração</h1>
+      <p class="bigdef">A geração é o modelo escrevendo a resposta com base nos trechos.</p>
+      <div class="result-card">
+        <div class="rhead">Resposta do modelo</div>
+        <div class="rbody">Sim. As férias podem ser emendadas com feriados nacionais, desde que a solicitação seja feita com 30 dias de antecedência.</div>
+      </div>
+      <p class="caption">O modelo é o mesmo das outras aulas, ChatGPT, Claude. A diferença está no que ele recebeu antes de escrever, os seus trechos.</p>
+    </section>
+
+    <!-- ============ V9 · CITAÇÃO ============ -->
+    <section class="slide" data-i="12">
+      <div class="kicker"><span class="tick"></span> <span class="tag r">Passo 3 · Responder</span> Vocabulário 9 de 10</div>
+      <h1>Citação</h1>
+      <p class="bigdef">A citação indica de qual documento e trecho a resposta saiu.</p>
+      <div class="result-card">
+        <div class="rhead">Resposta do modelo</div>
+        <div class="rbody">Sim. As férias podem ser emendadas com feriados nacionais, desde que a solicitação seja feita com 30 dias de antecedência.</div>
+        <div class="rmeta">fonte: politica-de-ferias.pdf · trecho 12</div>
+      </div>
+      <p class="caption">A citação permite conferir. Você abre a fonte e lê o trecho original. Resposta sem fonte merece desconfiança.</p>
+    </section>
+
+    <!-- ============ V10 · ALUCINAÇÃO ============ -->
+    <section class="slide" data-i="13">
+      <div class="kicker"><span class="tick"></span> <span class="tag r">Passo 3 · Responder</span> Vocabulário 10 de 10</div>
+      <h1>Alucinação</h1>
+      <p class="bigdef">Alucinação é quando a IA inventa uma resposta com confiança.</p>
+      <div class="duo" style="margin-top:6px;">
+        <div class="dcard">
+          <div class="dlabel">Sem RAG · mesma pergunta</div>
+          <div class="dquote">“Sim, a CLT garante 5 dias de emenda de férias.”</div>
+          <div class="dnote">inventado · essa regra foi criada pelo modelo</div>
+        </div>
+        <div class="dcard hot">
+          <div class="dlabel">Com RAG · mesma pergunta</div>
+          <div class="dquote">“Sim, desde que a solicitação seja feita com 30 dias de antecedência.”</div>
+          <div class="dnote">fonte: politica-de-ferias.pdf · trecho 12</div>
+        </div>
+      </div>
+      <p class="caption">RAG reduz a alucinação porque prende a resposta aos trechos. Um bom teste para qualquer sistema RAG é tentar provocar um erro e explicar o porquê dele.</p>
+    </section>
+
+    <!-- ============ RECAP ============ -->
+    <section class="slide" data-i="14" style="padding-top:56px;">
+      <div class="kicker"><span class="tick"></span> Recapitulando</div>
+      <h1 style="font-size:42px; margin-bottom:8px;">Tudo que você viu, em uma página</h1>
+      <div class="archgrid">
+        <div class="band dark">
+          <span class="bterm">Pergunta</span>
+          <span class="bdef">Tudo começa com uma pergunta sua. Os três passos rodam para respondê-la.</span>
+        </div>
+        <div class="regions">
+          <div class="region p">
+            <header><span class="rname">Preparar</span><span class="rsub">uma vez</span></header>
+            <div class="row"><div class="term">Base de conhecimento</div><div class="def">Os documentos que a IA pode consultar.</div></div>
+            <div class="row"><div class="term">Indexação</div><div class="def">A preparação dos documentos, feita uma vez.</div></div>
+            <div class="row"><div class="term">Trecho</div><div class="def">Pedaço pequeno de documento.</div></div>
+            <div class="row"><div class="term">Embedding</div><div class="def">Lista de números que representa o significado.</div></div>
+          </div>
+          <div class="region b">
+            <header><span class="rname">Buscar</span><span class="rsub">a cada pergunta</span></header>
+            <div class="row"><div class="term">Busca semântica</div><div class="def">Encontra trechos pelo significado.</div></div>
+            <div class="row"><div class="term">Recuperação</div><div class="def">Seleciona os top k trechos mais parecidos.</div></div>
+          </div>
+          <div class="region r">
+            <header><span class="rname">Responder</span><span class="rsub">a cada pergunta</span></header>
+            <div class="row"><div class="term">Contexto</div><div class="def">Pergunta e trechos em uma mensagem só.</div></div>
+            <div class="row"><div class="term">Geração</div><div class="def">O modelo escreve com base nos trechos.</div></div>
+            <div class="row"><div class="term">Citação</div><div class="def">A resposta aponta a fonte.</div></div>
+            <div class="row"><div class="term">Alucinação</div><div class="def">O risco que o RAG reduz.</div></div>
+          </div>
+        </div>
+        <div class="band dash">
+          <span class="bterm">Resposta citada</span>
+          <span class="bdef">O resultado final. Uma resposta presa aos seus documentos, com a fonte indicada.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SUA VEZ ============ -->
+    <section class="slide" data-i="15">
+      <div class="final">
+        <div class="kicker"><span class="tick"></span> Desafio</div>
+        <h1>Sua vez</h1>
+        <p class="lead" style="max-width:680px;">A aula termina aqui. A missão e as instruções aparecem na ferramenta, no próximo passo.</p>
+        <button class="btn-start" id="btnStart">Começar →</button>
+      </div>
+    </section>
+
+    <!-- chrome -->
+    <div class="chrome">
+      <div class="brand"><span class="tlogo foot">tech<svg width="26" height="15" viewBox="0 0 36 20"><path d="M2 10 H21" stroke="#39FF14" stroke-width="5"/><path d="M19 2 L34 10 L19 18 Z" fill="#39FF14"/></svg>hall</span><span style="margin-left:6px;">· introdução a RAG</span></div>
+      <div class="nav">
+        <span id="counter">01 / 15</span>
+        <button id="prev" aria-label="Slide anterior">←</button>
+        <button id="next" aria-label="Próximo slide">→</button>
+      </div>
+    </div>
+    <div class="progress"><div class="bar" id="bar"></div></div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  /* ---------- loop SVG ---------- */
+  const REGIONS = {
+    p:{color:'#2742F0', label:'Preparar'},
+    r:{color:'#15171B', label:'Buscar'},
+    a:{color:'#0E9F2E', label:'Responder'}
+  };
+  function pt(cx,cy,r,deg){
+    const rad = deg*Math.PI/180;
+    return [cx + r*Math.cos(rad), cy + r*Math.sin(rad)];
+  }
+  const SEGS = [
+    {key:'p', a0:-80, a1:20,  labelDeg:-30, anchor:'middle'},
+    {key:'r', a0:40,  a1:140, labelDeg:90,  anchor:'middle'},
+    {key:'a', a0:160, a1:260, labelDeg:210, anchor:'middle'}
+  ];
+  function loopSVG(active, size, withLabels){
+    const VB=480, c=VB/2, r=158, lr=r+44;
+    let inner='';
+    SEGS.forEach(s=>{
+      const [x0,y0]=pt(c,c,r,s.a0), [x1,y1]=pt(c,c,r,s.a1);
+      const col = REGIONS[s.key].color;
+      const on = (active==='all' || active===s.key);
+      const op = on ? 1 : 0.16;
+      inner += `<path d="M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}"
+        fill="none" stroke="${col}" stroke-width="22" stroke-linecap="round" opacity="${op}"/>`;
+      const tang = s.a1 + 90;
+      const tip = pt(c,c,r,s.a1+7);
+      inner += `<g transform="translate(${tip[0].toFixed(1)} ${tip[1].toFixed(1)}) rotate(${tang+7})" opacity="${op}">
+        <path d="M -14 -13 L 14 0 L -14 13 Z" fill="${col}"/></g>`;
+      if(withLabels){
+        const [lx,ly]=pt(c,c,lr,s.labelDeg);
+        inner += `<text class="loop-label" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}"
+          text-anchor="${s.anchor}" dominant-baseline="middle" fill="${col}" opacity="${on?1:0.3}">${REGIONS[s.key].label}</text>`;
+        const NUM={p:1,r:2,a:3};
+        const midDeg=(s.a0+s.a1)/2;
+        const [nx,ny]=pt(c,c,r-58,midDeg);
+        inner += `<g opacity="${on?1:0.25}">
+          <circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="22" fill="${col}"/>
+          <text x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+            fill="#fff" font-family="'IBM Plex Mono', monospace" font-size="24" font-weight="500">${NUM[s.key]}</text></g>`;
+      }
+    });
+    return `<svg width="${size}" height="${size}" viewBox="-30 -30 ${VB+60} ${VB+60}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
+  }
+  document.getElementById('bigloop').innerHTML = loopSVG('all', 400, true);
+
+  /* ---------- navigation ---------- */
+  const slides=[...document.querySelectorAll('.slide')];
+  const total=slides.length;
+  let cur=0;
+  const counter=document.getElementById('counter');
+  const bar=document.getElementById('bar');
+  function pad(n){return String(n).padStart(2,'0');}
+  function go(i){
+    cur=Math.max(0,Math.min(total-1,i));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===cur));
+    counter.textContent=`${pad(cur+1)} / ${pad(total)}`;
+    bar.style.width=((cur+1)/total*100)+'%';
+    try{ history.replaceState(null,'','#'+(cur+1)); }catch(_){ /* sandbox bloqueia hash */ }
+  }
+  document.getElementById('next').addEventListener('click',()=>go(cur+1));
+  document.getElementById('prev').addEventListener('click',()=>go(cur-1));
+  window.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(cur+1);}
+    if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1);}
+    if(e.key==='Home')go(0);
+    if(e.key==='End')go(total-1);
+  });
+  let tx=null;
+  window.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;},{passive:true});
+  window.addEventListener('touchend',e=>{
+    if(tx===null)return;
+    const dx=e.changedTouches[0].clientX-tx;
+    if(Math.abs(dx)>50) go(cur+(dx<0?1:-1));
+    tx=null;
+  },{passive:true});
+
+  /* ---------- start button ---------- */
+  // No seu sistema: window.addEventListener('message', e => { if(e.data?.type==='rag:start') iniciarDesafio(); })
+  document.getElementById('btnStart').addEventListener('click',()=>{
+    try{ window.parent.postMessage({type:'rag:start'},'*'); }catch(_){}
+    document.dispatchEvent(new CustomEvent('rag:start'));
+  });
+
+  /* ---------- 16:9 scale ---------- */
+  const stage=document.getElementById('stage');
+  function fit(){
+    const s=Math.min(window.innerWidth/1280, window.innerHeight/720);
+    stage.style.transform=`scale(${s})`;
+  }
+  window.addEventListener('resize',fit);
+  fit();
+
+  const h=parseInt((location.hash||'').replace('#',''),10);
+  go(isNaN(h)?0:h-1);
+})();
+</script>
+</body>
+</html>

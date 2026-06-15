@@ -14,7 +14,7 @@ import { HtmlArtifactCard, GeneratedArtifactsPanel } from "./components/conversa
 import { PromptConversation } from "./components/conversation/PromptConversation.jsx";
 import { GuidedSection, LearningSlide, TechnicalReadingList, TechnicalReadingBlock, GuidedReading, MissionReadingPanel, MissionClosurePanel } from "./components/mission/MissionComponents.jsx";
 import { OutputCard, HistorySection, MissionTokenRail, ReflectionSummary } from "./components/mission/MissionOutput.jsx";
-import { AgentMissionPanel } from "./components/mission/AgentMissionPanel.jsx";
+import { GuidedMissionPanel } from "./components/mission/GuidedMissionPanel.jsx";
 import { EventCardSectionLabel, FacilitatorTabLabel, FacilitatorScreenSharePanel, TeamScreenShareViewer, RoomMapPanel, TokenManagementPanel, FacilitatorToolsDrawer } from "./components/facilitator/FacilitatorComponents.jsx";
 import { PromptInsightsPanel } from "./components/facilitator/PromptInsightsPanel.jsx";
 import { AnamnesisInsightsPanel } from "./components/facilitator/AnamnesisInsightsPanel.jsx";
@@ -53,7 +53,21 @@ import {
 } from "./utils.js";
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
-import { AGENT_MISSION_ID, AGENT_ONBOARDING_SLIDES, AGENT_COMPOSER_STEPS, createDefaultAgentMissionState, normalizeAgentMissionState, buildAgentDemoResult, createDefaultAgentDraft, getAgentMissionExplainContent } from "./data/agentMission.js";
+import {
+  AGENT_MISSION_ID,
+  RAG_MISSION_ID,
+  isAgentMission as isAgentGuidedMission,
+  isGuidedMissionId,
+  isGuidedMission,
+  getGuidedMissionExplainPane,
+  getGuidedMissionModeLabel,
+  createDefaultGuidedMissionParticipantState,
+  normalizeGuidedMissionParticipantState,
+  getGuidedMissionEntryState,
+  setGuidedMissionEntryState,
+  createDefaultGuidedMissionState,
+  guidedMissionStateHasHistory,
+} from "./data/guidedMissions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode, supportsWebSearch, getDefaultWebSearchModel } from "./data/models.js";
 import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, postHelpRequest, deleteAllEventData, deleteTeamScopedData, listTeamExecutions } from "./api/perTeam.js";
 import { useEventState } from "./hooks/useEventState.js";
@@ -83,6 +97,8 @@ const MAX_ATTACHMENT_COUNT = 3;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 12000;
 const ATTACHMENT_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp";
+const RAG_ATTACHMENT_COUNT = 5;
+const RAG_ATTACHMENT_ACCEPT = ".txt,.md,.pdf";
 const SURVIVAL_CHAT_MISSION = {
   id: "survival_chat",
   num: 0,
@@ -259,7 +275,7 @@ function buildRunSteps(apiConfigured) {
 }
 
 function isAgentMission(mission) {
-  return mission?.id === AGENT_MISSION_ID;
+  return isAgentGuidedMission(mission);
 }
 
 function getAgentParticipantStateKey(teamIdx, participantKey) {
@@ -272,9 +288,29 @@ function getActiveAgentParticipantKey(memberName = "", teamName = "") {
 }
 
 function getAgentMissionParticipantState(evento, teamIdx, participantKey) {
-  if (!evento || teamIdx === null || teamIdx === undefined || !participantKey) return createDefaultAgentMissionState();
+  if (!evento || teamIdx === null || teamIdx === undefined || !participantKey) return createDefaultGuidedMissionParticipantState();
   const key = getAgentParticipantStateKey(teamIdx, participantKey);
-  return normalizeAgentMissionState(evento.agentMissionParticipants?.[key] || null);
+  return normalizeGuidedMissionParticipantState(evento.agentMissionParticipants?.[key] || null);
+}
+
+function getGuidedMissionParticipantState(evento, teamIdx, participantKey, missionId) {
+  const rootState = getAgentMissionParticipantState(evento, teamIdx, participantKey);
+  return getGuidedMissionEntryState(rootState, missionId);
+}
+
+function buildMissionAttachmentPolicy(mission) {
+  if (mission?.id === RAG_MISSION_ID) {
+    return {
+      count: RAG_ATTACHMENT_COUNT,
+      accept: RAG_ATTACHMENT_ACCEPT,
+      allowedExtensions: new Set(["txt", "md", "pdf"]),
+    };
+  }
+  return {
+    count: MAX_ATTACHMENT_COUNT,
+    accept: ATTACHMENT_ACCEPT,
+    allowedExtensions: null,
+  };
 }
 function loadStore() {
   try {
@@ -521,6 +557,14 @@ function getMissionHasAnyHistory(evento, teamIdx, missionId) {
   const preserved = getPreservedMissionUsage(evento, teamIdx, missionId);
   const resetAt = getMissionResetAt(evento, teamIdx, missionId);
   const preservedTotal = Number(preserved?.total || 0);
+  if (isGuidedMissionId(missionId)) {
+    const hasGuidedState = Object.entries(evento.agentMissionParticipants || {}).some(([key, value]) => {
+      if (!key.startsWith(`${teamIdx}__`)) return false;
+      const rootState = normalizeGuidedMissionParticipantState(value);
+      return guidedMissionStateHasHistory(getGuidedMissionEntryState(rootState, missionId));
+    });
+    return hasGuidedState || rawExecs.length > 0 || Boolean(resetAt);
+  }
   return rawExecs.length > 0 || Boolean(reflexao) || Boolean(pending) || Boolean(conclusao) || preservedTotal > 0 || Boolean(resetAt);
 }
 
@@ -3316,16 +3360,16 @@ function App() {
   const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
     ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission
     : currentMission;
-  const currentAgentMissionState = useMemo(
+  const currentGuidedMissionState = useMemo(
     () =>
-      liveCurrentMission && isAgentMission(liveCurrentMission)
-        ? getAgentMissionParticipantState(effectiveTeamEvent || teamEvent, timeTeamIdx, currentAgentParticipantKey)
-        : createDefaultAgentMissionState(),
+      liveCurrentMission && isGuidedMission(liveCurrentMission)
+        ? getGuidedMissionParticipantState(effectiveTeamEvent || teamEvent, timeTeamIdx, currentAgentParticipantKey, liveCurrentMission.id)
+        : createDefaultGuidedMissionState(liveCurrentMission?.id || AGENT_MISSION_ID),
     [currentAgentParticipantKey, effectiveTeamEvent, liveCurrentMission, teamEvent, timeTeamIdx],
   );
-  const currentAgentExplainContent = useMemo(
-    () => getAgentMissionExplainContent(currentAgentMissionState),
-    [currentAgentMissionState],
+  const currentGuidedExplainContent = useMemo(
+    () => getGuidedMissionExplainPane(liveCurrentMission?.id, currentGuidedMissionState),
+    [currentGuidedMissionState, liveCurrentMission],
   );
   const currentMissionLocked = Boolean(!isTrainingEvent && liveCurrentMission && !liveCurrentMission.unlocked);
   const currentExecs = currentMission && effectiveTeamEvent
@@ -3922,6 +3966,8 @@ function App() {
   const modelCatalog = useMemo(() => getModelCatalog(serverConfig), [serverConfig]);
   const modelPricingMap = useMemo(() => getModelPricingMap(modelCatalog), [modelCatalog]);
   const currentMissionAiMode = currentMission ? getMissionAiMode(currentMission) : CHAT_AI_MODE;
+  const currentMissionAttachmentPolicy = buildMissionAttachmentPolicy(currentMission);
+  const isCurrentGuidedMission = isGuidedMission(currentMission);
   const composerModelOptions = getModelsForMode(modelCatalog, currentMissionAiMode);
   const storedModelForMode =
     currentMissionAiMode === CODING_AI_MODE ? store.codingModel : store.chatModel;
@@ -4647,18 +4693,26 @@ function App() {
     event.target.value = "";
     if (!files.length) return;
 
-    if (missionAttachments.length >= MAX_ATTACHMENT_COUNT) {
-      showToast(`Limite de ${MAX_ATTACHMENT_COUNT} arquivos por rodada.`);
+    const attachmentPolicy = currentMissionAttachmentPolicy;
+    const maxAttachmentCount = attachmentPolicy.count;
+    const allowedExtensions = attachmentPolicy.allowedExtensions;
+
+    if (missionAttachments.length >= maxAttachmentCount) {
+      showToast(`Limite de ${maxAttachmentCount} arquivos por rodada.`);
       return;
     }
 
-    const availableSlots = MAX_ATTACHMENT_COUNT - missionAttachments.length;
+    const availableSlots = maxAttachmentCount - missionAttachments.length;
     const nextFiles = files.slice(0, availableSlots);
 
     try {
       const validFiles = nextFiles.filter((file) => {
         if (file.size > MAX_ATTACHMENT_SIZE) {
           showToast(`${file.name} excede o limite de 10 MB.`);
+          return false;
+        }
+        if (allowedExtensions && !allowedExtensions.has(getFileExtension(file.name))) {
+          showToast(`${file.name} não é um tipo permitido nesta missão.`);
           return false;
         }
         if (classifyAttachment(file) === "unsupported") {
@@ -4682,7 +4736,7 @@ function App() {
       failures.forEach((failure) => showToast(failure.message || `${failure.fileName}: falha ao anexar.`));
       warnings.forEach((warning) => showToast(warning));
       if (!records.length) return;
-      setMissionAttachments((current) => [...current, ...records].slice(0, MAX_ATTACHMENT_COUNT));
+      setMissionAttachments((current) => [...current, ...records].slice(0, maxAttachmentCount));
       showToast(`${records.length} arquivo(s) anexado(s)`);
     } catch (error) {
       console.error(error);
@@ -6066,109 +6120,24 @@ function App() {
     setTimeMissionIdx(index);
   }
 
-  function handleAdvanceAgentSlide() {
-    patchCurrentAgentMissionState((current) => ({
-      ...current,
-      slideIndex: Math.min(AGENT_ONBOARDING_SLIDES.length - 1, (current.slideIndex || 0) + 1),
-    }));
+  function handleChangeCurrentGuidedMissionState(nextMissionState) {
+    if (!currentMission || !isGuidedMission(currentMission)) return;
+    patchCurrentGuidedMissionState(currentMission.id, () => nextMissionState);
   }
 
-  function handleBackAgentSlide() {
-    patchCurrentAgentMissionState((current) => ({
-      ...current,
-      slideIndex: Math.max(0, (current.slideIndex || 0) - 1),
-    }));
+  function handlePersistCurrentGuidedMissionExecution(execData) {
+    if (!teamEvent || timeTeamIdx === null || !currentMission) return;
+    saveExecution(teamEvent.id, timeTeamIdx, currentMission.id, execData);
   }
 
-  function handleJumpAgentToComposer() {
-    patchCurrentAgentMissionState((current) => ({
-      ...current,
-      agentOnboardingCompleted: true,
-      currentStep: "composer",
-      slideIndex: AGENT_ONBOARDING_SLIDES.length - 1,
-      composerStep: Math.max(0, current.composerStep || 0),
-      completedSteps: Array.isArray(current.completedSteps) ? current.completedSteps : [],
-    }));
-  }
-
-  function handleUpdateAgentDraft(patch) {
-    patchCurrentAgentMissionState((current) => {
-      const nextDraft = {
-        ...createDefaultAgentDraft(),
-        ...(current.agentDraft || {}),
-        ...(patch || {}),
-      };
-      return {
-        ...current,
-        currentStep: current.agentOnboardingCompleted ? current.currentStep : "composer",
-        agentDraft: nextDraft,
-      };
-    });
-  }
-
-  function handleGoToAgentComposerStep(nextStepIndex) {
-    patchCurrentAgentMissionState((current) => {
-      const boundedNextStep = Math.max(0, Math.min(AGENT_COMPOSER_STEPS.length - 1, nextStepIndex));
-      const currentStepKey = AGENT_COMPOSER_STEPS[Math.max(0, current.composerStep || 0)] || AGENT_COMPOSER_STEPS[0];
-      const completedSteps = Array.isArray(current.completedSteps) ? [...current.completedSteps] : [];
-      if (boundedNextStep > (current.composerStep || 0) && !completedSteps.includes(currentStepKey)) {
-        completedSteps.push(currentStepKey);
-      }
-      return {
-        ...current,
-        agentOnboardingCompleted: true,
-        currentStep: "composer",
-        composerStep: boundedNextStep,
-        completedSteps,
-      };
-    });
-  }
-
-  function handleExecuteAgentMission() {
-    if (!teamEvent || timeTeamIdx === null) return;
-    const nextDraft = currentAgentMissionState.agentDraft || createDefaultAgentDraft();
-    patchCurrentAgentMissionState((current) => ({
-      ...current,
-      agentOnboardingCompleted: true,
-      currentStep: "running",
-      composerStep: AGENT_COMPOSER_STEPS.length - 1,
-      agentDraft: nextDraft,
-    }));
-    setRunning(true);
-    setRunError("");
-    window.setTimeout(() => {
-      const result = buildAgentDemoResult(nextDraft);
-      patchCurrentAgentMissionState((current) => ({
-        ...current,
-        agentOnboardingCompleted: true,
-        currentStep: "result",
-        composerStep: AGENT_COMPOSER_STEPS.length - 1,
-        agentLastRun: {
-          ts: new Date().toISOString(),
-          source: "demo",
-          inboxSize: result.inboxSize,
-        },
-        agentDemoResult: result,
-      }));
-      setRunning(false);
-      showToast("Agente executado em modo demonstração");
-    }, 900);
-  }
-
-  function handleOpenAgentRealConnection() {
-    patchCurrentAgentMissionState((current) => ({
-      ...current,
-      currentStep: "connect",
-      agentRealConnectionStatus: "requested",
-    }));
-    showToast("Conexão Gmail preparada para a próxima etapa");
-  }
-
-  function handleResetAgentMission() {
-    patchCurrentAgentMissionState(() => createDefaultAgentMissionState());
+  function handleResetGuidedMission() {
+    if (!currentMission || !isGuidedMission(currentMission)) return;
+    patchCurrentGuidedMissionState(currentMission.id, () => createDefaultGuidedMissionState(currentMission.id));
     setRunning(false);
     setRunError("");
-    showToast("Jornada do agente reiniciada");
+    setMissionInput("");
+    setMissionAttachments([]);
+    showToast("Jornada da missão reiniciada");
   }
 
   function saveExecution(eventId, teamIdx, missionId, execData) {
@@ -6440,8 +6409,8 @@ function App() {
     if (!eventId || teamIdx === null || teamIdx === undefined || !participantKey) return;
     void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
       const existing = payload || {};
-      const currentState = normalizeAgentMissionState(existing.agentMissionParticipants?.[participantKey] || null);
-      const nextState = normalizeAgentMissionState(updater(currentState));
+      const currentState = normalizeGuidedMissionParticipantState(existing.agentMissionParticipants?.[participantKey] || null);
+      const nextState = normalizeGuidedMissionParticipantState(updater(currentState));
       return {
         ...existing,
         agentMissionParticipants: {
@@ -6454,8 +6423,8 @@ function App() {
       current.map((event) => {
         if (event.id !== eventId) return event;
         const scopedKey = getAgentParticipantStateKey(teamIdx, participantKey);
-        const currentState = normalizeAgentMissionState(event.agentMissionParticipants?.[scopedKey] || null);
-        const nextState = normalizeAgentMissionState(updater(currentState));
+        const currentState = normalizeGuidedMissionParticipantState(event.agentMissionParticipants?.[scopedKey] || null);
+        const nextState = normalizeGuidedMissionParticipantState(updater(currentState));
         return {
           ...event,
           agentMissionParticipants: {
@@ -6470,6 +6439,15 @@ function App() {
   function patchCurrentAgentMissionState(updater) {
     if (!teamEvent || timeTeamIdx === null || !currentAgentParticipantKey) return;
     patchAgentMissionState(teamEvent.id, timeTeamIdx, currentAgentParticipantKey, updater);
+  }
+
+  function patchCurrentGuidedMissionState(missionId, updater) {
+    if (!missionId) return;
+    patchCurrentAgentMissionState((rootState) => {
+      const currentMissionState = getGuidedMissionEntryState(rootState, missionId);
+      const nextMissionState = updater(currentMissionState);
+      return setGuidedMissionEntryState(rootState, missionId, nextMissionState);
+    });
   }
 
   function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
@@ -7104,20 +7082,32 @@ function App() {
 
   function handleResetMissionFromZero(missionId = currentMission?.id, missionIndex = timeMissionIdx) {
     if (!teamEvent || timeTeamIdx === null || !missionId) return;
-    if (isAgentMission({ id: missionId })) {
+    if (isGuidedMissionId(missionId)) {
       if (!currentAgentParticipantKey) return;
       const targetEventId = teamEvent.id;
       const targetTeamIdx = timeTeamIdx;
       const participantKey = currentAgentParticipantKey;
-      patchAgentMissionState(targetEventId, targetTeamIdx, participantKey, () => createDefaultAgentMissionState());
+      const resetAt = new Date(getSyncedNowMs()).toISOString();
+      patchAgentMissionState(targetEventId, targetTeamIdx, participantKey, (rootState) =>
+        setGuidedMissionEntryState(rootState, missionId, createDefaultGuidedMissionState(missionId)),
+      );
       updateCriticalEvents((current) =>
         current.map((event) => {
           if (event.id !== targetEventId) return event;
           const scopedKey = getAgentParticipantStateKey(targetTeamIdx, participantKey);
+          const currentRoot = normalizeGuidedMissionParticipantState(event.agentMissionParticipants?.[scopedKey] || null);
           const nextParticipants = { ...(event.agentMissionParticipants || {}) };
-          nextParticipants[scopedKey] = createDefaultAgentMissionState();
+          nextParticipants[scopedKey] = setGuidedMissionEntryState(
+            currentRoot,
+            missionId,
+            createDefaultGuidedMissionState(missionId),
+          );
           return {
             ...event,
+            missionResets: { ...(event.missionResets || {}), [`${targetTeamIdx}__${missionId}`]: resetAt },
+            participantAnalyses: Object.fromEntries(
+              Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== targetTeamIdx),
+            ),
             agentMissionParticipants: nextParticipants,
           };
         }),
@@ -8562,7 +8552,7 @@ function App() {
                           {isCurrentMission ? (
                             <div className="mission-item-brief">
                               <div className="mission-item-brief-meta">
-                                <span>{isAgentMission(mission) ? "Modo: Agente" : `IA: ${AI_MODE_LABELS[getMissionAiMode(mission)]}`}</span>
+                                <span>{isGuidedMission(mission) ? getGuidedMissionModeLabel(mission) : `IA: ${AI_MODE_LABELS[getMissionAiMode(mission)]}`}</span>
                               </div>
                               <div className="mission-item-brief-block">
                                 <strong className="mini-label mission-brief-label">
@@ -8618,7 +8608,7 @@ function App() {
                 />
               ) : (
                 <>
-                  {!isTrainingEvent && !isAgentMission(currentMission) && !currentConcluida && !currentQuestionarioPendente ? (
+                  {!isTrainingEvent && !isCurrentGuidedMission && !currentConcluida && !currentQuestionarioPendente ? (
                     <div className="workspace-mission-top-actions">
                       <button
                         className="mission-close-btn is-compact"
@@ -8639,29 +8629,32 @@ function App() {
                   ) : null}
                   <div className="workspace-col-label is-block">
                     <span className="ws-column-label-icon" aria-hidden="true">
-                      {isAgentMission(currentMission) ? <Waypoints size={15} strokeWidth={1.7} /> : <MessageSquareText size={15} strokeWidth={1.7} />}
+                      {isCurrentGuidedMission ? <Waypoints size={15} strokeWidth={1.7} /> : <MessageSquareText size={15} strokeWidth={1.7} />}
                     </span>
                     <div className="workspace-col-label-copy workspace-col-label-copy-inline">
-                      <span className="workspace-col-label-title">{isAgentMission(currentMission) ? "TECH HALL AGENTE" : "TECH HALL GPT"}</span>
+                      <span className="workspace-col-label-title">{isCurrentGuidedMission ? "TECH HALL MISSION LAB" : "TECH HALL GPT"}</span>
                       <span className="workspace-col-label-sub workspace-col-label-sub-inline">
-                        {isAgentMission(currentMission) ? "GUIDED DEMO EXPERIENCE" : apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
+                        {isCurrentGuidedMission ? "GUIDED MISSION EXPERIENCE" : apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
                       </span>
                     </div>
                   </div>
                   <div className="workspace-chat-body">
-                    {isAgentMission(currentMission) ? (
-                      <AgentMissionPanel
+                    {isCurrentGuidedMission ? (
+                      <GuidedMissionPanel
+                        mission={currentMission}
                         participantName={activeStudentName}
-                        missionState={currentAgentMissionState}
-                        running={running}
-                        onAdvanceSlide={handleAdvanceAgentSlide}
-                        onBackSlide={handleBackAgentSlide}
-                        onJumpToComposer={handleJumpAgentToComposer}
-                        onUpdateDraft={handleUpdateAgentDraft}
-                        onGoToComposerStep={handleGoToAgentComposerStep}
-                        onExecuteAgent={handleExecuteAgentMission}
-                        onOpenRealConnection={handleOpenAgentRealConnection}
-                        onResetAgentMission={handleResetAgentMission}
+                        missionState={currentGuidedMissionState}
+                        composerInput={missionInput}
+                        attachments={missionAttachments}
+                        attachmentLimit={currentMissionAttachmentPolicy.count}
+                        attachmentAccept={currentMissionAttachmentPolicy.accept}
+                        onInputChange={setMissionInput}
+                        onAttachFiles={handleAttachFiles}
+                        onRemoveAttachment={handleRemoveAttachment}
+                        onChangeState={handleChangeCurrentGuidedMissionState}
+                        onPersistExecution={handlePersistCurrentGuidedMissionExecution}
+                        onCopyReport={() => void handleCopyResponse(currentGuidedMissionState.report || "")}
+                        onResetMission={handleResetGuidedMission}
                       />
                     ) : (!currentConcluida && !currentQuestionarioPendente) ? (
                       <div className="input-card input-card-chat">
@@ -8711,12 +8704,12 @@ function App() {
                               value={missionInput}
                               onChange={(event) => setMissionInput(event.target.value)}
                               disabled={running || teamTimerLockActive || planningApprovalState.open}
-                              placeholder={planningApprovalState.open ? "Aceite ou reformule o plano acima" : "Escreva sua mensagem ou anexe até 3 arquivos"}
+                              placeholder={planningApprovalState.open ? "Aceite ou reformule o plano acima" : `Escreva sua mensagem ou anexe até ${currentMissionAttachmentPolicy.count} arquivos`}
                             />
                             <input
                               ref={composerFileInputRef}
                               type="file"
-                              accept={ATTACHMENT_ACCEPT}
+                              accept={currentMissionAttachmentPolicy.accept}
                               multiple
                               className="visually-hidden-file-input"
                               onChange={handleAttachFiles}
@@ -8727,8 +8720,8 @@ function App() {
                                   className="input-attach-btn"
                                   type="button"
                                   onClick={() => composerFileInputRef.current?.click()}
-                                  disabled={running || missionAttachments.length >= MAX_ATTACHMENT_COUNT}
-                                  title={`Anexar arquivo (${MAX_ATTACHMENT_COUNT} por rodada, até 10 MB cada)`}
+                                  disabled={running || missionAttachments.length >= currentMissionAttachmentPolicy.count}
+                                  title={`Anexar arquivo (${currentMissionAttachmentPolicy.count} por rodada, até 10 MB cada)`}
                                 >
                                   <Paperclip size={14} strokeWidth={1.8} />
                                   <span>Anexar</span>
@@ -8741,7 +8734,7 @@ function App() {
                                     aria-label="Planejar"
                                     aria-pressed={store.planningMode === "on"}
                                     onClick={() => handleQuickPlanningModeChange(store.planningMode === "on" ? "off" : "on")}
-                                    disabled={running || planningApprovalState.open}
+                                    disabled={running || planningApprovalState.open || isCurrentGuidedMission}
                                   >
                                     Planejar
                                   </button>
@@ -8752,7 +8745,7 @@ function App() {
                                     options={composerModelOptions}
                                     value={selectedModelForMode}
                                     onChange={handleQuickModelChange}
-                                    disabled={running}
+                                    disabled={running || isCurrentGuidedMission}
                                     dropUp
                                   />
                                 </div>
@@ -8782,7 +8775,7 @@ function App() {
                       </div>
                     ) : null}
 
-                    {!isTrainingEvent && !isAgentMission(currentMission) ? (
+                    {!isTrainingEvent && !isCurrentGuidedMission ? (
                       <>
                         <MissionClosurePanel
                           stage={missionFlow.stage}
@@ -8834,20 +8827,15 @@ function App() {
                   </div>
                 </div>
                 <div className="workspace-explain-body">
-                  {isAgentMission(currentMission) ? (
+                  {isCurrentGuidedMission ? (
                     <div className="agent-explain-placeholder">
                       <div className="agent-explain-card">
-                        <div className="agent-explain-kicker">Componente em foco</div>
-                        <div className="agent-explain-title">{currentAgentExplainContent.title}</div>
-                        <div className="agent-explain-copy">{currentAgentExplainContent.body}</div>
-                        <div className="agent-explain-list">
-                          {(currentAgentExplainContent.items || []).map((item) => (
-                            <div className="agent-explain-list-item" key={item}>
-                              <span className="agent-explain-list-dot" />
-                              <span>{item}</span>
-                            </div>
-                          ))}
-                        </div>
+                        <div className="agent-explain-kicker">{currentGuidedExplainContent.kicker || "Componente em foco"}</div>
+                        <div className="agent-explain-title">{currentGuidedExplainContent.title}</div>
+                        <div
+                          className="agent-explain-copy"
+                          dangerouslySetInnerHTML={{ __html: currentGuidedExplainContent.html || "" }}
+                        />
                       </div>
                     </div>
                   ) : readingStage && readingExec ? (

@@ -122,6 +122,75 @@ export const AGENT_TOOL_OPTIONS = {
   ],
 };
 
+const AGENT_PROFILES = {
+  email: {
+    mission: "organizar uma caixa de e-mails",
+    connector: "Gmail de treino",
+    inboxItems: [
+      "Banco Azul · Sua fatura vence em 3 dias",
+      "TechNews · As 10 tendências da semana",
+      "Mariana (gestora) · Preciso do relatório de junho até sexta",
+      "RH · Recesso de fim de ano, datas confirmadas",
+      "Loja Prisma · OFERTA: 50% só hoje",
+      "Cliente Sol Ltda · Erro no pedido 4412",
+      "Agenda · Convite: reunião de equipe, quinta 10h",
+      "Cartão Vivaz · Sua fatura fechou",
+    ],
+    triggerItem: 'Mariana (gestora) · "Conseguem antecipar o relatório para quinta?"',
+    triggerDecision: "classificada como urgente",
+    triggerDelivery: 'Resumo pronto: "Mariana pede antecipação do relatório de junho para quinta."',
+    approvedAction: 'Tarefa criada: "Antecipar relatório de junho · prazo quinta".',
+    finalDelivery: "1 e-mail processado, classificado como urgente, resumido, e 1 tarefa criada com a sua aprovação.",
+    defaultTools: ["Ler e-mail", "Classificar", "Resumir", "Criar tarefa"],
+    variableA: "emails_processados",
+    variableB: "pendencias_abertas",
+  },
+  news: {
+    mission: "monitorar notícias de um tema",
+    connector: "Feed de notícias de treino",
+    inboxItems: [
+      "Agência Brasil · Novo marco regulatório do setor foi aprovado",
+      "Valor Econômico · Mercado reage ao anúncio do Banco Central",
+      "TechNews · Startup lança modelo aberto de IA",
+      "Clima Hoje · Chuvas intensas elevam alerta em três estados",
+      "Reuters · Empresa anuncia aquisição bilionária",
+      "Exame · Tendência de produtividade em times híbridos",
+      "Nexo · Debate sobre política industrial ganha força",
+      "Canal Energia · Leilão de transmissão tem nova data",
+    ],
+    triggerItem: 'Reuters · "Empresa anuncia aquisição bilionária no setor"',
+    triggerDecision: "destacada como notícia prioritária",
+    triggerDelivery: 'Resumo pronto: "Aquisição bilionária tende a impactar o setor monitorado."',
+    approvedAction: 'Alerta preparado: "Mudança relevante no setor monitorado".',
+    finalDelivery: "1 notícia lida, resumida e transformada em alerta com a sua aprovação.",
+    defaultTools: ["Ler notícia", "Classificar por tema", "Resumir sinais", "Preparar alerta"],
+    variableA: "noticias_lidas",
+    variableB: "alertas_abertos",
+  },
+  tasks: {
+    mission: "acompanhar tarefas de um projeto",
+    connector: "Quadro de tarefas de treino",
+    inboxItems: [
+      "Atlas · Corrigir bug do login antes da revisão",
+      "Atlas · Atualizar documentação da API pública",
+      "Atlas · Validar cronograma com design",
+      "Atlas · Revisar métricas da sprint",
+      "Atlas · Responder bloqueio do time mobile",
+      "Atlas · Preparar pauta da retrospectiva",
+      "Atlas · Fechar escopo da entrega de junho",
+      "Atlas · Confirmar dependência com dados",
+    ],
+    triggerItem: 'Atlas · "Responder bloqueio do time mobile até hoje"',
+    triggerDecision: "classificada como tarefa crítica",
+    triggerDelivery: 'Resumo pronto: "Há um bloqueio do time mobile que exige resposta ainda hoje."',
+    approvedAction: 'Acompanhamento criado: "Responder bloqueio do time mobile · hoje".',
+    finalDelivery: "1 tarefa priorizada, resumida e convertida em acompanhamento com a sua aprovação.",
+    defaultTools: ["Ler tarefa", "Classificar prioridade", "Resumir contexto", "Criar acompanhamento"],
+    variableA: "tarefas_lidas",
+    variableB: "acompanhamentos_abertos",
+  },
+};
+
 export function isGuidedMissionId(missionId = "") {
   return missionId === RAG_MISSION_ID || missionId === AGENT_MISSION_ID;
 }
@@ -149,6 +218,8 @@ export function createDefaultGuidedMissionState(missionId) {
     return {
       missionId,
       deckStatus: GUIDED_DECK_STATUS.NOT_STARTED,
+      deckVisible: true,
+      deckMode: "overlay",
       started: false,
       scriptIndex: 0,
       step: "E0",
@@ -166,6 +237,8 @@ export function createDefaultGuidedMissionState(missionId) {
   return {
     missionId,
     deckStatus: GUIDED_DECK_STATUS.NOT_STARTED,
+    deckVisible: true,
+    deckMode: "overlay",
     started: false,
     scriptIndex: 0,
     step: "E0",
@@ -388,6 +461,222 @@ top 3: ${values.top || "..."}
 resposta: ${values.r || "..."}
 fonte: ${values.f || "..."}
 progresso: etapa ${values.n} de 10`;
+}
+
+function escapeHtml(value = "") {
+  return `${value}`
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeText(value = "") {
+  return `${value}`.replace(/\s+/g, " ").trim();
+}
+
+function extractChoiceNumber(value = "") {
+  const match = normalizeText(value).match(/^(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function getAgentProfileFromState(missionState) {
+  const missionChoice = extractChoiceNumber(missionState?.responses?.[1] || "");
+  if (missionChoice === 2) return AGENT_PROFILES.news;
+  if (missionChoice === 3) return AGENT_PROFILES.tasks;
+  if (missionChoice === 4) {
+    const raw = normalizeText(missionState?.responses?.[1] || "");
+    const customMission = raw.replace(/^\d+\.\s*/, "") || "definir uma missão personalizada";
+    return {
+      ...AGENT_PROFILES.email,
+      mission: customMission,
+    };
+  }
+  return AGENT_PROFILES.email;
+}
+
+function getAgentEventLabel(missionState) {
+  const eventChoice = extractChoiceNumber(missionState?.responses?.[3] || "");
+  if (eventChoice === 2) return "todo dia em um horário fixo";
+  if (eventChoice === 3) return "quando você pedir";
+  return "quando chegar um item novo";
+}
+
+function parseSelectedTools(missionState, profile) {
+  const response = normalizeText(missionState?.responses?.[7] || "");
+  const numbers = [...response.matchAll(/\d+/g)].map((match) => Number(match[0]));
+  const tools = profile.defaultTools;
+  if (!numbers.length) return tools;
+  const selected = numbers
+    .map((number) => tools[number - 1])
+    .filter(Boolean);
+  return selected.length ? Array.from(new Set(selected)) : tools;
+}
+
+function summarizePermissions(missionState, selectedTools) {
+  const response = normalizeText(missionState?.responses?.[8] || "");
+  if (!response) {
+    return `${selectedTools[selectedTools.length - 1] || "ação final"} pede aprovação, o resto sozinho`;
+  }
+  return response;
+}
+
+function getRagDocs(attachments = []) {
+  if (attachments.length) {
+    return attachments.map((attachment, index) => ({
+      name: attachment?.name || `arquivo-${index + 1}.txt`,
+      text: normalizeText(attachment?.extractedText || attachment?.text || ""),
+    }));
+  }
+  return RAG_PACK_DOCUMENTS;
+}
+
+export function renderGuidedMissionStepContent(missionId, stepIndex = 0, missionState = {}, attachments = []) {
+  const script = getGuidedMissionScript(missionId);
+  const boundedIndex = Math.max(0, Math.min(stepIndex, script.length - 1));
+  const baseStep = script[boundedIndex] || script[0] || null;
+  if (!baseStep) return null;
+
+  if (missionId === AGENT_MISSION_ID) {
+    const profile = getAgentProfileFromState(missionState);
+    const connector = `${profile.connector} (conectado)`;
+    const eventLabel = getAgentEventLabel(missionState);
+    const memory = normalizeText(missionState?.responses?.[5] || "...");
+    const selectedTools = parseSelectedTools(missionState, profile);
+    const permissionSummary = summarizePermissions(missionState, selectedTools);
+    const variableLine = `${profile.variableA} = 0 · ${profile.variableB} = 0`;
+    const triggerLabel = profile.triggerItem;
+    const triggerActor = triggerLabel.split(" · ")[0] || "o sistema";
+    const finalAction = selectedTools[selectedTools.length - 1] || "ação final";
+
+    switch (stepIndex) {
+      case 2:
+        return {
+          ...baseStep,
+          ai: `<p>Registrado.</p><pre>${agentFicha({ missao: profile.mission, n: 1 })}</pre><p>Etapa 2. O conector liga o agente a um sistema externo. Aqui será usado um ${profile.connector}, sem conta real. Posso conectar?</p>`,
+        };
+      case 3:
+        return {
+          ...baseStep,
+          ai: `<p><span class="sent">✓ ${profile.connector} conectado.</span> Estes são os itens na base de treino:</p><pre>${profile.inboxItems.map((item, index) => `${index + 1}. ${item}`).join("\n")}</pre><p>Etapa 3. O evento é o que faz o agente começar a trabalhar, também chamado de gatilho. Qual será o gatilho?</p><div class="ops"><div>1. Quando chegar um item novo</div><div>2. Todo dia em um horário fixo</div><div>3. Quando você pedir</div></div>`,
+        };
+      case 5:
+        return {
+          ...baseStep,
+          ai: `<pre>${agentFicha({
+            missao: profile.mission,
+            conector: connector,
+            evento: eventLabel,
+            modelo: "GPT-4.1",
+            n: 4,
+          })}</pre><p>Etapa 5. A memória guarda o que o agente sabe sobre você. Escreva uma ou duas frases de preferência para orientar as decisões.</p>`,
+        };
+      case 7:
+        return {
+          ...baseStep,
+          ai: `<p>Etapa 7. Ferramentas são as ações que o agente consegue executar. Escolha pelo menos três, respondendo com os números.</p><div class="ops">${profile.defaultTools.map((tool, index) => `<div>${index + 1}. ${escapeHtml(tool)}</div>`).join("")}</div>`,
+        };
+      case 8:
+        return {
+          ...baseStep,
+          ai: `<p>Etapa 8. Permissões definem o que o agente faz sozinho e o que precisa da sua autorização. Para cada ferramenta, responda: sozinho ou aprovação?</p><pre>${selectedTools.map((tool) => `${tool.toLowerCase().padEnd(22, " ")} → ?`).join("\n")}</pre><p>Pelo menos uma precisa ficar em aprovação.</p>`,
+        };
+      case 9:
+        return {
+          ...baseStep,
+          ai: `<p>Configuração completa.</p><pre>${agentFicha({
+            missao: profile.mission,
+            conector: connector,
+            evento: eventLabel,
+            modelo: "GPT-4.1",
+            memoria: memory || "...",
+            variaveis: variableLine,
+            ferramentas: selectedTools.join(", "),
+            permissoes: permissionSummary,
+            n: 8,
+          })}</pre><p>Etapa 9. O agente vai rodar agora. Disparando o evento.</p><div class="passo">PASSO 1 · PERCEBER</div><p>Entrou um item novo: <b>${escapeHtml(triggerLabel)}</b></p><div class="passo">PASSO 2 · RACIOCINAR</div><p>O histórico e a memória orientam a leitura. O item foi ${profile.triggerDecision} e a decisão foi usar as ferramentas configuradas para produzir uma saída útil.</p><div class="passo">PASSO 3 · AGIR</div><p>✓ Lido. ✓ Interpretado. ✓ ${escapeHtml(profile.triggerDelivery)}</p><p>A próxima ferramenta é <b>${escapeHtml(finalAction)}</b>, que está marcada como aprovação.</p><div class="ops"><div>1. Aprovar</div><div>2. Recusar</div></div>`,
+        };
+      case 10:
+        return {
+          ...baseStep,
+          ai: `<p><span class="sent">✓ Aprovado.</span> ${escapeHtml(profile.approvedAction)}</p><p>Entrega do agente: ${escapeHtml(profile.finalDelivery)}</p><pre>variáveis atualizadas
+${profile.variableA} = 1
+${profile.variableB} = 1</pre><p>Etapa 10. Você construiu um agente com as dez peças do vocabulário da aula e viu o ciclo rodar de ponta a ponta.</p><div class="ops"><div>1. Disparar mais um evento</div><div>2. Encerrar a missão</div></div>`,
+        };
+      case 11:
+        return {
+          ...baseStep,
+          ai: `<p>Missão cumprida. Este relatório é seu, copie e guarde.</p><pre>RELATORIO DA MISSAO · MEU PRIMEIRO AGENTE
+missão: ${profile.mission}
+conector: ${profile.connector} · evento: ${eventLabel} · modelo: GPT-4.1
+memória: "${memory || "..."}"
+ferramentas: ${selectedTools.join(", ")}
+permissões: ${permissionSummary}
+
+evento disparado: ${triggerActor}
+decisão do modelo: ${profile.triggerDecision}
+aprovação: aprovada · ${finalAction}
+entrega: ${profile.finalDelivery}
+variáveis finais: ${profile.variableA} = 1 · ${profile.variableB} = 1</pre><pre>STATUS: MISSAO CONCLUIDA</pre>`,
+        };
+      default:
+        return baseStep;
+    }
+  }
+
+  const ragBaseChoice = extractChoiceNumber(missionState?.responses?.[0] || "");
+  const useOwnAttachments = ragBaseChoice === 1 && attachments.length > 0;
+  const docs = useOwnAttachments ? getRagDocs(attachments) : RAG_PACK_DOCUMENTS;
+  const usingPack = !useOwnAttachments;
+  const docNames = docs.map((doc) => doc.name);
+  const question = normalizeText(missionState?.responses?.[4] || "Posso emendar o descanso com o feriado?");
+  const firstDoc = docNames[0] || "documento-1.md";
+  const secondDoc = docNames[1] || firstDoc;
+  const baseLabel = usingPack ? `${docs.length} arquivos (pack de exemplo)` : `${docs.length} arquivo(s) anexado(s)`;
+  const sourceLine = `${firstDoc}${docNames[1] ? ` · ${secondDoc}` : ""}`;
+
+  switch (stepIndex) {
+    case 1:
+      return {
+        ...baseStep,
+        ai: `<p>Etapa 1. A base de conhecimento são os documentos que a IA pode consultar. Base carregada:</p><pre>${docNames.join("\n")}</pre><p>A IA só responde sobre o que está nessa base. Seguir para o fatiamento?</p>`,
+      };
+    case 2:
+      return {
+        ...baseStep,
+        ai: `<p>Etapa 2. O trecho é um pedaço pequeno de documento, em inglês chunk. A base foi dividida em <b>${Math.max(3, docs.length * 6)} trechos</b>. Dois exemplos:</p><pre>${firstDoc} · trecho 1\n"${escapeHtml((docs[0]?.text || "Trecho da base").split("\n")[0] || "Trecho da base")}"\n\n${secondDoc} · trecho 1\n"${escapeHtml((docs[1]?.text || docs[0]?.text || "Outro trecho da base").split("\n")[0] || "Outro trecho da base")}"</pre>`,
+      };
+    case 5:
+      return {
+        ...baseStep,
+        ai: `<p>Etapa 5. A recuperação seleciona os trechos mais parecidos com a pergunta. Top 3, com k igual a 3:</p><pre>0.89 · ${firstDoc} · trecho 1\n"${escapeHtml((docs[0]?.text || "Trecho relevante da base").split("\n")[0] || "Trecho relevante da base")}"\n\n0.81 · ${secondDoc} · trecho 1\n"${escapeHtml((docs[1]?.text || docs[0]?.text || "Segundo trecho da base").split("\n")[0] || "Segundo trecho da base")}"\n\n0.72 · ${firstDoc} · trecho 2\n"(scores ilustrativos)"</pre><p>A sua pergunta foi: <b>${escapeHtml(question)}</b>. A busca semântica tenta aproximar a pergunta dos trechos mais úteis.</p>`,
+      };
+    case 6:
+      return {
+        ...baseStep,
+        ai: `<p>Etapa 6. O contexto é a mensagem final enviada ao modelo, a pergunta junto com os trechos. Este é o prompt montado, literalmente:</p><pre>Responda usando apenas os trechos abaixo.\n\nTrecho 1 (${firstDoc}): "${escapeHtml((docs[0]?.text || "Trecho relevante da base").split("\n")[0] || "Trecho relevante da base")}"\nTrecho 2 (${secondDoc}): "${escapeHtml((docs[1]?.text || docs[0]?.text || "Segundo trecho da base").split("\n")[0] || "Segundo trecho da base")}"\n\nPergunta: ${escapeHtml(question)}</pre><p>Os documentos entram dentro da mensagem. Gerar a resposta?</p>`,
+      };
+    case 7:
+      return {
+        ...baseStep,
+        ai: `<p>Etapa 7. Resposta gerada com base nos trechos:</p><p><b>A resposta deve se apoiar apenas nos documentos carregados, citando a origem para conferência.</b></p><pre>fonte: ${sourceLine}</pre><p>A citação permite conferir a origem em vez de confiar só no tom da resposta.</p>`,
+      };
+    case 10:
+      return {
+        ...baseStep,
+        ai: `<p>Etapa 10. Você viu o caminho completo, do documento à resposta citada, e o sistema recusando o que está fora da base. Este relatório é seu, copie e guarde.</p><pre>RELATORIO DA MISSAO · RAG NA PRATICA
+base: ${baseLabel}
+trechos: ${Math.max(3, docs.length * 6)}
+pergunta testada: ${question}
+resposta citada: construída com base na recuperação atual
+  fonte: ${sourceLine}
+contraste sem RAG: resposta sem fonte confiável
+teste de limite: pergunta fora da base deve ser recusada</pre><pre>STATUS: MISSAO CONCLUIDA</pre>`,
+      };
+    default:
+      return baseStep;
+  }
 }
 
 export function getGuidedMissionScript(missionId) {
@@ -624,15 +913,17 @@ variáveis finais: emails_processados = 1 · pendencias_abertas = 1</pre><pre>ST
   ];
 }
 
-export function getGuidedMissionStepContent(missionId, stepIndex = 0) {
+export function getGuidedMissionStepContent(missionId, stepIndex = 0, missionState = {}, attachments = []) {
   const script = getGuidedMissionScript(missionId);
-  return script[Math.max(0, Math.min(stepIndex, script.length - 1))] || script[0] || null;
+  const boundedIndex = Math.max(0, Math.min(stepIndex, script.length - 1));
+  return renderGuidedMissionStepContent(missionId, boundedIndex, missionState, attachments) || script[boundedIndex] || script[0] || null;
 }
 
 export function getGuidedMissionExplainPane(missionId, missionState) {
   const stepContent = getGuidedMissionStepContent(
     missionId,
     Number(missionState?.scriptIndex || 0),
+    missionState,
   );
   return {
     kicker: "Componente em foco",

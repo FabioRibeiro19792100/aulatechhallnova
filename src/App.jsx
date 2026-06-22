@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -6120,9 +6120,13 @@ function App() {
     setTimeMissionIdx(index);
   }
 
-  function handleChangeCurrentGuidedMissionState(nextMissionState) {
+  function handleChangeCurrentGuidedMissionState(nextMissionStateOrUpdater) {
     if (!currentMission || !isGuidedMission(currentMission)) return;
-    patchCurrentGuidedMissionState(currentMission.id, () => nextMissionState);
+    patchCurrentGuidedMissionState(currentMission.id, (currentMissionState) =>
+      typeof nextMissionStateOrUpdater === "function"
+        ? nextMissionStateOrUpdater(currentMissionState)
+        : nextMissionStateOrUpdater,
+    );
   }
 
   function handlePersistCurrentGuidedMissionExecution(execData) {
@@ -6613,9 +6617,6 @@ function App() {
         conclusoes,
         reflexoes,
         missionResets,
-        participantAnalyses: Object.fromEntries(
-          Object.entries(item.participantAnalyses || {}).filter(([, entry]) => !teamIndexes.includes(Number(entry?.teamIdx))),
-        ),
       };
     });
     commitCriticalEventsDirect(nextEvents);
@@ -7105,9 +7106,6 @@ function App() {
           return {
             ...event,
             missionResets: { ...(event.missionResets || {}), [`${targetTeamIdx}__${missionId}`]: resetAt },
-            participantAnalyses: Object.fromEntries(
-              Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== targetTeamIdx),
-            ),
             agentMissionParticipants: nextParticipants,
           };
         }),
@@ -7189,9 +7187,6 @@ function App() {
           ...event,
           missionResets: { ...(event.missionResets || {}), [key]: resetAt },
           preservedMissionUsage,
-          participantAnalyses: Object.fromEntries(
-            Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== targetTeamIdx),
-          ),
         };
       }),
     );
@@ -7216,9 +7211,6 @@ function App() {
           ...event,
           missionResets: { ...(event.missionResets || {}), [`${targetTeamIdx}____training__`]: resetAt },
           trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== targetTeamIdx),
-          participantAnalyses: Object.fromEntries(
-            Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== targetTeamIdx),
-          ),
         };
       }),
     );
@@ -8542,11 +8534,32 @@ function App() {
                                 {mission.num ? `${mission.num}. ` : ""}
                                 {mission.name}
                               </div>
-                              <span
-                                className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : aguardandoQuestionario ? " is-open" : " is-open"}`}
-                                aria-label={meta}
-                                title={meta}
-                              />
+                              <div className="mission-item-head-actions">
+                                {canResetMission ? (
+                                  <button
+                                    type="button"
+                                    className="mission-reset-icon-btn"
+                                    aria-label={`Reabrir ${mission.name} do zero`}
+                                    title="Reabrir missão do zero"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      openConfirm(
+                                        "Reiniciar missão",
+                                        `Deseja fazer um restart da missão ${mission.num ? `${mission.num}. ` : ""}${mission.name} para este time? O recorte visível da missão será reiniciado, mas o histórico bruto permanecerá preservado.`,
+                                        () => handleResetMissionFromZero(mission.id, index),
+                                      );
+                                    }}
+                                  >
+                                    <RotateCcw size={14} strokeWidth={1.9} />
+                                  </button>
+                                ) : null}
+                                <span
+                                  className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : aguardandoQuestionario ? " is-open" : " is-open"}`}
+                                  aria-label={meta}
+                                  title={meta}
+                                />
+                              </div>
                             </div>
                           </button>
                           {isCurrentMission ? (
@@ -8569,20 +8582,6 @@ function App() {
                                 <p>{mission.instrucao || "Escreva o input abaixo e escolha a ação."}</p>
                               </div>
                             </div>
-                          ) : null}
-                          {canResetMission ? (
-                            <button
-                              className="mission-reset-btn"
-                              onClick={() =>
-                                openConfirm(
-                                  "Reabrir missão do zero",
-                                  "Isso vai apagar respostas, explicações, histórico, questionário e status de concluída desta missão para o time atual. Os tokens consumidos permanecerão no acumulado histórico. Deseja continuar?",
-                                  () => handleResetMissionFromZero(mission.id, index),
-                                )
-                              }
-                            >
-                              Reabrir missão do zero
-                            </button>
                           ) : null}
                         </div>
                       );

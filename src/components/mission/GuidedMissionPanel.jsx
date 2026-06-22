@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Maximize2, Minus, Paperclip, RotateCcw, Send, X } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import { Copy, Maximize2, Minus, Paperclip, Presentation, RotateCcw, Send, X } from "lucide-react";
 import ragDeckHtml from "../../assets/mission-decks/rag-onboarding.html?raw";
 import agentDeckHtml from "../../assets/mission-decks/agentes-onboarding.html?raw";
 import {
@@ -7,6 +7,7 @@ import {
   GUIDED_DECK_STATUS,
   RAG_MISSION_ID,
   getGuidedMissionScript,
+  getGuidedMissionStepContent,
 } from "../../data/guidedMissions.js";
 
 function stripHtml(html = "") {
@@ -28,6 +29,10 @@ function extractStepLabel(step = {}, index = 0) {
   const match = `${step.tech?.s || ""}`.match(/etapa\s+(\d+)\s+de\s+10\s+·\s+(.+)/i);
   if (match) return `Etapa ${match[1]} · ${match[2]}`;
   return `Etapa ${index + 1}`;
+}
+
+function extractOptionReply(optionNode) {
+  return `${optionNode?.textContent || ""}`.replace(/\s+/g, " ").trim();
 }
 
 function GuidedMissionDeck({ missionId, mode = "overlay", onDismiss, onComplete, onExpand, onMinimize }) {
@@ -98,21 +103,18 @@ export function GuidedMissionPanel({
 }) {
   const threadRef = useRef(null);
   const fileInputRef = useRef(null);
-  const [deckVisible, setDeckVisible] = useState(missionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED);
-  const [deckMode, setDeckMode] = useState(missionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED ? "overlay" : "pip");
   const script = useMemo(() => getGuidedMissionScript(mission.id), [mission.id]);
   const scriptIndex = Math.max(0, Math.min(Number(missionState?.scriptIndex || 0), script.length - 1));
-  const currentStep = script[scriptIndex] || script[0];
+  const currentStep = getGuidedMissionStepContent(mission.id, scriptIndex, missionState, attachments) || script[scriptIndex] || script[0];
   const responses = missionState?.responses || {};
   const isCompleted = Boolean(missionState?.completed || currentStep?.done);
   const isRag = mission.id === RAG_MISSION_ID;
-
-  useEffect(() => {
-    if (missionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED) {
-      setDeckVisible(true);
-      setDeckMode("overlay");
-    }
-  }, [missionState?.deckStatus]);
+  const deckVisible =
+    typeof missionState?.deckVisible === "boolean"
+      ? missionState.deckVisible
+      : missionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED;
+  const deckMode =
+    missionState?.deckMode || (missionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED ? "overlay" : "pip");
 
   useEffect(() => {
     if (isCompleted) return;
@@ -130,16 +132,26 @@ export function GuidedMissionPanel({
     });
   }, [scriptIndex, isCompleted]);
 
-  function patch(nextPartial) {
-    onChangeState({
-      ...missionState,
-      ...nextPartial,
+  function patch(nextPartialOrUpdater) {
+    onChangeState((currentMissionState = {}) => {
+      if (typeof nextPartialOrUpdater === "function") {
+        return nextPartialOrUpdater(currentMissionState);
+      }
+      return {
+        ...currentMissionState,
+        ...nextPartialOrUpdater,
+      };
     });
   }
 
   function finalizeMission(nextIndex, nextResponses) {
-    const finalStep = script[nextIndex] || script[script.length - 1];
+    const finalStep =
+      getGuidedMissionStepContent(mission.id, nextIndex, missionState, attachments) ||
+      script[nextIndex] ||
+      script[script.length - 1];
     const report = extractReport(finalStep?.ai || "") || missionState?.report || "";
+    const nowIso = new Date().toISOString();
+    const shouldPersist = !missionState?.persistedAt && Boolean(onPersistExecution);
     const nextState = {
       ...missionState,
       started: true,
@@ -152,13 +164,13 @@ export function GuidedMissionPanel({
       responses: nextResponses,
       completed: true,
       report,
-      generatedAt: new Date().toISOString(),
+      generatedAt: nowIso,
+      persistedAt: missionState?.persistedAt || (shouldPersist ? nowIso : null),
     };
-    patch(nextState);
-    if (!missionState?.persistedAt && onPersistExecution) {
+    if (shouldPersist) {
       onPersistExecution({
         id: `${mission.id}_${Date.now()}`,
-        ts: new Date().toISOString(),
+        ts: nowIso,
         aiMode: mission.aiMode,
         acao: "guided_mission",
         input: "INICIAR_MISSAO",
@@ -168,15 +180,12 @@ export function GuidedMissionPanel({
         outputTokens: 0,
         custo: 0,
         missionReport: report,
-        missionGuidedState: {
-          ...nextState,
-          persistedAt: new Date().toISOString(),
-        },
+        missionGuidedState: nextState,
         participantName,
         attachments,
       });
     }
-    patch({ ...nextState, persistedAt: new Date().toISOString() });
+    patch(nextState);
     onInputChange("");
   }
 
@@ -189,22 +198,25 @@ export function GuidedMissionPanel({
       [scriptIndex]: response,
     };
     const nextIndex = Math.min(scriptIndex + 1, script.length - 1);
-    const nextStep = script[nextIndex] || currentStep;
+    const nextStep =
+      getGuidedMissionStepContent(mission.id, nextIndex, { ...missionState, responses: nextResponses }, attachments) ||
+      script[nextIndex] ||
+      currentStep;
     if (nextStep?.done) {
       finalizeMission(nextIndex, nextResponses);
       return;
     }
-    patch({
-      ...missionState,
+    patch((currentMissionState = {}) => ({
+      ...currentMissionState,
       started: true,
       deckStatus:
-        missionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED
+        currentMissionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED
           ? GUIDED_DECK_STATUS.COMPLETED
-          : missionState?.deckStatus || GUIDED_DECK_STATUS.COMPLETED,
+          : currentMissionState?.deckStatus || GUIDED_DECK_STATUS.COMPLETED,
       scriptIndex: nextIndex,
       step: `E${Math.min(nextIndex, 10)}`,
       responses: nextResponses,
-    });
+    }));
   }
 
   function handleKeyDown(event) {
@@ -217,14 +229,15 @@ export function GuidedMissionPanel({
   function handleOptionClick(event) {
     const option = event.target.closest(".ops div");
     if (!option || isCompleted) return;
-    handleAdvance(currentStep?.user || option.textContent || "");
+    handleAdvance(extractOptionReply(option));
   }
 
   const transcript = [];
   for (let index = 0; index < script.length; index += 1) {
     const step = script[index];
     if (index < scriptIndex || (isCompleted && index <= scriptIndex)) {
-      transcript.push({ type: "assistant", step, index });
+      const renderedStep = getGuidedMissionStepContent(mission.id, index, missionState, attachments) || step;
+      transcript.push({ type: "assistant", step: renderedStep, index });
       const reply = responses[index] ?? step.user;
       if (reply && !step.done) {
         transcript.push({ type: "user", reply, index });
@@ -232,7 +245,8 @@ export function GuidedMissionPanel({
       continue;
     }
     if (index === scriptIndex && !isCompleted) {
-      transcript.push({ type: "assistant", step, index, current: true });
+      const renderedStep = getGuidedMissionStepContent(mission.id, index, missionState, attachments) || step;
+      transcript.push({ type: "assistant", step: renderedStep, index, current: true });
     }
     break;
   }
@@ -250,22 +264,39 @@ export function GuidedMissionPanel({
           missionId={mission.id}
           mode={deckMode}
           onDismiss={() => {
-            setDeckVisible(false);
-            patch({
-              ...missionState,
-              deckStatus: missionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED ? GUIDED_DECK_STATUS.DISMISSED : missionState?.deckStatus,
-            });
+            patch((currentMissionState = {}) => ({
+              ...currentMissionState,
+              deckVisible: false,
+              deckMode: "pip",
+              deckStatus:
+                currentMissionState?.deckStatus === GUIDED_DECK_STATUS.NOT_STARTED
+                  ? GUIDED_DECK_STATUS.DISMISSED
+                  : currentMissionState?.deckStatus,
+            }));
           }}
           onComplete={() => {
-            setDeckVisible(false);
-            patch({
-              ...missionState,
+            patch((currentMissionState = {}) => ({
+              ...currentMissionState,
+              deckVisible: false,
+              deckMode: "pip",
               deckStatus: GUIDED_DECK_STATUS.COMPLETED,
               started: true,
-            });
+            }));
           }}
-          onExpand={() => setDeckMode("overlay")}
-          onMinimize={() => setDeckMode("minimized")}
+          onExpand={() =>
+            patch((currentMissionState = {}) => ({
+              ...currentMissionState,
+              deckVisible: true,
+              deckMode: "overlay",
+            }))
+          }
+          onMinimize={() => {
+            patch((currentMissionState = {}) => ({
+              ...currentMissionState,
+              deckVisible: false,
+              deckMode: "pip",
+            }));
+          }}
         />
       ) : null}
 
@@ -274,11 +305,16 @@ export function GuidedMissionPanel({
           type="button"
           className="guided-deck-launcher"
           onClick={() => {
-            setDeckMode("pip");
-            setDeckVisible(true);
+            patch((currentMissionState = {}) => ({
+              ...currentMissionState,
+              deckVisible: true,
+              deckMode: "pip",
+            }));
           }}
         >
-          <span>Apresentação</span>
+          <span className="guided-deck-launcher-icon" aria-hidden="true">
+            <Presentation size={16} strokeWidth={1.9} />
+          </span>
           <small>{isRag ? "RAG" : "Agente"}</small>
         </button>
       ) : null}
@@ -365,8 +401,11 @@ export function GuidedMissionPanel({
                   type="button"
                   className="btn btn-ghost"
                   onClick={() => {
-                    setDeckMode("pip");
-                    setDeckVisible(true);
+                    patch((currentMissionState = {}) => ({
+                      ...currentMissionState,
+                      deckVisible: true,
+                      deckMode: "pip",
+                    }));
                   }}
                 >
                   Apresentação

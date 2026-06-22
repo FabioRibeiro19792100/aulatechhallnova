@@ -1,6 +1,6 @@
 import { BookOpen } from "lucide-react";
 import {
-  CHAT_AI_MODE, CODING_AI_MODE, PERGUNTAS_REFLEXAO, TECHNICAL_FEEDBACK_REASONS,
+  CHAT_AI_MODE, CODING_AI_MODE, PERGUNTAS_REFLEXAO,
   getMissionAiMode, getReflectionTopicShortLabel, formatDateTime,
 } from "../../utils.js";
 import { AI_MODE_LABELS } from "../../data/missions.js";
@@ -149,6 +149,12 @@ function truncatePromptSnippet(text, max = 140) {
   return `${normalized.slice(0, max).trim()}...`;
 }
 
+function getSortedTeamEntries(evento) {
+  return (evento?.teams || [])
+    .map((teamItem, teamIdx) => ({ teamItem, teamIdx }))
+    .sort((a, b) => (a.teamItem?.name || "").localeCompare(b.teamItem?.name || "", "pt-BR"));
+}
+
 export function MissionsPanel({
   evento,
   eventMode,
@@ -202,7 +208,7 @@ export function MissionsPanel({
             const missionHasOpenTeams = evento.teams.some((_, teamIdx) => getMissionClosureStatus(evento, teamIdx, mission.id) === "aberta");
             const missionHasReopenableTeams = evento.teams.some((_, teamIdx) => canFacilitatorReopenMissionForTeam(evento, teamIdx, mission.id));
             const teamRowsOpen = Boolean(missionTeamRowsOpen[feedbackKey]);
-            const teamRows = evento.teams.map((teamItem, teamIdx) => {
+            const teamRows = getSortedTeamEntries(evento).map(({ teamItem, teamIdx }) => {
               const execs = getExecucoes(evento, teamIdx, mission.id);
               const latestExec = execs[execs.length - 1] || null;
               const reflection = (evento.reflexoes || {})[`${teamIdx}__${mission.id}`];
@@ -220,6 +226,7 @@ export function MissionsPanel({
                 execs.reduce((sum, execucao) => sum + (execucao.technicalAnalysisUsage?.cost || 0), 0) +
                 (preservedUsage.explanationCost || 0);
               const teamTokens = responseTokens + analysisTokens;
+              const teamTechnicalFeedbackEntries = technicalFeedbackEntries.filter((entry) => entry.teamIdx === teamIdx);
               return {
                 teamName: teamItem.name,
                 reflection,
@@ -232,6 +239,7 @@ export function MissionsPanel({
                 analysisTokens,
                 analysisCost,
                 latestExec,
+                technicalFeedbackEntries: teamTechnicalFeedbackEntries,
               };
             });
             const topicAverages = PERGUNTAS_REFLEXAO.map((question) => {
@@ -251,13 +259,7 @@ export function MissionsPanel({
             const overallAverage = scoredTopics.length
               ? scoredTopics.reduce((sum, item) => sum + item.average, 0) / scoredTopics.length
               : 0;
-            const technicalHelpfulCount = technicalFeedbackEntries.filter((item) => item.rating === "up").length;
-            const technicalUnhelpfulCount = technicalFeedbackEntries.filter((item) => item.rating === "down").length;
-            const technicalReasonCounts = TECHNICAL_FEEDBACK_REASONS.map((reason) => ({
-              reason,
-              count: technicalFeedbackEntries.filter((item) => item.rating === "down" && item.reason === reason).length,
-            })).filter((item) => item.count > 0);
-            const hasAnyMissionFeedback = reflections.length || technicalFeedbackEntries.length;
+            const hasAnyMissionFeedback = reflections.length;
 
             return (
               <div className="mission-row-wrap" key={`${mission.id}-${index}`}>
@@ -329,36 +331,6 @@ export function MissionsPanel({
                             ) : null}
                           </div>
                         ) : null}
-                        {technicalFeedbackEntries.length ? (
-                          <div className="mission-feedback-card is-summary">
-                            <div className="mission-feedback-head">
-                              <div>
-                                <div className="mission-feedback-team">Feedback da explicação técnica</div>
-                                <div className="mission-feedback-meta">{technicalFeedbackEntries.length} retorno(s) coletados</div>
-                              </div>
-                            </div>
-                            <div className="mission-feedback-scores is-inline">
-                              <span className="mission-feedback-chip is-rating">
-                                <strong>Útil</strong>
-                                <span className="mission-feedback-score">{technicalHelpfulCount}</span>
-                              </span>
-                              <span className="mission-feedback-chip is-rating">
-                                <strong>Não útil</strong>
-                                <span className="mission-feedback-score">{technicalUnhelpfulCount}</span>
-                              </span>
-                            </div>
-                            {technicalReasonCounts.length ? (
-                              <div className="mission-feedback-scores is-detailed">
-                                {technicalReasonCounts.map((item) => (
-                                  <div className="team-admin-feedback-topic" key={item.reason}>
-                                    <span className="team-admin-feedback-topic-label">{item.reason}</span>
-                                    <span className="mission-feedback-score">{item.count}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
                         <div className="mission-feedback-actions">
                           <button
                             className="mission-feedback-toggle"
@@ -391,29 +363,6 @@ export function MissionsPanel({
                                   ))}
                                 </div>
                                 {reflection.comment ? <div className="mission-feedback-comment">{reflection.comment}</div> : null}
-                              </div>
-                            ))
-                          : null}
-                        {feedbackOpen
-                          ? technicalFeedbackEntries.map((entry) => (
-                              <div className="mission-feedback-card" key={`tech-${entry.teamIdx}-${entry.execId}`}>
-                                <div className="mission-feedback-head">
-                                  <div className="mission-feedback-team">{entry.teamName}</div>
-                                  <div className="mission-feedback-meta">{formatDateTime(entry.submittedAt || entry.execTs)}</div>
-                                </div>
-                                <div className="mission-feedback-scores is-inline">
-                                  <span className="mission-feedback-chip is-rating">
-                                    <strong>Leitura</strong>
-                                    <span className="mission-feedback-score">{entry.rating === "up" ? "Útil" : "Não útil"}</span>
-                                  </span>
-                                  {entry.reason ? (
-                                    <span className="mission-feedback-chip is-rating">
-                                      <strong>Motivo</strong>
-                                      <span className="mission-feedback-score">{entry.reason}</span>
-                                    </span>
-                                  ) : null}
-                                </div>
-                                {entry.comment ? <div className="mission-feedback-comment">{entry.comment}</div> : null}
                               </div>
                             ))
                           : null}
@@ -504,6 +453,34 @@ export function MissionsPanel({
                                       ))}
                                     </div>
                                     {teamRow.reflection.comment ? <div className="team-admin-feedback-comment">{teamRow.reflection.comment}</div> : null}
+                                  </div>
+                                ) : null}
+                                {teamRow.technicalFeedbackEntries.length ? (
+                                  <div className="team-admin-feedback">
+                                    <div className="team-admin-feedback-head">
+                                      <div className="team-admin-feedback-title">Feedback da explicação técnica</div>
+                                    </div>
+                                    {teamRow.technicalFeedbackEntries.map((entry) => (
+                                      <div className="team-mission-feedback mission-team-feedback" key={`tech-${mission.id}-${teamRow.teamName}-${entry.execId}`}>
+                                        <div className="team-admin-feedback-scores is-inline">
+                                          <span className="mission-feedback-chip is-rating">
+                                            <strong>Leitura</strong>
+                                            <span className="mission-feedback-score">{entry.rating === "up" ? "Útil" : "Não útil"}</span>
+                                          </span>
+                                          {entry.reason ? (
+                                            <span className="mission-feedback-chip is-rating">
+                                              <strong>Motivo</strong>
+                                              <span className="mission-feedback-score">{entry.reason}</span>
+                                            </span>
+                                          ) : null}
+                                          <span className="mission-feedback-chip is-rating">
+                                            <strong>Quando</strong>
+                                            <span className="mission-feedback-score">{formatDateTime(entry.submittedAt || entry.execTs)}</span>
+                                          </span>
+                                        </div>
+                                        {entry.comment ? <div className="team-admin-feedback-comment">{entry.comment}</div> : null}
+                                      </div>
+                                    ))}
                                   </div>
                                 ) : null}
                               </div>

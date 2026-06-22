@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Quality Lab</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --black: #0D0D0D; --white: #FFFFFF; --blue: #2563EB; --blue-bg: #EEF3FF;
+  --gray-bg: #F4F4F4; --gray-border: #E2E2E2; --gray-mid: #888;
+  --green: #16A34A; --green-bg: #F0FDF4;
+  --amber: #D97706; --amber-bg: #FFFBEB;
+  --red: #DC2626; --red-bg: #FEF2F2;
+  --purple: #7C3AED; --purple-bg: #F5F3FF;
+}
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--white);
+  color: var(--black);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 5%;
+}
+
+/* HEADER */
+header {
+  border-bottom: 2px solid var(--black);
+  padding: 14px 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+header h1 { font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; }
+header .sep { color: var(--gray-border); }
+header .session { font-size:13px; color:var(--gray-mid); font-family:'Space Grotesk',sans-serif; }
+header .sim-badge { margin-left:auto; background:var(--blue); color:white; font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; padding:4px 12px; border-radius:2px; }
+
+/* MAIN */
+main { display:grid; grid-template-columns:58fr 42fr; flex:1; min-height:0; }
+
+/* LEFT */
+.panel-left { border-right:2px solid var(--black); padding:24px 28px 24px 0; display:flex; flex-direction:column; gap:14px; min-height:0; }
+.panel-eyebrow { font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:var(--gray-mid); }
+.q-layout { flex:1; display:flex; flex-direction:column; min-height:0; gap:6px; }
+.q-middle { flex:1; display:flex; gap:8px; min-height:0; }
+.q-y-axis { display:flex; flex-direction:column; align-items:center; justify-content:space-between; flex-shrink:0; align-self:stretch; padding:4px 0; }
+.q-y-top, .q-y-bot { writing-mode:vertical-rl; font-family:'Space Grotesk',sans-serif; font-size:10px; font-weight:500; color:var(--gray-mid); letter-spacing:0.04em; white-space:nowrap; transform:rotate(180deg); }
+.q-y-mid { writing-mode:vertical-rl; transform:rotate(180deg); font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--black); white-space:nowrap; }
+.q-grid-wrap { flex:1; position:relative; min-height:0; }
+.q-grid { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; width:100%; height:100%; border:1.5px solid var(--black); position:relative; }
+.q-grid::before { content:''; position:absolute; left:50%; top:0; bottom:0; width:1.5px; background:var(--black); z-index:1; }
+.q-grid::after  { content:''; position:absolute; top:50%; left:0; right:0; height:1.5px; background:var(--black); z-index:1; }
+.qc { padding:10px 12px; display:flex; flex-direction:column; gap:3px; }
+.qc-tl { background:#F8F8F8; } .qc-tr { background:#EEF4FF; } .qc-bl { background:#FFF9F5; } .qc-br { background:#F2FEF5; }
+.qc-name { font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; letter-spacing:0.07em; text-transform:uppercase; }
+.qc-tl .qc-name, .qc-bl .qc-name, .qc-br .qc-name { color:#999; }
+.qc-tr .qc-name { color:var(--blue); }
+.qc-desc { font-size:11px; line-height:1.5; color:#777; max-width:180px; }
+#dotsLayer { position:absolute; inset:0; z-index:5; }
+.q-bottom-hints { display:flex; justify-content:space-between; align-items:center; font-family:'Space Grotesk',sans-serif; font-size:10px; color:var(--gray-mid); padding-left:36px; }
+.q-bottom-hints span:nth-child(2) { font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--black); }
+
+/* RIGHT */
+.panel-right { padding:24px 0 24px 28px; display:flex; flex-direction:column; gap:14px; overflow:hidden; }
+.select-wrap { position:relative; }
+.select-wrap select { width:100%; appearance:none; background:var(--gray-bg); border:1.5px solid var(--gray-border); border-radius:2px; font-family:'Space Grotesk',sans-serif; font-size:14px; font-weight:600; color:var(--black); padding:9px 30px 9px 14px; cursor:pointer; outline:none; }
+.select-wrap select:focus { border-color:var(--blue); }
+.select-wrap::after { content:'↓'; position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:var(--gray-mid); pointer-events:none; }
+.profile-name { font-family:'Space Grotesk',sans-serif; font-size:22px; font-weight:700; line-height:1.1; }
+.profile-quadrant { font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--blue); margin-top:4px; }
+.divider { height:1px; background:var(--gray-border); flex-shrink:0; }
+
+/* TRIAD PILLS */
+.triad-block { display:flex; flex-direction:column; gap:10px; }
+.triad-row { display:flex; flex-direction:column; gap:4px; }
+.triad-row-label { font-family:'Space Grotesk',sans-serif; font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--gray-mid); }
+.triad-pills { display:flex; gap:4px; }
+.triad-pill { flex:1; padding:5px 6px; border-radius:2px; border:1.5px solid var(--gray-border); background:var(--white); text-align:center; }
+.triad-pill-name { font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:600; color:#C0C0C0; display:block; white-space:nowrap; }
+.triad-pill.is-active { background:var(--blue-bg); border-color:var(--blue); }
+.triad-pill.is-active .triad-pill-name { color:var(--blue); }
+/* Eficiência: desvios são âmbar, ideal é azul */
+.triad-pill.is-deviation { background:var(--amber-bg); border-color:var(--amber); }
+.triad-pill.is-deviation .triad-pill-name { color:var(--amber); }
+/* Marcação do ideal na eficiência quando não ativo */
+.triad-pill.is-ideal-marker { border-style:dashed; border-color:var(--gray-border); }
+
+/* TABS */
+.tabs-wrap { flex:1; display:flex; flex-direction:column; min-height:0; }
+.tab-bar { display:flex; border-bottom:1.5px solid var(--gray-border); flex-shrink:0; }
+.tab-btn { font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; padding:8px 14px; border:none; background:none; cursor:pointer; color:var(--gray-mid); border-bottom:2px solid transparent; margin-bottom:-1.5px; transition:color 0.15s; white-space:nowrap; }
+.tab-btn:hover { color:var(--black); }
+.tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); }
+.tab-panels { flex:1; overflow-y:auto; padding-top:14px; }
+.tab-panel { display:none; flex-direction:column; gap:12px; }
+.tab-panel.active { display:flex; }
+
+/* TAB CONTENT */
+.tab-section-label { font-family:'Space Grotesk',sans-serif; font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--gray-mid); }
+.tab-text { font-size:13px; line-height:1.75; color:#2A2A2A; }
+.findings { display:flex; flex-direction:column; gap:6px; }
+.finding-item { display:flex; gap:8px; align-items:flex-start; padding:9px 12px; border-radius:2px; border-left:3px solid transparent; }
+.finding-ok   { background:var(--green-bg);  border-left-color:var(--green); }
+.finding-warn { background:var(--amber-bg);  border-left-color:var(--amber); }
+.finding-crit { background:var(--red-bg);    border-left-color:var(--red); }
+.finding-icon { font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; flex-shrink:0; margin-top:1px; }
+.finding-ok   .finding-icon { color:var(--green); }
+.finding-warn .finding-icon { color:var(--amber); }
+.finding-crit .finding-icon { color:var(--red); }
+.finding-text { font-size:12px; line-height:1.55; color:var(--black); }
+
+.tip-box { background:var(--blue-bg); border-left:3px solid var(--blue); border-radius:2px; padding:10px 14px; }
+.tip-box-label { font-family:'Space Grotesk',sans-serif; font-size:9px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--blue); margin-bottom:5px; }
+.tip-box-text { font-size:12px; line-height:1.6; color:#1E3A8A; }
+
+/* Score badge inline */
+.score-badge { display:inline-flex; align-items:center; gap:6px; background:var(--gray-bg); border-radius:2px; padding:4px 10px; margin-bottom:2px; }
+.score-badge-label { font-family:'Space Grotesk',sans-serif; font-size:10px; font-weight:600; letter-spacing:0.07em; text-transform:uppercase; color:var(--gray-mid); }
+.score-badge-val { font-family:'Space Grotesk',sans-serif; font-size:13px; font-weight:700; color:var(--black); }
+.score-badge-bar-bg { width:80px; height:4px; background:var(--gray-border); border-radius:2px; overflow:hidden; }
+.score-badge-bar-fill { height:100%; border-radius:2px; background:var(--blue); }
+
+.next-steps { display:flex; flex-direction:column; gap:8px; }
+.next-step { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; background:var(--gray-bg); border-radius:2px; }
+.next-step-num { font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; color:var(--blue); flex-shrink:0; min-width:18px; }
+.next-step-text { font-size:12px; line-height:1.55; color:var(--black); }
+
+.session-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 7px 12px;
+  background: var(--gray-bg);
+  border-radius: 2px;
+  gap: 12px;
+}
+.stat-label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--gray-mid);
+  white-space: nowrap;
+}
+.stat-val {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--black);
+  text-align: right;
+}
+
+
+/* PAGE FOOTER */
+.page-footer {
+  border-top: 1.5px solid var(--black);
+  padding: 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.footer-date {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-mid);
+  letter-spacing: 0.05em;
+}
+.footer-session {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gray-mid);
+}
+.footer-close {
+  margin-left: auto;
+  background: none;
+  border: 1.5px solid var(--black);
+  border-radius: 2px;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--black);
+  padding: 5px 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.footer-close:hover { background: var(--black); color: var(--white); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Prompt Quality Lab</h1>
+  <span class="sep">|</span>
+  <span class="session">Sessão AR-07 · 14 participantes</span>
+  <span class="sim-badge">Simulação</span>
+</header>
+<main>
+  <div class="panel-left">
+    <span class="panel-eyebrow">Mapa de perfis</span>
+    <div class="q-layout">
+      <div class="q-middle">
+        <div class="q-y-axis">
+          <span class="q-y-top">Prompts claros →</span>
+          <span class="q-y-mid">Qualidade do prompt</span>
+          <span class="q-y-bot">← Prompts vagos</span>
+        </div>
+        <div class="q-grid-wrap">
+          <div class="q-grid">
+            <div class="qc qc-tl">
+              <div class="qc-name">Econômico Impreciso</div>
+              <div class="qc-desc">Tokens contidos, mas prompts vagos. Economiza no recurso errado.</div>
+            </div>
+            <div class="qc qc-tr">
+              <div class="qc-name">Avançado</div>
+              <div class="qc-desc">Prompts claros e bem estruturados. Escolhe o modelo certo para cada tarefa.</div>
+            </div>
+            <div class="qc qc-bl">
+              <div class="qc-name">Iniciante</div>
+              <div class="qc-desc">Prompts vagos e uso de recursos sem critério. Ponto de partida do desenvolvimento.</div>
+            </div>
+            <div class="qc qc-br">
+              <div class="qc-name">Eloquente Desperdiçador</div>
+              <div class="qc-desc">Articula bem o que quer, mas usa modelos pesados para tarefas simples.</div>
+            </div>
+            <div id="dotsLayer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="q-bottom-hints">
+        <span>← Subfornecido</span>
+        <span>Eficiência de recursos</span>
+        <span>Superfornecido →</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-right">
+    <div>
+      <div class="profile-name" id="profileName"></div>
+      <div class="profile-quadrant" id="profileQuadrant"></div>
+    </div>
+    <div class="divider"></div>
+    <div class="tabs-wrap">
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('geral',this)">Visão Geral</button>
+        <button class="tab-btn" onclick="switchTab('clareza',this)">Clareza</button>
+        <button class="tab-btn" onclick="switchTab('eficiencia',this)">Eficiência</button>
+        <button class="tab-btn" onclick="switchTab('modelo',this)">Modelo</button>
+      </div>
+      <div class="tab-panels">
+        <div class="tab-panel active" id="tab-geral"></div>
+        <div class="tab-panel" id="tab-clareza"></div>
+        <div class="tab-panel" id="tab-eficiencia"></div>
+        <div class="tab-panel" id="tab-modelo"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="page-footer">
+  <span class="footer-date" id="footerDate"></span>
+  <span class="footer-session">Sessão AR-07 · Prompt Quality Lab</span>
+  <button class="footer-close" onclick="window.close()">Encerrar análise ↗</button>
+</footer>
+
+
+<script>
+// ── DIMENSÕES ────────────────────────────────────────────────────────
+// Clareza e Modelo: escala de progressão (0=básico → 2=avançado)
+// Eficiência: diagnóstico de padrão (0=Subfornecido, 1=Calibrado, 2=Superfornecido)
+//   — ideal = 1 (centro); 0 e 2 são desvios em direções opostas, não progressão
+
+const DIMS = [
+  {
+    key:'clarity', label:'Clareza do prompt', type:'progression',
+    levels:['Chain-of-thought','Few-shot','Zero-shot'],
+    descs:['Raciocínio explicitado em etapas','Exemplos para calibrar o output','Instrução direta e completa'],
+    ideal:2, warnLevels:[]
+  },
+  {
+    key:'efficiency', label:'Eficiência de tokens', type:'diagnostic',
+    levels:['Subfornecido','Calibrado','Superfornecido'],
+    descs:['Contexto insuficiente para o modelo','Equilíbrio entre contexto e custo','Contexto excessivo sem ganho de qualidade'],
+    ideal:1, warnLevels:[0,2]
+  },
+  {
+    key:'modelFit', label:'Adequação do modelo', type:'progression',
+    levels:['Trial','Consciente','Estratégico'],
+    descs:['Escolha sem critério identificável','Percepção da tarefa, ainda inconsistente','Modelo deliberadamente escolhido por tipo de tarefa'],
+    ideal:2, warnLevels:[]
+  }
+];
+
+// ── SCORES ───────────────────────────────────────────────────────────
+// scores.clarity:    0.0–1.0  (média de elementos estruturais presentes por prompt)
+// scores.efficiency: 0.0–1.0  (1 = calibrado perfeito; distância do centro = desvio)
+// scores.modelFit:   0.0–1.0  (média de adequação modelo × complexidade da tarefa)
+// qx: posição X no quadrante (0–100), onde 50 = calibrado; <50 = subfornecido; >50 = superfornecido
+// qy: posição Y no quadrante (0–100), onde 0 = topo (alta qualidade), 100 = base (baixa)
+
+const participants = [
+  {
+    id:1, name:'Ana Carvalho',
+    scores:{ clarity:0.88, efficiency:0.94, modelFit:0.91 },
+    stats:{ prompts:47, custo:'$0.034', iteracoes:'2,1' },
+    triad:{ clarity:2, efficiency:1, modelFit:2 },
+    qx:72, qy:22, quadrant:'Avançado',
+    tabs:{
+      geral:{
+        text:'Ana demonstra domínio consistente na formulação de prompts. Seus inputs são bem contextualizados, com definição clara de papel, formato esperado e restrições. Utiliza modelos de forma estratégica, escalando para GPT-4o apenas em tarefas de raciocínio complexo.',
+        findings:[
+          {type:'ok',   text:'Score de clareza 0.88 — papel, contexto, tarefa e formato presentes na maioria dos prompts'},
+          {type:'ok',   text:'Adequação de modelo 0.91 — GPT-3.5 corretamente aplicado em extração e formatação'},
+          {type:'warn', text:'3 ocorrências de contexto histórico desnecessário identificadas — leve desvio de eficiência'}
+        ],
+        nextSteps:[
+          'Adicione restrições negativas explícitas ("não use listas", "máximo 2 parágrafos") para eliminar iterações de ajuste de formato.',
+          'Revise o hábito de incluir histórico anterior — inclua só fatos que mudam o output, não a conversa inteira.',
+          'Documente seus melhores prompts como templates reutilizáveis para as próximas sessões.'
+        ]
+      },
+      clareza:{
+        score:0.88,
+        text:'Ana opera no nível Zero-shot com consistência: formula instruções completas na primeira tentativa, sem precisar de exemplos ou cadeia de raciocínio explícita. Isso indica maturidade na articulação do que espera do modelo.',
+        findings:[
+          {type:'ok',   text:'Papel definido em 82% dos prompts — elemento mais presente na turma'},
+          {type:'ok',   text:'Formato de output especificado em 78% das interações'},
+          {type:'warn', text:'Em tarefas criativas, tende a subfornecer contexto — prompts mais abertos do que o necessário'}
+        ],
+        tip:{label:'Próximo nível', text:'Para tarefas criativas, adicione uma restrição de estilo. Em vez de "escreva um texto sobre X", experimente "escreva sobre X no estilo de relatório executivo, máximo 3 parágrafos, sem jargão técnico".'}
+      },
+      eficiencia:{
+        score:0.94,
+        text:'Ana usa tokens de forma calibrada: fornece contexto suficiente sem redundância. O custo por sessão está 21% abaixo da média da turma, resultado de prompts bem dimensionados e escolha adequada de modelos.',
+        findings:[
+          {type:'ok',   text:'Eficiência 0.94 — mais próxima do calibrado ideal entre todos os participantes'},
+          {type:'ok',   text:'Custo médio de $0.034 por sessão — abaixo da média de $0.043'},
+          {type:'warn', text:'3 casos de inclusão de conversas anteriores inteiras — padrão de Superfornecido localizado'}
+        ],
+        tip:{label:'Dica de melhoria', text:'Quando precisar de contexto de sessões anteriores, extraia só os fatos relevantes em bullet points em vez de colar a conversa inteira. Reduz até 40% dos tokens nesses casos.'}
+      },
+      modelo:{
+        score:0.91,
+        text:'Ana demonstra critério claro na seleção de modelos: GPT-4o para raciocínio, GPT-3.5 para extração e formatação. Essa segmentação é o principal fator do custo abaixo da média.',
+        findings:[
+          {type:'ok',   text:'GPT-4o restrito a análise e síntese — uso justificado em 91% dos casos'},
+          {type:'ok',   text:'GPT-3.5 corretamente aplicado em Q&A, tradução e formatação'},
+          {type:'warn', text:'2 casos de GPT-4o em recuperação factual simples — pequeno desvio do padrão'}
+        ],
+        tip:{label:'Referência de seleção', text:'GPT-4o: análise, síntese, raciocínio multietapa. GPT-3.5 / Haiku: Q&A direto, tradução, extração, formatação. Codex / instruct: geração e refatoração de código.'}
+      }
+    }
+  },
+  {
+    id:2, name:'Bruno Melo',
+    scores:{ clarity:0.79, efficiency:0.31, modelFit:0.22 },
+    stats:{ prompts:51, custo:'$0.146', iteracoes:'3,8' },
+    triad:{ clarity:2, efficiency:2, modelFit:0 },
+    qx:28, qy:30, quadrant:'Eloquente / Desperdiçador',
+    tabs:{
+      geral:{
+        text:'Bruno articula bem o que precisa — prompts descritivos e bem estruturados. O problema está na escolha de recursos: usa GPT-4o em praticamente todas as tarefas, inclusive nas triviais. O custo por sessão é 3,4× acima da média.',
+        findings:[
+          {type:'ok',   text:'Clareza 0.79 — contexto e exemplos de output em 61% dos prompts'},
+          {type:'crit', text:'Adequação de modelo 0.22 — GPT-4o em 94% das interações sem critério de complexidade'},
+          {type:'warn', text:'Eficiência 0.31 — contexto de sistema repetido a cada mensagem, acúmulo desnecessário'}
+        ],
+        nextSteps:[
+          'Antes de cada tarefa, classifique: "raciocínio ou recuperação?" — recuperação vai para GPT-3.5.',
+          'Configure contexto de sistema uma vez no início da conversa e não o repita nas mensagens seguintes.',
+          'Meta para a próxima sessão: GPT-4o em no máximo 40% das interações.'
+        ]
+      },
+      clareza:{
+        score:0.79,
+        text:'Bruno tem a segunda melhor taxa de clareza da turma. Seus prompts são descritivos, com contexto bem estabelecido e exemplos frequentes. O problema não está na qualidade da instrução, mas nas escolhas de recurso que vêm depois.',
+        findings:[
+          {type:'ok',   text:'Contexto e exemplo de output em 61% dos prompts'},
+          {type:'ok',   text:'Persona e papel definidos em 55% das interações'},
+          {type:'warn', text:'Prompts de coding tendem a ser longos, misturando especificação e contexto histórico'}
+        ],
+        tip:{label:'Dica de melhoria', text:'Separe especificação de contexto histórico com dois blocos distintos: "Contexto:" para o que o modelo precisa saber, e "Tarefa:" para o que precisa fazer. Reduz tamanho e aumenta precisão.'}
+      },
+      eficiencia:{
+        score:0.31,
+        text:'O padrão de Bruno é Superfornecido: repete contexto a cada mensagem e não limpa o histórico em conversas longas. O custo por resultado útil é 3,4× acima da média — não por complexidade das tarefas, mas por redundância.',
+        findings:[
+          {type:'crit', text:'Custo médio de $0.146 por sessão — 3,4× acima da média de $0.043'},
+          {type:'crit', text:'Contexto de sistema repetido integralmente em 87% das mensagens'},
+          {type:'warn', text:'Threads com mais de 20 turnos sem limpeza de histórico — tokens acumulam sem valor'}
+        ],
+        tip:{label:'Dica de melhoria', text:'Em conversas longas, resuma o histórico a cada 10 turnos em um bloco compacto e inicie uma nova thread. Isso pode reduzir seu custo em até 60% sem perda de qualidade.'}
+      },
+      modelo:{
+        score:0.22,
+        text:'A seleção de modelo de Bruno não segue critério identificável. GPT-4o é o padrão para tudo, independente da complexidade. O score de 0.22 reflete que apenas 22% das escolhas de modelo foram adequadas ao tipo de tarefa.',
+        findings:[
+          {type:'crit', text:'GPT-4o em 94% das interações — sem distinção por tipo de tarefa'},
+          {type:'crit', text:'GPT-4o usado para tradução, Q&A factual e formatação de tabelas'},
+          {type:'warn', text:'Nunca usou GPT-3.5 ou modelos instruct durante a sessão'}
+        ],
+        tip:{label:'Exercício recomendado', text:'Na próxima sessão, liste as tarefas antes de executá-las e classifique cada uma em "raciocínio" ou "recuperação". Selecione o modelo com base nessa classificação, não por hábito.'}
+      }
+    }
+  },
+  {
+    id:3, name:'Carla Souza',
+    scores:{ clarity:0.31, efficiency:0.88, modelFit:0.61 },
+    stats:{ prompts:39, custo:'$0.018', iteracoes:'4,8' },
+    triad:{ clarity:0, efficiency:0, modelFit:1 },
+    qx:78, qy:68, quadrant:'Econômico / Impreciso',
+    tabs:{
+      geral:{
+        text:'Carla é econômica em tokens e tem boa intuição para seleção de modelo em coding. O ponto de desenvolvimento está na qualidade dos prompts: muito curtos, sem contexto e sem formato esperado, resultando em respostas genéricas e muitas iterações.',
+        findings:[
+          {type:'ok',   text:'Adequação de modelo 0.61 — Codex usado adequadamente em 80% das tarefas de código'},
+          {type:'crit', text:'Clareza 0.31 — prompts médios de 18 tokens, gera 4,8 iterações por tarefa'},
+          {type:'warn', text:'Sem instrução de formato em 91% dos prompts — respostas inconsistentes, exigem retrabalho'}
+        ],
+        nextSteps:[
+          'Adicione três elementos mínimos a cada prompt: contexto, tarefa e formato esperado.',
+          'Antes de enviar, pergunte: "o modelo tem informação suficiente para não precisar adivinhar?"',
+          'Para tarefas analíticas, inclua um exemplo do tipo de resposta que espera receber.'
+        ]
+      },
+      clareza:{
+        score:0.31,
+        text:'Carla está no nível Chain-of-thought — não porque usa essa técnica, mas porque precisa de muitas iterações para chegar ao resultado. Seus prompts são curtos demais para guiar o modelo sem ambiguidade.',
+        findings:[
+          {type:'crit', text:'Score 0.31 — média de 18 tokens por prompt, muito abaixo do mínimo para tarefas analíticas'},
+          {type:'crit', text:'4,8 iterações por tarefa — o modelo "adivinha" o que Carla quer em vez de receber instrução clara'},
+          {type:'warn', text:'Formato de output especificado em apenas 9% das interações'}
+        ],
+        tip:{label:'Estrutura recomendada', text:'"Você é [papel]. Dado [contexto], faça [tarefa] e apresente o resultado em [formato]." Mesmo aplicado de forma simples, esse padrão pode reduzir suas iterações pela metade imediatamente.'}
+      },
+      eficiencia:{
+        score:0.88,
+        text:'Carla tem o menor consumo bruto de tokens, mas por razão errada: seus prompts são insuficientes, não eficientes. O padrão de Subfornecido esconde um alto custo de iteração — economiza no prompt e paga em retrabalho.',
+        findings:[
+          {type:'ok',   text:'Custo bruto de tokens abaixo da média — $0.018 por sessão'},
+          {type:'warn', text:'Custo por resultado útil é alto quando somadas as iterações necessárias'},
+          {type:'warn', text:'Padrão Subfornecido: contexto insuficiente força o modelo a inferir, gerando resultados imprecisos'}
+        ],
+        tip:{label:'Dica de melhoria', text:'Investir 20 tokens extras no prompt inicial para especificar formato e contexto elimina em média 3 iterações. O custo total cai, mesmo com prompts maiores.'}
+      },
+      modelo:{
+        score:0.61,
+        text:'Carla tem boa intuição para tarefas de código: usa Codex de forma adequada na maioria dos casos. Nas tarefas analíticas, a seleção é menos consistente, mas não é o principal ponto de desenvolvimento agora.',
+        findings:[
+          {type:'ok',   text:'Codex aplicado corretamente em 80% das tarefas de código'},
+          {type:'ok',   text:'Não usa GPT-4o para tarefas simples — bom critério de contenção de custo'},
+          {type:'warn', text:'Em tarefas analíticas, alterna entre modelos sem critério identificável'}
+        ],
+        tip:{label:'Prioridade de desenvolvimento', text:'O ganho maior agora não está na seleção de modelo, mas na qualidade do prompt. Com prompts melhores, a seleção atual de Carla já produzirá resultados significativamente melhores.'}
+      }
+    }
+  },
+  {
+    id:4, name:'Diego Nunes',
+    scores:{ clarity:0.21, efficiency:0.28, modelFit:0.19 },
+    stats:{ prompts:44, custo:'$0.089', iteracoes:'6,2' },
+    triad:{ clarity:0, efficiency:2, modelFit:0 },
+    qx:25, qy:78, quadrant:'Iniciante',
+    tabs:{
+      geral:{
+        text:'Diego está em fase inicial. Prompts sem estrutura, contexto ou clareza. A escolha de modelo não segue critério identificável. O consumo de tokens é alto em relação ao valor gerado — o perfil que mais precisa de suporte estruturado na turma.',
+        findings:[
+          {type:'crit', text:'Clareza 0.21 — ausência de papel, formato e contexto em 89% dos prompts'},
+          {type:'crit', text:'Adequação de modelo 0.19 — maior taxa de regeneração da turma: 6,2 tentativas por tarefa'},
+          {type:'warn', text:'Eficiência 0.28 — padrão Superfornecido sem precisão: muito token, pouco resultado'}
+        ],
+        nextSteps:[
+          'Use um template fixo para todos os prompts: "Papel: [X]. Contexto: [Y]. Tarefa: [Z]. Formato: [W]."',
+          'Congele a seleção de modelo por esta semana: use GPT-3.5 para tudo. O foco agora é no prompt.',
+          'Antes de enviar qualquer prompt, releia e verifique se um modelo sem contexto conseguiria entender o que você quer.'
+        ]
+      },
+      clareza:{
+        score:0.21,
+        text:'Diego tem a menor taxa de clareza da turma. Seus prompts são fragmentados, sem contexto e sem especificação de output. O modelo responde ao que consegue inferir, gerando resultados inconsistentes que precisam de muitas rodadas.',
+        findings:[
+          {type:'crit', text:'Score 0.21 — 89% dos prompts sem nenhum dos quatro elementos básicos'},
+          {type:'crit', text:'6,2 iterações médias por tarefa — mais do dobro da turma'},
+          {type:'warn', text:'Prompts de uma linha em 76% das interações, independente da complexidade da tarefa'}
+        ],
+        tip:{label:'Exercício fundamental', text:'Por uma semana, use este template para todos os prompts: "Você é um [papel]. Contexto: [o que o modelo precisa saber]. Tarefa: [o que precisa fazer]. Formato: [como quer receber o resultado]." É mecânico, mas constrói o hábito.'}
+      },
+      eficiencia:{
+        score:0.28,
+        text:'Diego tem padrão Superfornecido, mas ao contrário do esperado: o alto consumo de tokens não vem de prompts ricos — vem de iterações repetidas tentando corrigir respostas vagas com mais prompts vagos.',
+        findings:[
+          {type:'crit', text:'Custo de $0.089 por sessão — acima da média com baixo resultado por iteração'},
+          {type:'crit', text:'Padrão "prompt vago → resposta vaga → novo prompt vago" em 71% das threads'},
+          {type:'warn', text:'Raramente encerra uma thread com sucesso — tende a abandonar tarefas incompletas'}
+        ],
+        tip:{label:'Dica de melhoria', text:'Quando uma resposta não atende, não repita com palavras diferentes. Identifique qual informação estava faltando no prompt original e adicione só essa informação.'}
+      },
+      modelo:{
+        score:0.19,
+        text:'A seleção de modelo de Diego é completamente aleatória: alterna entre GPT-4o e modelos menores sem nenhum critério identificável. Com score 0.19, apenas 19% das escolhas foram adequadas à complexidade da tarefa.',
+        findings:[
+          {type:'crit', text:'Seleção de modelo não correlaciona com tipo ou complexidade da tarefa'},
+          {type:'warn', text:'GPT-4o em 52% das tarefas, incluindo as mais simples'},
+          {type:'warn', text:'Critério de seleção não verbalizado em nenhum momento da sessão'}
+        ],
+        tip:{label:'Recomendação para esta fase', text:'Congele a seleção de modelo por ora. Use GPT-3.5 para tudo esta semana. Quando seus prompts estiverem estruturados e as iterações reduzirem, aprenda a selecionar por tipo de tarefa.'}
+      }
+    }
+  },
+  {
+    id:5, name:'Elena Farias',
+    scores:{ clarity:0.96, efficiency:0.97, modelFit:0.94 },
+    stats:{ prompts:38, custo:'$0.009', iteracoes:'1,4' },
+    triad:{ clarity:2, efficiency:1, modelFit:2 },
+    qx:82, qy:14, quadrant:'Avançado',
+    tabs:{
+      geral:{
+        text:'Elena apresenta o perfil mais maduro da turma. Demonstra compreensão sistêmica dos modelos: ajusta temperatura, define formato de saída, segmenta prompts longos em chamadas menores. Uso de ferramentas estratégico e documentado.',
+        findings:[
+          {type:'ok', text:'Clareza 0.96 — menor taxa de iteração da turma: 1,4 por tarefa'},
+          {type:'ok', text:'Eficiência 0.97 — custo de $0.009 por sessão, 79% abaixo da média'},
+          {type:'ok', text:'Adequação de modelo 0.94 — único uso de system prompt com persona e restrições de forma consistente'}
+        ],
+        nextSteps:[
+          'Explore meta-prompting: use o próprio modelo para avaliar e melhorar seus prompts antes de executar a tarefa.',
+          'Compartilhe seus templates com a turma — seria a contribuição mais valiosa desta sessão.',
+          'Investigue modelos de embedding para tarefas de busca semântica e classificação — próximo salto de eficiência.'
+        ]
+      },
+      clareza:{
+        score:0.96,
+        text:'Elena opera com Zero-shot de forma sofisticada: vai além do básico com delimitadores, restrições negativas e especificação do que não quer no output. Isso elimina iterações de ajuste de formato.',
+        findings:[
+          {type:'ok', text:'Uso de delimitadores para separar contexto, tarefa e exemplos'},
+          {type:'ok', text:'Restrições negativas explícitas: "não inclua X", "evite Y" em 64% dos prompts'},
+          {type:'ok', text:'Média de 1,4 iterações por tarefa — o menor da turma'}
+        ],
+        tip:{label:'Próximo nível', text:'Experimente prompts de avaliação cruzada: após receber um resultado, peça ao modelo que avalie o próprio output com critérios que você define. Gera refinamento sem nova iteração manual.'}
+      },
+      eficiencia:{
+        score:0.97,
+        text:'Elena tem o melhor equilíbrio de tokens da turma. Calibra o tamanho do prompt com precisão: maior para tarefas complexas, compacto para simples. Nunca repete contexto desnecessariamente.',
+        findings:[
+          {type:'ok', text:'Custo de $0.009 por sessão — 79% abaixo da média da turma'},
+          {type:'ok', text:'Segmentação de tarefas complexas em chamadas menores reduz custo por resultado'},
+          {type:'ok', text:'Zero repetição de contexto entre mensagens na mesma thread'}
+        ],
+        tip:{label:'Refinamento possível', text:'Para tarefas muito estruturadas, explore system prompts com instruções permanentes em vez de repetir regras em cada user message. Reduz tokens e padroniza o comportamento.'}
+      },
+      modelo:{
+        score:0.94,
+        text:'Elena é a única participante com seleção de modelo verdadeiramente estratégica. Documenta mentalmente — e às vezes explicitamente — o critério de cada escolha durante a sessão.',
+        findings:[
+          {type:'ok', text:'GPT-4o exclusivamente para raciocínio multietapa e síntese'},
+          {type:'ok', text:'Codex aplicado em 100% das tarefas de código, sem exceção'},
+          {type:'ok', text:'Verbalizou critério de seleção em 4 momentos durante a sessão'}
+        ],
+        tip:{label:'Próximo nível', text:'Explore modelos de embedding para busca semântica e classificação em vez de modelos generativos. É o próximo salto de eficiência além do que já pratica.'}
+      }
+    }
+  },
+  {
+    id:6, name:'Felipe Torres',
+    scores:{ clarity:0.58, efficiency:0.71, modelFit:0.55 },
+    stats:{ prompts:42, custo:'$0.038', iteracoes:'3,1' },
+    triad:{ clarity:1, efficiency:1, modelFit:1 },
+    qx:52, qy:50, quadrant:'Em Desenvolvimento',
+    tabs:{
+      geral:{
+        text:'Felipe está em transição visível. Seus prompts melhoraram ao longo da sessão com adoção crescente de contexto e formato. Ainda oscila na escolha de modelo, mas há aprendizado progressivo claro.',
+        findings:[
+          {type:'ok',   text:'Melhora de 31% no score de clareza entre a primeira e a segunda metade da sessão'},
+          {type:'warn', text:'Adequação de modelo 0.55 — escolha ainda dependente da sugestão do sistema'},
+          {type:'warn', text:'Clareza 0.58 — contexto presente em 40% dos prompts, ausente nos demais sem critério claro'}
+        ],
+        nextSteps:[
+          'Mantenha o padrão de clareza da segunda metade da sessão desde o início da próxima.',
+          'Defina um critério pessoal de seleção de modelo antes de começar cada missão.',
+          'Objetivo concreto: contexto presente em pelo menos 70% dos prompts na próxima sessão.'
+        ]
+      },
+      clareza:{
+        score:0.58,
+        text:'Felipe evoluiu de prompts de uma linha para prompts com contexto e formato durante esta sessão — melhora de 31% mensurável. Está no nível Few-shot: precisa de exemplos ou iterações para calibrar, mas já compreende a estrutura básica.',
+        findings:[
+          {type:'ok',   text:'Melhora progressiva — prompts da segunda metade significativamente mais ricos'},
+          {type:'warn', text:'Contexto presente em apenas 40% dos prompts — inconsistência ainda alta'},
+          {type:'warn', text:'Formato de output especificado em apenas 28% das interações'}
+        ],
+        tip:{label:'Dica para manter o progresso', text:'Checklist mental antes de enviar: "Há contexto? Há tarefa clara? Há formato esperado?" Se a resposta for não para qualquer uma, complete antes de enviar.'}
+      },
+      eficiencia:{
+        score:0.71,
+        text:'Felipe está calibrado em eficiência de tokens — nem subfornecido, nem com excesso. Isso é positivo, mas pode ser parcialmente resultado de prompts ainda curtos, não de calibração consciente.',
+        findings:[
+          {type:'ok',   text:'Custo médio de $0.038 — próximo da média sem excessos'},
+          {type:'warn', text:'Calibração pode ser acidental — não há evidência de escolha deliberada de tamanho de prompt'},
+          {type:'warn', text:'À medida que os prompts melhorarem, monitorar se o custo sobe sem necessidade'}
+        ],
+        tip:{label:'Atenção ao crescer', text:'Quando seus prompts ficarem mais ricos (o que é o objetivo), o custo vai subir. Isso é normal. O indicador correto não é o custo absoluto, mas o custo por resultado útil.'}
+      },
+      modelo:{
+        score:0.55,
+        text:'Felipe está no nível Consciente: percebe que existe uma lógica de seleção, mas ainda não a internalizou. Aceita a sugestão do sistema na maioria das vezes sem questionar se é a melhor escolha.',
+        findings:[
+          {type:'ok',   text:'Não usa GPT-4o de forma indiscriminada — há algum senso de escala'},
+          {type:'warn', text:'Seleção baseada na sugestão padrão da interface, não em critério próprio'},
+          {type:'warn', text:'Critério de seleção não verbalizado em nenhum momento da sessão'}
+        ],
+        tip:{label:'Como internalizar o critério', text:'"Essa tarefa precisa de raciocínio ou de recuperação?" Raciocínio vai para GPT-4o. Recuperação vai para GPT-3.5. Faça isso 10 vezes e o critério vira reflexo.'}
+      }
+    }
+  },
+  {
+    id:7, name:'Gabriela Lima',
+    scores:{ clarity:0.82, efficiency:0.44, modelFit:0.58 },
+    stats:{ prompts:31, custo:'$0.061', iteracoes:'2,3' },
+    triad:{ clarity:2, efficiency:2, modelFit:1 },
+    qx:30, qy:26, quadrant:'Eloquente / Desperdiçador',
+    tabs:{
+      geral:{
+        text:'Gabriela tem clareza de articulação acima da média — prompts bem estruturados com exemplos frequentes. A eficiência precisa melhorar: há redundância no contexto e ela raramente questiona se o modelo é o mais adequado.',
+        findings:[
+          {type:'ok',   text:'Clareza 0.82 — exemplos de input-output em prompts de coding reduzem ambiguidade'},
+          {type:'warn', text:'Eficiência 0.44 — contexto duplicado em 38% das conversas'},
+          {type:'warn', text:'Adequação de modelo 0.58 — GPT-4o em 72% das tarefas, incluindo formatação simples'}
+        ],
+        nextSteps:[
+          'Antes de incluir contexto, verifique se ele já está no histórico da thread atual.',
+          'Classifique as tarefas desta sessão por tipo e observe qual porcentagem realmente exige GPT-4o.',
+          'Meta: reduzir uso de GPT-4o de 72% para 45% sem perda de qualidade de resultado.'
+        ]
+      },
+      clareza:{
+        score:0.82,
+        text:'Gabriela tem a melhor taxa de clareza junto com Elena. Usa exemplos de forma eficaz, especifica formato e define papel com consistência. O Zero-shot é natural para ela.',
+        findings:[
+          {type:'ok', text:'Exemplos de input-output em 71% dos prompts de coding'},
+          {type:'ok', text:'Papel e contexto definidos em 68% das interações'},
+          {type:'ok', text:'Média de 2,3 iterações por tarefa — próxima ao melhor da turma'}
+        ],
+        tip:{label:'Próximo nível', text:'Adicione restrições negativas explícitas: "não use listas", "sem jargão técnico", "máximo de 2 parágrafos". Elimina iterações de ajuste de formato sem aumentar o tamanho do prompt.'}
+      },
+      eficiencia:{
+        score:0.44,
+        text:'O padrão de Gabriela é Superfornecido sutil mas consistente: repete contexto que já está no histórico e não questiona o tamanho dos prompts. O custo está acima da média por esse padrão.',
+        findings:[
+          {type:'warn', text:'Contexto duplicado em 38% das threads — informação já presente no histórico'},
+          {type:'warn', text:'Custo médio de $0.061 — 42% acima da média sem justificativa de complexidade'},
+          {type:'ok',   text:'Não há prompt individualmente longo — o problema é repetição, não volume único'}
+        ],
+        tip:{label:'Hábito a desenvolver', text:'No início de cada nova mensagem numa thread longa, pergunte: "o modelo já sabe isso?" Se sim, não repita. A redundância de Gabriela é resolvível com esse único hábito.'}
+      },
+      modelo:{
+        score:0.58,
+        text:'Gabriela está no nível Consciente: há alguma percepção de escala, mas GPT-4o ainda é o padrão para a maioria das tarefas. Ainda não desenvolveu o reflexo de questionar a escolha antes de executar.',
+        findings:[
+          {type:'warn', text:'GPT-4o em 72% das tarefas — alto para o perfil de tarefas de Gabriela'},
+          {type:'warn', text:'GPT-4o usado para formatação de tabelas, limpeza de dados e tradução'},
+          {type:'ok',   text:'Nos 28% restantes, a seleção de modelo mais leve foi apropriada'}
+        ],
+        tip:{label:'Regra prática', text:'Se a tarefa não envolve comparar, sintetizar ou raciocinar sobre múltiplas fontes, GPT-3.5 resolve com a mesma qualidade por um quinto do custo.'}
+      }
+    }
+  }
+];
+
+let selectedId = participants[0].id;
+
+function init() {
+  // Data da análise
+  const now = new Date();
+  const formatted = now.toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+  document.getElementById('footerDate').textContent = `Análise gerada em ${formatted}`;
+
+  // Em produção: recebe o id via URL param (?id=2) ou postMessage da página pai
+  const params = new URLSearchParams(window.location.search);
+  const urlId = parseInt(params.get('id'));
+  const startId = participants.find(p => p.id === urlId) ? urlId : participants[0].id;
+  renderDots();
+  selectParticipant(startId);
+}
+
+// Permite troca de participante via postMessage da página pai
+window.addEventListener('message', e => {
+  if (e.data && e.data.participantId) selectParticipant(e.data.participantId);
+});
+
+function switchTab(tabKey, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + tabKey).classList.add('active');
+}
+
+function renderDots() {
+  const layer = document.getElementById('dotsLayer');
+  layer.innerHTML = '';
+  participants.forEach(p => {
+    const sel = p.id === selectedId;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = `position:absolute;left:${p.qx}%;top:${p.qy}%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:5px;cursor:pointer;z-index:6;`;
+    const dot = document.createElement('div');
+    dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:${sel?'#2563EB':'#0D0D0D'};border:2px solid white;box-shadow:${sel?'0 0 0 3px rgba(37,99,235,0.25)':'none'};flex-shrink:0;transition:all 0.15s;`;
+    const label = document.createElement('span');
+    label.textContent = p.name.split(' ')[0];
+    label.style.cssText = `font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:500;color:${sel?'#2563EB':'#333'};white-space:nowrap;line-height:1;`;
+    wrap.appendChild(dot); wrap.appendChild(label);
+    wrap.addEventListener('mouseenter', () => { dot.style.boxShadow = `0 0 0 4px rgba(${sel?'37,99,235':'0,0,0'},0.15)`; });
+    wrap.addEventListener('mouseleave', () => { dot.style.boxShadow = sel ? '0 0 0 3px rgba(37,99,235,0.25)' : 'none'; });
+    wrap.addEventListener('click', () => { selectParticipant(p.id); });
+    layer.appendChild(wrap);
+  });
+}
+
+function renderTriadRow(dim, activeIdx) {
+  const pills = dim.levels.map((lv, i) => {
+    const isActive = i === activeIdx;
+    let cls = '';
+    if (isActive) {
+      if (dim.type === 'diagnostic') {
+        cls = dim.warnLevels.includes(i) ? ' is-deviation' : ' is-active';
+      } else {
+        cls = ' is-active';
+      }
+    } else if (dim.type === 'diagnostic' && i === dim.ideal) {
+      cls = ' is-ideal-marker';
+    }
+    const desc = dim.descs[i];
+    return `<div class="triad-pill${cls}" title="${desc}"><span class="triad-pill-name">${lv}</span></div>`;
+  }).join('');
+  return `<div class="triad-row"><div class="triad-row-label">${dim.label}</div><div class="triad-pills">${pills}</div></div>`;
+}
+
+function renderScoreBadge(score, label) {
+  const pct = Math.round(score * 100);
+  return `<div class="score-badge">
+    <span class="score-badge-label">${label}</span>
+    <span class="score-badge-val">${pct}</span>
+    <div class="score-badge-bar-bg"><div class="score-badge-bar-fill" style="width:${pct}%"></div></div>
+  </div>`;
+}
+
+function renderFindings(findings) {
+  const icons = {ok:'✓', warn:'!', crit:'×'};
+  return findings.map(f => `<div class="finding-item finding-${f.type}"><span class="finding-icon">${icons[f.type]}</span><span class="finding-text">${f.text}</span></div>`).join('');
+}
+
+function renderTip(tip) {
+  if (!tip) return '';
+  return `<div class="tip-box"><div class="tip-box-label">${tip.label}</div><div class="tip-box-text">${tip.text}</div></div>`;
+}
+
+function selectParticipant(id) {
+  id = parseInt(id);
+  selectedId = id;
+  const p = participants.find(x => x.id === id);
+  renderDots();
+  document.getElementById('profileName').textContent     = p.name;
+  document.getElementById('profileQuadrant').textContent = p.quadrant;
+
+  const allTriad = DIMS.map(dim => renderTriadRow(dim, p.triad[dim.key])).join('');
+
+  // Geral
+  const tg = p.tabs.geral;
+  document.getElementById('tab-geral').innerHTML = `
+    <div class="session-stats">
+      <div class="stat-item"><span class="stat-label">Prompts nesta sessão</span><span class="stat-val">${p.stats.prompts}</span></div>
+      <div class="stat-item"><span class="stat-label">Custo total</span><span class="stat-val">${p.stats.custo}</span></div>
+      <div class="stat-item"><span class="stat-label">Iterações médias por tarefa</span><span class="stat-val">${p.stats.iteracoes}</span></div>
+    </div>
+    <div class="divider"></div>
+    <div class="triad-block">${allTriad}</div>
+    <div class="divider"></div>
+    <p class="tab-text">${tg.text}</p>
+    <div class="findings">${renderFindings(tg.findings)}</div>
+    <div class="tab-section-label">Próximos passos</div>
+    <div class="next-steps">${tg.nextSteps.map((s,i)=>`<div class="next-step"><span class="next-step-num">${i+1}</span><span class="next-step-text">${s}</span></div>`).join('')}</div>`;
+
+  // Clareza
+  const tc = p.tabs.clareza;
+  document.getElementById('tab-clareza').innerHTML = `
+    <div class="triad-block">${renderTriadRow(DIMS[0], p.triad.clarity)}</div>
+    <div class="divider"></div>
+    <p class="tab-text">${tc.text}</p>
+    <div class="findings">${renderFindings(tc.findings)}</div>
+    ${renderTip(tc.tip)}`;
+
+  // Eficiência
+  const te = p.tabs.eficiencia;
+  document.getElementById('tab-eficiencia').innerHTML = `
+    <div class="triad-block">${renderTriadRow(DIMS[1], p.triad.efficiency)}</div>
+    <div class="divider"></div>
+    <p class="tab-text">${te.text}</p>
+    <div class="findings">${renderFindings(te.findings)}</div>
+    ${renderTip(te.tip)}`;
+
+  // Modelo
+  const tm = p.tabs.modelo;
+  document.getElementById('tab-modelo').innerHTML = `
+    <div class="triad-block">${renderTriadRow(DIMS[2], p.triad.modelFit)}</div>
+    <div class="divider"></div>
+    <p class="tab-text">${tm.text}</p>
+    <div class="findings">${renderFindings(tm.findings)}</div>
+    ${renderTip(tm.tip)}`;
+}
+
+init();
+</script>
+</body>
+</html>

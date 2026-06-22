@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentes · Da conversa à delegação</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F6F6F2;
+    --ink:#15171B;
+    --ink-soft:#5A5E66;
+    --line:#D8D9D2;
+    --card:#FFFFFF;
+    --perceber:#2742F0;
+    --raciocinar:#15171B;
+    --agir:#0E9F2E;
+    --neon:#39FF14;
+    --dim:.16;
+    --display:'Archivo Black', 'Archivo', sans-serif;
+    --body:'Archivo', system-ui, sans-serif;
+    --mono:'IBM Plex Mono', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; background:var(--paper); overflow:hidden;}
+  body{font-family:var(--body); color:var(--ink);}
+
+  /* ---------- viewport & fixed 16:9 stage ---------- */
+  #viewport{position:fixed; inset:0; display:flex; align-items:center; justify-content:center;}
+  #stage{
+    width:1280px; height:720px; position:relative;
+    transform-origin:center center; background:var(--paper);
+  }
+
+  /* ---------- slides ---------- */
+  .slide{
+    position:absolute; inset:0; padding:64px 88px 96px; overflow:hidden;
+    opacity:0; visibility:hidden; transform:translateX(28px);
+    transition:opacity .38s ease, transform .38s ease, visibility 0s linear .38s;
+  }
+  .slide.active{
+    opacity:1; visibility:visible; transform:translateX(0);
+    transition:opacity .38s ease, transform .38s ease;
+  }
+  @media (prefers-reduced-motion: reduce){
+    .slide, .slide.active{transition:none; transform:none;}
+    .pulse{animation:none !important;}
+  }
+
+  .kicker{
+    font-family:var(--mono); font-size:13px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-soft); margin-bottom:22px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .kicker .tick{width:28px; height:2px; background:var(--ink);}
+  .kicker .tag{
+    padding:3px 10px; border:1px solid var(--line); border-radius:99px;
+    background:var(--card); color:var(--ink); letter-spacing:.1em;
+  }
+  .kicker .tag.p{border-color:var(--perceber); color:var(--perceber);}
+  .kicker .tag.r{border-color:var(--raciocinar); color:var(--raciocinar);}
+  .kicker .tag.a{border-color:var(--agir); color:var(--agir);}
+
+  h1{
+    font-family:var(--display); font-weight:400;
+    font-size:60px; line-height:1.05; letter-spacing:-.01em;
+    max-width:760px; margin-bottom:26px;
+  }
+  .lead{
+    font-size:21px; line-height:1.55; color:var(--ink-soft);
+    max-width:560px; font-weight:400;
+  }
+  .lead strong{color:var(--ink); font-weight:600;}
+
+  .split{display:grid; grid-template-columns:1fr 460px; gap:48px; height:100%; align-items:center;}
+  .split .copy{align-self:center;}
+  .split h1{font-size:54px;}
+
+  /* ---------- minimap ---------- */
+  .minimap{
+    position:absolute; top:64px; right:88px; width:128px;
+  }
+
+  /* ---------- slide 1 trio ---------- */
+  .trio{display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-top:54px;}
+  .trio .cell{
+    border:1px solid var(--line); background:var(--card); border-radius:10px;
+    padding:30px 28px; position:relative;
+  }
+  .trio .cell .mode{font-family:var(--mono); font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft);}
+  .trio .cell .verb{font-family:var(--display); font-size:34px; margin-top:14px;}
+  .trio .cell .desc{font-size:15px; color:var(--ink-soft); margin-top:10px; line-height:1.5;}
+  .trio .cell.hot{border:2px solid var(--agir);}
+  .trio .cell.hot .badge{
+    position:absolute; top:-13px; left:24px; background:var(--neon); color:var(--ink);
+    font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    padding:4px 10px; border-radius:99px;
+  }
+
+  /* ---------- agent card (slide 3) ---------- */
+  .agent-card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:38px 36px; box-shadow:0 18px 50px rgba(21,23,27,.07);
+  }
+  .agent-card .avatar{
+    width:72px; height:72px; border-radius:16px; background:var(--ink);
+    display:flex; align-items:center; justify-content:center; margin-bottom:22px;
+  }
+  .agent-card .name{font-family:var(--display); font-size:30px;}
+  .agent-card .role{font-family:var(--mono); font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); margin-top:6px;}
+  .agent-card .mission{
+    margin-top:24px; padding:20px 22px; border-left:4px solid var(--agir);
+    background:#EFFBEA; border-radius:0 10px 10px 0;
+  }
+  .agent-card .mission .mlabel{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--agir);}
+  .agent-card .mission .mtext{font-size:20px; font-weight:600; margin-top:8px; line-height:1.4;}
+
+  /* ---------- scene rows (slides 4-5-6) ---------- */
+  .scene{display:flex; flex-direction:column; gap:14px;}
+  .node-row{display:flex; align-items:center; gap:14px;}
+  .node{
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:16px 20px; min-width:150px;
+  }
+  .node .nlabel{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft);}
+  .node .nname{font-size:18px; font-weight:600; margin-top:5px;}
+  .node.accent-p{border:2px solid var(--perceber);}
+  .node.accent-p .nlabel{color:var(--perceber);}
+  .node.accent-a{border:2px solid var(--agir);}
+  .node.accent-a .nlabel{color:var(--agir);}
+  .arrow-h{font-size:22px; color:var(--ink-soft); flex-shrink:0;}
+  .node.accent-r{border:2px solid var(--raciocinar);}
+
+  /* ---------- concept slide helpers ---------- */
+  .caption{font-size:15px; color:var(--ink-soft); margin-top:20px; max-width:660px; line-height:1.6;}
+  .caption strong{color:var(--ink);}
+  .toolrow{display:flex; gap:14px; flex-wrap:wrap; margin-top:44px; max-width:760px;}
+  .toolchip{
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:16px 22px; font-size:17px; font-weight:600;
+    display:flex; align-items:center; gap:11px;
+  }
+  .toolchip::before{content:''; width:8px; height:8px; border-radius:50%; background:var(--agir); flex-shrink:0;}
+  .result-card{
+    margin-top:44px; max-width:580px; background:var(--card);
+    border:1px solid var(--line); border-left:5px solid var(--agir);
+    border-radius:12px; padding:24px 26px; box-shadow:0 12px 30px rgba(21,23,27,.07);
+  }
+  .result-card .rhead{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft);}
+  .result-card .rbody{font-size:19px; font-weight:600; margin-top:10px; line-height:1.55;}
+  .result-card .rmeta{font-family:var(--mono); font-size:13px; color:var(--agir); margin-top:14px;}
+
+  .event-chip{
+    align-self:flex-start; display:inline-flex; align-items:center; gap:10px;
+    font-family:var(--mono); font-size:14px; padding:10px 18px;
+    border-radius:99px; background:var(--perceber); color:#fff;
+  }
+  .event-chip .dot{width:8px; height:8px; border-radius:50%; background:#fff;}
+  .pulse{animation:pulse 1.6s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.35;}}
+
+  .mem-list{display:flex; flex-direction:column; gap:12px;}
+  .mem-item{
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:16px 20px; display:flex; align-items:baseline; gap:14px;
+  }
+  .mem-item .mkey{font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); min-width:150px;}
+  .mem-item .mval{font-size:17px; font-weight:600;}
+
+  .perm-grid{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  .perm-col{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px 24px;}
+  .perm-col.free{border-top:5px solid var(--ink);}
+  .perm-col.gated{border-top:5px solid var(--agir);}
+  .perm-col .ptitle{font-family:var(--mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:16px;}
+  .perm-col.gated .ptitle{color:var(--agir);}
+  .perm-col ul{list-style:none;}
+  .perm-col li{
+    font-size:18px; font-weight:500; padding:9px 0; border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:12px;
+  }
+  .perm-col li:last-child{border-bottom:none;}
+  .perm-col li::before{content:''; width:7px; height:7px; border-radius:50%; background:var(--ink); flex-shrink:0;}
+  .perm-col.gated li::before{background:var(--agir);}
+
+  /* ---------- workflow chain (slide 7) ---------- */
+  .chain{display:flex; align-items:stretch; gap:0; margin-top:40px;}
+  .chain .step{flex:1; position:relative; padding:0 10px;}
+  .chain .step .box{
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:18px 14px; text-align:center; height:100%;
+    border-top:5px solid var(--ink);
+  }
+  .chain .step.reg-p .box{border-top-color:var(--perceber);}
+  .chain .step.reg-r .box{border-top-color:var(--raciocinar);}
+  .chain .step.reg-a .box{border-top-color:var(--agir);}
+  .chain .step .sname{font-size:17px; font-weight:600;}
+  .chain .step .sreg{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft); margin-top:7px;}
+  .chain .step:not(:last-child)::after{
+    content:'→'; position:absolute; right:-8px; top:50%; transform:translateY(-50%);
+    font-size:18px; color:var(--ink-soft); z-index:2;
+  }
+  .legend{display:flex; gap:26px; margin-top:24px;}
+  .legend .litem{display:flex; align-items:center; gap:9px; font-family:var(--mono); font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft);}
+  .legend .sw{width:14px; height:14px; border-radius:4px;}
+
+  /* ---------- definition slide ---------- */
+  .bigdef{font-size:26px; font-weight:600; line-height:1.45; max-width:880px; margin-bottom:24px;}
+  .bigdef em{font-style:normal; color:var(--agir);}
+  .duo{display:grid; grid-template-columns:1fr 1fr; gap:18px; max-width:880px; margin-bottom:18px;}
+  .duo .dcard{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px 24px;}
+  .duo .dcard.hot{border:2px solid var(--agir);}
+  .duo .dlabel{font-family:var(--mono); font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-soft);}
+  .duo .dcard.hot .dlabel{color:var(--agir);}
+  .duo .dtitle{font-family:var(--display); font-size:24px; margin-top:8px;}
+  .duo .ddesc{font-size:15px; color:var(--ink-soft); margin-top:8px; line-height:1.55;}
+
+  /* ---------- numbered loop legend ---------- */
+  .legend-list{display:flex; flex-direction:column; gap:18px; max-width:560px; margin-top:6px;}
+  .legend-item{display:flex; gap:16px; align-items:flex-start;}
+  .legend-item .num{
+    width:32px; height:32px; border-radius:50%; color:#fff; flex-shrink:0;
+    font-family:var(--mono); font-size:15px; font-weight:500;
+    display:flex; align-items:center; justify-content:center; margin-top:1px;
+  }
+  .legend-item .lt{font-size:16px; line-height:1.5; color:var(--ink-soft);}
+  .legend-item .lt strong{color:var(--ink); font-weight:600;}
+
+  /* ---------- map captions ---------- */
+  .minimap{text-align:center;}
+  .mapcap{
+    font-family:var(--mono); font-size:10px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-soft); margin-top:5px;
+  }
+  .minimap text.loop-label{font-size:40px;}
+
+  /* ---------- architecture board ---------- */
+  .archgrid{margin-top:26px; display:flex; flex-direction:column; gap:13px;}
+  .band{display:flex; align-items:baseline; gap:16px; border-radius:10px; padding:14px 22px;}
+  .band.mission{background:var(--ink); color:#fff;}
+  .band.workflow{background:var(--card); border:1px dashed var(--ink-soft); color:var(--ink);}
+  .band .bterm{font-family:var(--mono); font-size:13px; letter-spacing:.14em; text-transform:uppercase; font-weight:500; flex-shrink:0;}
+  .band .bdef{font-size:15px; opacity:.85; line-height:1.45;}
+  .regions{display:grid; grid-template-columns:repeat(3,1fr); gap:13px;}
+  .region{background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  .region header{padding:11px 18px; color:#fff; display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+  .region.p header{background:var(--perceber);}
+  .region.r header{background:var(--raciocinar);}
+  .region.a header{background:var(--agir);}
+  .region header .rname{font-family:var(--display); font-size:17px;}
+  .region header .rsub{font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; opacity:.8; text-align:right;}
+  .region .row{padding:11px 18px; border-top:1px solid var(--line);}
+  .region .row:first-of-type{border-top:none;}
+  .region .row .term{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; font-weight:500;}
+  .region.p .row .term{color:var(--perceber);}
+  .region.r .row .term{color:var(--raciocinar);}
+  .region.a .row .term{color:var(--agir);}
+  .region .row .def{font-size:13.5px; color:var(--ink-soft); line-height:1.45; margin-top:4px;}
+
+  /* ---------- collab (slide 8) ---------- */
+  .collab{display:flex; align-items:center; justify-content:flex-start; gap:8px; margin-top:48px;}
+  .collab .unit{text-align:center;}
+  .collab .unit .uname{font-family:var(--display); font-size:21px; margin-top:14px;}
+  .collab .unit .udesc{font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); margin-top:6px;}
+  .collab .link{display:flex; flex-direction:column; align-items:center; gap:6px; padding:0 12px; margin-top:-44px;}
+  .collab .link .larrow{font-size:26px; color:var(--ink-soft);}
+  .collab .link .llabel{font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-soft); max-width:110px; text-align:center; line-height:1.5;}
+
+  /* ---------- final (slide 9) ---------- */
+  .final{display:flex; flex-direction:column; align-items:flex-start; justify-content:center; height:100%;}
+  .final h1{font-size:88px; max-width:900px;}
+  .btn-start{
+    margin-top:46px; font-family:var(--mono); font-size:17px; letter-spacing:.1em;
+    text-transform:uppercase; background:var(--neon); color:var(--ink); border:none;
+    padding:20px 52px; border-radius:99px; cursor:pointer;
+    transition:transform .15s ease, box-shadow .15s ease;
+    box-shadow:0 12px 32px rgba(20,160,40,.30);
+  }
+  .btn-start:hover{transform:translateY(-2px); box-shadow:0 18px 40px rgba(20,160,40,.38);}
+  .btn-start:focus-visible{outline:3px solid var(--ink); outline-offset:3px;}
+
+  /* ---------- UI mocks ---------- */
+  .mockpanel{margin-top:28px; max-width:640px; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden;}
+  .mockhead{background:#ECEDE8; padding:9px 18px; font-family:var(--mono); font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-soft); border-bottom:1px solid var(--line);}
+  .mockbody{padding:16px 18px; display:flex; flex-direction:column; gap:10px;}
+  .fieldrow{display:flex; flex-direction:column; gap:6px;}
+  .flabel{font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft);}
+  .finput{border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:16px; background:#FBFBF9; display:flex; justify-content:space-between; align-items:center; gap:10px; max-width:420px;}
+  .finput .carets{color:var(--ink-soft); font-size:13px;}
+  .finput.mono{font-family:var(--mono); font-size:15px;}
+  .ftext{border:1px solid var(--line); border-radius:8px; padding:12px 14px; background:#FBFBF9; font-size:16px; line-height:1.7; max-width:520px;}
+  .fbtn{display:inline-flex; align-self:flex-start; background:var(--perceber); color:#fff; border-radius:8px; padding:10px 20px; font-size:15px; font-weight:600;}
+  .fnote{font-size:13px; color:var(--ink-soft); line-height:1.5;}
+  .status-ok{display:inline-flex; align-items:center; gap:8px; font-size:14px; font-weight:600; color:#0B7A3E;}
+  .checkrow{display:flex; align-items:center; gap:10px; font-size:16px;}
+  .cbox{width:18px; height:18px; border:1.5px solid var(--ink-soft); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; flex-shrink:0;}
+  .cbox.on{background:var(--ink); border-color:var(--ink);}
+  .choicerow{display:flex; justify-content:space-between; align-items:center; gap:12px; font-size:16px; border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:#FBFBF9; max-width:420px;}
+  .pill{font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; padding:4px 10px; border-radius:99px; flex-shrink:0;}
+  .pill.solo{background:var(--ink); color:#fff;}
+  .pill.aprova{background:var(--agir); color:#fff;}
+  .notif{margin-top:28px; border:2px solid var(--agir); border-radius:12px; padding:18px 20px; background:#EFFBEA; max-width:560px;}
+  .notif .ntitle{font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--agir);}
+  .notif .nmsg{font-size:18px; font-weight:600; margin-top:7px;}
+  .notif .nbtns{display:flex; gap:10px; margin-top:14px;}
+  .nbtn{padding:9px 20px; border-radius:8px; font-size:14px; font-weight:600;}
+  .nbtn.ok{background:var(--agir); color:#fff;}
+  .nbtn.no{border:1px solid var(--line); background:#fff; color:var(--ink);}
+
+  /* ---------- tech->hall logo ---------- */
+  .tlogo{display:inline-flex; align-items:center; gap:7px; font-family:var(--body); font-weight:600; letter-spacing:-.02em; color:var(--ink); text-transform:lowercase;}
+  .tlogo svg{display:block; flex-shrink:0;}
+  .tlogo.foot{font-size:17px;}
+  .tlogo.hero{position:absolute; top:60px; right:88px; font-size:30px; gap:10px;}
+
+  /* ---------- chrome ---------- */
+  .chrome{
+    position:absolute; left:88px; right:88px; bottom:34px;
+    display:flex; align-items:center; justify-content:space-between;
+    font-family:var(--mono); font-size:12px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-soft); z-index:50;
+  }
+  .chrome .brand{display:flex; align-items:center; gap:10px;}
+  .chrome .brand .sq{width:10px; height:10px; background:var(--agir);}
+  .chrome .nav{display:flex; align-items:center; gap:18px;}
+  .chrome button{
+    font-family:var(--mono); background:var(--card); border:1px solid var(--line);
+    width:38px; height:38px; border-radius:50%; cursor:pointer; font-size:15px;
+    color:var(--ink); transition:background .15s ease;
+  }
+  .chrome button:hover{background:var(--ink); color:#fff;}
+  .chrome button:focus-visible{outline:2px solid var(--ink); outline-offset:2px;}
+  .progress{
+    position:absolute; left:0; right:0; bottom:0; height:4px; background:var(--line); z-index:50;
+  }
+  .progress .bar{height:100%; background:var(--neon); width:0%; transition:width .38s ease;}
+
+  text.loop-label{font-family:'IBM Plex Mono', monospace; font-size:26px; letter-spacing:.1em; text-transform:uppercase; font-weight:500;}
+</style>
+</head>
+<body>
+
+<div id="viewport">
+  <div id="stage">
+
+    <!-- ============ SLIDE 1 ============ -->
+    <section class="slide" data-i="0">
+      <span class="tlogo hero">tech<svg width="40" height="22" viewBox="0 0 36 20"><path d="M2 10 H21" stroke="#39FF14" stroke-width="5"/><path d="M19 2 L34 10 L19 18 Z" fill="#39FF14"/></svg>hall</span>
+      <div class="kicker"><span class="tick"></span> Onboarding · Agentes</div>
+      <h1>Da conversa à delegação</h1>
+      <p class="lead">Até aqui, você usou IA para conversar e para construir. Agora vai configurar um agente.</p>
+      <div class="trio">
+        <div class="cell">
+          <div class="mode">Chat</div>
+          <div class="verb">Conversar</div>
+          <div class="desc">Você pergunta, a IA responde.</div>
+        </div>
+        <div class="cell">
+          <div class="mode">Coding</div>
+          <div class="verb">Construir</div>
+          <div class="desc">Você descreve, a IA gera o código ou o documento.</div>
+        </div>
+        <div class="cell hot">
+          <div class="badge">Hoje</div>
+          <div class="mode">Agente</div>
+          <div class="verb">Delegar</div>
+          <div class="desc">Você define o objetivo, a IA executa o trabalho.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SLIDE 2 · O QUE É UM AGENTE ============ -->
+    <section class="slide" data-i="1">
+      <div class="kicker"><span class="tick"></span> Começando do zero</div>
+      <h1>O que é um agente?</h1>
+      <p class="bigdef">Um agente é um programa que recebe um objetivo seu e <em>trabalha sozinho</em> para cumpri-lo.</p>
+      <div class="duo">
+        <div class="dcard">
+          <div class="dlabel">A IA que você já usa</div>
+          <div class="dtitle">Assistente</div>
+          <div class="ddesc">Você pergunta, ele responde. Ele trabalha apenas enquanto você está na conversa.</div>
+        </div>
+        <div class="dcard hot">
+          <div class="dlabel">A IA desta aula</div>
+          <div class="dtitle">Agente</div>
+          <div class="ddesc">Você define o objetivo uma vez. Ele trabalha mesmo quando você está ausente.</div>
+        </div>
+      </div>
+      <div class="band workflow" style="max-width:880px;">
+        <span class="bterm">Em resumo</span>
+        <span class="bdef">Assistente responde quando você pede. Agente trabalha sem você pedir.</span>
+      </div>
+    </section>
+
+    <!-- ============ SLIDE 3 · O CICLO ============ -->
+    <section class="slide" data-i="2">
+      <div class="split" style="grid-template-columns:1fr 430px; gap:36px;">
+        <div class="copy">
+          <div class="kicker"><span class="tick"></span> O mapa da aula</div>
+          <h1 style="font-size:42px; max-width:560px;">Todo agente repete um ciclo</h1>
+          <div class="legend-list">
+            <div class="legend-item">
+              <span class="num" style="background:var(--perceber);">1</span>
+              <span class="lt"><strong>Perceber.</strong> O agente detecta que algo aconteceu. Por exemplo, chegou um e-mail novo.</span>
+            </div>
+            <div class="legend-item">
+              <span class="num" style="background:var(--raciocinar);">2</span>
+              <span class="lt"><strong>Raciocinar.</strong> O agente analisa a informação e decide o que fazer.</span>
+            </div>
+            <div class="legend-item">
+              <span class="num" style="background:var(--agir);">3</span>
+              <span class="lt"><strong>Agir.</strong> O agente executa a decisão. Por exemplo, envia um resumo para você.</span>
+            </div>
+          </div>
+          <p class="lead" style="margin-top:28px; font-size:16px;">Esse ciclo se chama <strong>loop do agente</strong>. Nos próximos slides, vamos ver cada peça que faz o ciclo funcionar, uma por vez.</p>
+        </div>
+        <div id="bigloop"></div>
+      </div>
+    </section>
+
+
+    <!-- ============ CONECTOR ============ -->
+    <section class="slide" data-i="4">
+      <div class="kicker"><span class="tick"></span> <span class="tag p">Passo 1 · Perceber</span> Vocabulário 1 de 10</div>
+      <h1>Conector</h1>
+      <p class="bigdef">O conector liga o agente a um sistema externo, como o Gmail.</p>
+      <div class="mockpanel">
+        <div class="mockhead">O que você faz · tela de configuração</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">Conectar sistemas</div>
+            <div class="fbtn">Conectar Gmail</div>
+            <div class="fnote">Abre a tela de login do Google. Você entra com sua conta e clica em Permitir.</div>
+          </div>
+          <div class="status-ok">✓ Gmail conectado</div>
+        </div>
+      </div>
+      <p class="caption">Você faz isso uma vez. Depois, o agente acessa o Gmail sozinho. Cada sistema, Gmail, Drive ou Slack, tem o próprio botão de conectar.</p>
+    </section>
+
+    <!-- ============ EVENTO ============ -->
+    <section class="slide" data-i="5">
+      <div class="kicker"><span class="tick"></span> <span class="tag p">Passo 1 · Perceber</span> Vocabulário 2 de 10</div>
+      <h1>Evento</h1>
+      <p class="bigdef">O evento é o que faz o agente começar a trabalhar. Também chamado de gatilho.</p>
+      <div class="mockpanel">
+        <div class="mockhead">O que você faz · tela de configuração</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">Iniciar o agente quando</div>
+            <div class="finput"><span>Chegar um e-mail novo</span><span class="carets">▾</span></div>
+            <div class="fnote">É um campo de escolha. Outras opções da lista: todo dia às 9h, quando você pedir.</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Você escolhe o evento em uma lista. A partir daí, o agente começa sozinho toda vez que o evento acontecer.</p>
+    </section>
+
+    <!-- ============ MODELO ============ -->
+    <section class="slide" data-i="6">
+      <div class="kicker"><span class="tick"></span> <span class="tag r">Passo 2 · Raciocinar</span> Vocabulário 3 de 10</div>
+      <h1>Modelo</h1>
+      <p class="bigdef">O modelo é a inteligência artificial que lê as informações e toma as decisões. ChatGPT e Claude são modelos.</p>
+      <div class="mockpanel">
+        <div class="mockhead">O que você faz · tela de configuração</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">Modelo de IA</div>
+            <div class="finput"><span>GPT</span><span class="carets">▾</span></div>
+            <div class="fnote">Normalmente já vem selecionado. Você só confirma.</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Depois de configurado, o modelo trabalha sozinho. Exemplo, ele lê “sua fatura vence amanhã” e decide “é urgente, avisar”.</p>
+    </section>
+
+    <!-- ============ MEMÓRIA ============ -->
+    <section class="slide" data-i="7">
+      <div class="kicker"><span class="tick"></span> <span class="tag r">Passo 2 · Raciocinar</span> Vocabulário 4 de 10</div>
+      <h1>Memória</h1>
+      <p class="bigdef">A memória guarda o que o agente já sabe sobre você.</p>
+      <div class="mockpanel">
+        <div class="mockhead">O que você faz · tela de configuração</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">Memória do agente · escreva o que ele deve lembrar</div>
+            <div class="ftext">Newsletters não são urgentes.<br>Enviar o resumo às 18h.</div>
+            <div class="fnote">Você escreve em português comum, uma frase por linha.</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Criar uma memória é escrever uma frase nesse campo. O agente lê essas frases toda vez que trabalha.</p>
+    </section>
+
+    <!-- ============ VARIÁVEIS ============ -->
+    <section class="slide" data-i="8">
+      <div class="kicker"><span class="tick"></span> <span class="tag r">Passo 2 · Raciocinar</span> Vocabulário 5 de 10</div>
+      <h1>Variáveis</h1>
+      <p class="bigdef">As variáveis são valores que o agente atualiza enquanto trabalha.</p>
+      <div class="mockpanel">
+        <div class="mockhead">O que você faz · tela de configuração</div>
+        <div class="mockbody">
+          <div class="fieldrow">
+            <div class="flabel">Nome da variável</div>
+            <div class="finput mono">emails_lidos_hoje</div>
+          </div>
+          <div class="fieldrow">
+            <div class="flabel">Valor inicial</div>
+            <div class="finput mono">0</div>
+          </div>
+          <div class="fnote">Quem atualiza o valor é o agente, enquanto trabalha. Ontem ele terminou o dia em 14.</div>
+        </div>
+      </div>
+      <p class="caption">Você cria a variável e dá o valor inicial. A atualização é automática. Memória guarda frases sobre você, variável guarda números do trabalho.</p>
+    </section>
+
+    <!-- ============ FERRAMENTAS ============ -->
+    <section class="slide" data-i="9">
+      <div class="kicker"><span class="tick"></span> <span class="tag a">Passo 3 · Agir</span> Vocabulário 6 de 10</div>
+      <h1>Ferramentas</h1>
+      <p class="bigdef">As ferramentas são as ações que o agente consegue executar.</p>
+      <div class="mockpanel">
+        <div class="mockhead">O que você faz · tela de configuração</div>
+        <div class="mockbody">
+          <div class="flabel">Marque as ferramentas que o agente pode usar</div>
+          <div class="checkrow"><span class="cbox on">✓</span> Ler e-mail</div>
+          <div class="checkrow"><span class="cbox on">✓</span> Classificar</div>
+          <div class="checkrow"><span class="cbox on">✓</span> Resumir</div>
+          <div class="checkrow"><span class="cbox on">✓</span> Criar tarefa</div>
+          <div class="checkrow"><span class="cbox"></span> Responder e-mail</div>
+        </div>
+      </div>
+      <p class="caption">Caixa marcada, o agente pode usar. Caixa desmarcada, a ferramenta fica indisponível para ele.</p>
+    </section>
+
+    <!-- ============ PERMISSÕES ============ -->
+    <section class="slide" data-i="10">
+      <div class="kicker"><span class="tick"></span> <span class="tag a">Passo 3 · Agir</span> Vocabulário 7 de 10</div>
+      <h1>Permissões</h1>
+      <p class="bigdef">As permissões definem o que o agente faz sozinho e o que precisa da sua autorização.</p>
+      <div class="mockpanel">
+        <div class="mockhead">O que você faz · tela de configuração</div>
+        <div class="mockbody">
+          <div class="flabel">Para cada ferramenta, escolha</div>
+          <div class="choicerow"><span>Classificar</span><span class="pill solo">faz sozinho</span></div>
+          <div class="choicerow"><span>Resumir</span><span class="pill solo">faz sozinho</span></div>
+          <div class="choicerow"><span>Arquivar</span><span class="pill aprova">pede aprovação</span></div>
+        </div>
+      </div>
+      <p class="caption">Você define isso ferramenta por ferramenta, durante a configuração.</p>
+    </section>
+
+    <!-- ============ APROVAÇÃO ============ -->
+    <section class="slide" data-i="11">
+      <div class="kicker"><span class="tick"></span> <span class="tag a">Passo 3 · Agir</span> Vocabulário 8 de 10</div>
+      <h1>Aprovação</h1>
+      <p class="bigdef">Quando uma ação exige autorização, o agente para e envia um pedido para você.</p>
+      <div class="notif">
+        <div class="ntitle">Notificação · seu agente</div>
+        <div class="nmsg">Posso arquivar 3 mensagens de newsletter?</div>
+        <div class="nbtns">
+          <span class="nbtn ok">Aprovar</span>
+          <span class="nbtn no">Recusar</span>
+        </div>
+      </div>
+      <p class="caption">É aqui que você aprova. O pedido chega como notificação, você toca em Aprovar ou Recusar, e o agente continua o trabalho a partir da sua resposta.</p>
+    </section>
+
+    <!-- ============ AÇÃO ============ -->
+    <section class="slide" data-i="11">
+      <div class="kicker"><span class="tick"></span> <span class="tag a">Passo 3 · Agir</span> Vocabulário 9 de 10</div>
+      <h1>Ação</h1>
+      <p class="bigdef">A ação é o resultado que o agente produz e entrega para você.</p>
+      <div class="result-card">
+        <div class="rhead">Entrega do agente · hoje, 18h00</div>
+        <div class="rbody">Resumo do dia. 14 e-mails lidos, 2 marcados como urgentes, 3 pendências registradas.</div>
+        <div class="rmeta">enviado automaticamente pelo agente</div>
+      </div>
+      <p class="caption">No exemplo, a ação é o resumo diário enviado às 18h.</p>
+    </section>
+
+    <!-- ============ SLIDE 7 ============ -->
+    <section class="slide" data-i="6">
+      <div class="kicker"><span class="tick"></span> Vocabulário 10 de 10</div>
+      <h1>Workflow</h1>
+      <p class="lead">O workflow é a sequência de etapas que o agente executa, sempre na mesma ordem. Abaixo, o que acontece quando chega um e-mail do banco. A cor de cada etapa indica o passo do ciclo.</p>
+      <div class="chain">
+        <div class="step reg-p"><div class="box"><div class="sname">Chega e-mail do banco</div><div class="sreg">1 · Perceber</div></div></div>
+        <div class="step reg-r"><div class="box"><div class="sname">O modelo lê o conteúdo</div><div class="sreg">2 · Raciocinar</div></div></div>
+        <div class="step reg-r"><div class="box"><div class="sname">Classifica como financeiro</div><div class="sreg">2 · Raciocinar</div></div></div>
+        <div class="step reg-a"><div class="box"><div class="sname">Escreve um resumo</div><div class="sreg">3 · Agir</div></div></div>
+        <div class="step reg-a"><div class="box"><div class="sname">Pede sua aprovação</div><div class="sreg">3 · Agir</div></div></div>
+        <div class="step reg-a"><div class="box"><div class="sname">Registra a pendência</div><div class="sreg">3 · Agir</div></div></div>
+      </div>
+      <div class="legend">
+        <div class="litem"><span class="sw" style="background:var(--perceber)"></span> 1 · Perceber</div>
+        <div class="litem"><span class="sw" style="background:var(--raciocinar)"></span> 2 · Raciocinar</div>
+        <div class="litem"><span class="sw" style="background:var(--agir)"></span> 3 · Agir</div>
+      </div>
+      <p class="caption">Na prática, o workflow costuma vir montado. O seu trabalho é configurar as peças dos slides anteriores, conector, evento, memória, ferramentas e permissões.</p>
+    </section>
+
+    <!-- ============ SLIDE 8 · ARQUITETURA ============ -->
+    <section class="slide" data-i="7" style="padding-top:58px;">
+      <div class="kicker"><span class="tick"></span> Recapitulando</div>
+      <h1 style="font-size:44px; margin-bottom:8px;">Tudo que você viu, em uma página</h1>
+      <div class="archgrid" style="margin-top:18px;">
+        <div class="band mission">
+          <span class="bterm">Missão</span>
+          <span class="bdef">O objetivo do agente. Por exemplo, ler os e-mails e enviar um resumo diário.</span>
+        </div>
+        <div class="regions">
+          <div class="region p">
+            <header><span class="rname">Perceber</span><span class="rsub">como ele enxerga</span></header>
+            <div class="row">
+              <div class="term">Conectores</div>
+              <div class="def">Liga o agente a um sistema externo, como Gmail, Drive ou Slack.</div>
+            </div>
+            <div class="row">
+              <div class="term">Eventos</div>
+              <div class="def">Faz o agente começar a trabalhar. Por exemplo, a chegada de um e-mail.</div>
+            </div>
+          </div>
+          <div class="region r">
+            <header><span class="rname">Raciocinar</span><span class="rsub">como ele pensa</span></header>
+            <div class="row">
+              <div class="term">Modelo</div>
+              <div class="def">A inteligência artificial que lê e decide. ChatGPT e Claude são modelos.</div>
+            </div>
+            <div class="row">
+              <div class="term">Memória</div>
+              <div class="def">O que o agente sabe sobre você.</div>
+            </div>
+            <div class="row">
+              <div class="term">Variáveis</div>
+              <div class="def">Valores que o agente atualiza enquanto trabalha.</div>
+            </div>
+          </div>
+          <div class="region a">
+            <header><span class="rname">Agir</span><span class="rsub">como ele atua</span></header>
+            <div class="row">
+              <div class="term">Ferramentas</div>
+              <div class="def">As ações que o agente consegue executar.</div>
+            </div>
+            <div class="row">
+              <div class="term">Permissões</div>
+              <div class="def">O que ele faz sozinho e o que precisa de autorização.</div>
+            </div>
+            <div class="row">
+              <div class="term">Ação</div>
+              <div class="def">O resultado entregue para você.</div>
+            </div>
+          </div>
+        </div>
+        <div class="band workflow">
+          <span class="bterm">Workflow</span>
+          <span class="bdef">A sequência de etapas que o agente executa, do evento ao resultado.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SLIDE 9 · COLABORAÇÃO ============ -->
+    <section class="slide" data-i="8">
+      <div class="kicker"><span class="tick"></span> Último conceito</div>
+      <h1>Vários agentes juntos</h1>
+      <p class="lead">Até aqui, um agente só. Também é possível ligar vários agentes em sequência. No exemplo abaixo, três agentes cuidam das notícias do setor.</p>
+      <div class="collab">
+        <div class="unit">
+          <div class="uloop" data-size="150"></div>
+          <div class="uname">Agente 1</div>
+          <div class="udesc">Lê as notícias do setor</div>
+        </div>
+        <div class="link"><span class="larrow">→</span><span class="llabel">entrega o que encontrou</span></div>
+        <div class="unit">
+          <div class="uloop" data-size="150"></div>
+          <div class="uname">Agente 2</div>
+          <div class="udesc">Resume e prioriza</div>
+        </div>
+        <div class="link"><span class="larrow">→</span><span class="llabel">entrega o relatório</span></div>
+        <div class="unit">
+          <div class="uloop" data-size="150"></div>
+          <div class="uname">Agente 3</div>
+          <div class="udesc">Publica no Slack da equipe</div>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:34px; font-size:16px; max-width:760px;">O resultado de um agente é a entrada do seguinte. Esse arranjo se chama <strong>sistema multiagente</strong>.</p>
+    </section>
+
+    <!-- ============ SLIDE 10 · MISSÃO ============ -->
+    <section class="slide" data-i="9">
+      <div class="final">
+        <div class="kicker"><span class="tick"></span> Missão</div>
+        <h1>Sua vez</h1>
+        <p class="lead" style="max-width:640px;">A aula termina aqui. A missão e as instruções aparecem na ferramenta, no próximo passo.</p>
+        <button class="btn-start" id="btnStart">Começar →</button>
+      </div>
+    </section>
+
+    <!-- chrome -->
+    <div class="chrome">
+      <div class="brand"><span class="tlogo foot">tech<svg width="26" height="15" viewBox="0 0 36 20"><path d="M2 10 H21" stroke="#39FF14" stroke-width="5"/><path d="M19 2 L34 10 L19 18 Z" fill="#39FF14"/></svg>hall</span><span style="margin-left:6px;">· introdução a agentes</span></div>
+      <div class="nav">
+        <span id="counter">01 / 16</span>
+        <button id="prev" aria-label="Slide anterior">←</button>
+        <button id="next" aria-label="Próximo slide">→</button>
+      </div>
+    </div>
+    <div class="progress"><div class="bar" id="bar"></div></div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  /* ---------- loop SVG generator ---------- */
+  const REGIONS = {
+    p:{color:'#2742F0', label:'Perceber'},
+    r:{color:'#15171B', label:'Raciocinar'},
+    a:{color:'#0E9F2E', label:'Agir'}
+  };
+  function pt(cx,cy,r,deg){
+    const rad = deg*Math.PI/180;
+    return [cx + r*Math.cos(rad), cy + r*Math.sin(rad)];
+  }
+  // segments: p (top-right), r (bottom), a (left-top)
+  const SEGS = [
+    {key:'p', a0:-80, a1:20,  labelDeg:-30, anchor:'middle'},
+    {key:'r', a0:40,  a1:140, labelDeg:90,  anchor:'middle'},
+    {key:'a', a0:160, a1:260, labelDeg:210, anchor:'middle'}
+  ];
+  function loopSVG(active, size, withLabels){
+    const VB=480, c=VB/2, r=158, lr=r+44;
+    let inner='';
+    SEGS.forEach(s=>{
+      const [x0,y0]=pt(c,c,r,s.a0), [x1,y1]=pt(c,c,r,s.a1);
+      const col = REGIONS[s.key].color;
+      const on = (active==='all' || active===s.key);
+      const op = on ? 1 : 0.16;
+      // arc
+      inner += `<path d="M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}"
+        fill="none" stroke="${col}" stroke-width="22" stroke-linecap="round" opacity="${op}"/>`;
+      // arrowhead at arc end, tangent direction
+      const tang = s.a1 + 90;
+      const tip = pt(c,c,r,s.a1+7);
+      inner += `<g transform="translate(${tip[0].toFixed(1)} ${tip[1].toFixed(1)}) rotate(${tang+7})" opacity="${op}">
+        <path d="M -14 -13 L 14 0 L -14 13 Z" fill="${col}"/></g>`;
+      if(withLabels){
+        const [lx,ly]=pt(c,c,lr,s.labelDeg);
+        inner += `<text class="loop-label" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}"
+          text-anchor="${s.anchor}" dominant-baseline="middle" fill="${col}" opacity="${on?1:0.3}">${REGIONS[s.key].label}</text>`;
+        // numbered badge inside each arc
+        const NUM={p:1,r:2,a:3};
+        const midDeg=(s.a0+s.a1)/2;
+        const [nx,ny]=pt(c,c,r-58,midDeg);
+        inner += `<g opacity="${on?1:0.25}">
+          <circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="22" fill="${col}"/>
+          <text x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+            fill="#fff" font-family="'IBM Plex Mono', monospace" font-size="24" font-weight="500">${NUM[s.key]}</text></g>`;
+      }
+    });
+    return `<svg width="${size}" height="${size}" viewBox="-30 -30 ${VB+60} ${VB+60}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
+  }
+
+  // big loop on slide 2
+  document.getElementById('bigloop').innerHTML = loopSVG('all', 400, true);
+  // collab mini loops
+  document.querySelectorAll('.uloop').forEach(el=>{
+    el.innerHTML = loopSVG('all', parseInt(el.dataset.size,10), false);
+  });
+
+  /* ---------- navigation ---------- */
+  const slides=[...document.querySelectorAll('.slide')];
+  const total=slides.length;
+  let cur=0;
+  const counter=document.getElementById('counter');
+  const bar=document.getElementById('bar');
+  function pad(n){return String(n).padStart(2,'0');}
+  function go(i){
+    cur=Math.max(0,Math.min(total-1,i));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===cur));
+    counter.textContent=`${pad(cur+1)} / ${pad(total)}`;
+    bar.style.width=((cur+1)/total*100)+'%';
+    try{ history.replaceState(null,'','#'+(cur+1)); }catch(_){ /* sandbox bloqueia hash, navegação segue normal */ }
+  }
+  document.getElementById('next').addEventListener('click',()=>go(cur+1));
+  document.getElementById('prev').addEventListener('click',()=>go(cur-1));
+  window.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(cur+1);}
+    if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(cur-1);}
+    if(e.key==='Home')go(0);
+    if(e.key==='End')go(total-1);
+  });
+  // touch swipe
+  let tx=null;
+  window.addEventListener('touchstart',e=>{tx=e.touches[0].clientX;},{passive:true});
+  window.addEventListener('touchend',e=>{
+    if(tx===null)return;
+    const dx=e.changedTouches[0].clientX-tx;
+    if(Math.abs(dx)>50) go(cur+(dx<0?1:-1));
+    tx=null;
+  },{passive:true});
+
+  /* ---------- start button ---------- */
+  // O botão avisa a página que embeda o deck. No seu sistema, escute:
+  // window.addEventListener('message', e => { if(e.data?.type==='agentes:start') iniciarMissao(); })
+  document.getElementById('btnStart').addEventListener('click',()=>{
+    try{ window.parent.postMessage({type:'agentes:start'},'*'); }catch(_){}
+    document.dispatchEvent(new CustomEvent('agentes:start'));
+  });
+
+  /* ---------- 16:9 scale-to-fit ---------- */
+  const stage=document.getElementById('stage');
+  function fit(){
+    const s=Math.min(window.innerWidth/1280, window.innerHeight/720);
+    stage.style.transform=`scale(${s})`;
+  }
+  window.addEventListener('resize',fit);
+  fit();
+
+  // deep link via hash
+  const h=parseInt((location.hash||'').replace('#',''),10);
+  go(isNaN(h)?0:h-1);
+})();
+</script>
+</body>
+</html>

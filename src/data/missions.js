@@ -1,5 +1,5 @@
 import { CHAT_AI_MODE, CODING_AI_MODE, TRAINING_THREAD_ID } from "../utils.js";
-
+import { RAG_MISSION_DEFINITION, AGENT_MISSION_DEFINITION } from "./guidedMissions.js";
 export const TRAINING_MISSION = {
   id: TRAINING_THREAD_ID,
   num: 0,
@@ -150,6 +150,8 @@ export const FIXED_MISSIONS_CATALOG = [
       "Cole o código, o erro, a arquitetura ou o requisito. Ex.: \"Este componente React renderiza duas vezes e quebra o estado. Quero entender a causa e corrigir com uma solução limpa.\"",
     acoes: [],
   },
+  RAG_MISSION_DEFINITION,
+  AGENT_MISSION_DEFINITION,
 ];
 
 export const MOCKS = {
@@ -164,6 +166,10 @@ export const EXPLICACOES = {
     "Estratégia: leitura ampla e organizada do pedido, com foco em síntese, clareza estrutural e utilidade para decisão. A IA prioriza o que parece central, explicita ambiguidades e evita inventar fatos que não apareceram no material.",
   mission_programming_coding:
     "Estratégia: abordagem orientada a implementação. A IA lê o pedido como problema técnico, prioriza debugging, arquitetura, refatoração e exemplos concretos, e tenta responder com passos reproduzíveis e decisões de engenharia justificadas.",
+  mission_rag_practice:
+    "Estratégia: demonstração guiada do pipeline de RAG, do documento à resposta citada, com foco em base, trechos, recuperação, contexto, contraste sem base e teste de limite.",
+  mission_agent_delegate:
+    "Estratégia: montagem guiada de um agente de IA, peça por peça, seguida de uma execução completa em ambiente de treino com ponto de aprovação e relatório final.",
 };
 
 export const SIMULATION_STEPS = [
@@ -183,5 +189,15 @@ export const MISSION_CONCEPTS = {
     { name: "Debugging", explanation: "Isola a causa provável de um erro antes de propor correção." },
     { name: "Refatoração", explanation: "Melhora clareza, manutenção e robustez sem alterar o objetivo funcional." },
     { name: "Trade-off técnico", explanation: "Explica custo, risco e benefício das escolhas de implementação." },
+  ],
+  mission_rag_practice: [
+    { name: "Base de conhecimento", explanation: "Define o universo documental que a missão pode consultar antes de responder." },
+    { name: "Recuperação", explanation: "Seleciona os trechos mais relevantes para a pergunta corrente." },
+    { name: "Resposta citada", explanation: "Mostra a resposta junto da fonte literal, para permitir conferência." },
+  ],
+  mission_agent_delegate: [
+    { name: "Missão", explanation: "Define o objetivo do agente em verbo e objeto, orientando a atuação." },
+    { name: "Permissões", explanation: "Separa o que o agente faz sozinho do que exige aprovação humana." },
+    { name: "Workflow", explanation: "Costura percepção, raciocínio e ação em um ciclo executável." },
   ],
 };

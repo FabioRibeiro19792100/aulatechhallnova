@@ -24,3 +24,7 @@ for update
 to anon
 using (true)
 with check (true);
+
+-- Habilita realtime para que alunos recebam atualizações em tempo real
+-- (cronômetro, transmissão de tela, fila de ajuda, etc.)
+alter publication supabase_realtime add table app_state;

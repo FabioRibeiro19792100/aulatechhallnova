@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Trash2, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, RotateCcw, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Trash2, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -14,11 +14,25 @@ import { HtmlArtifactCard, GeneratedArtifactsPanel } from "./components/conversa
 import { PromptConversation } from "./components/conversation/PromptConversation.jsx";
 import { GuidedSection, LearningSlide, TechnicalReadingList, TechnicalReadingBlock, GuidedReading, MissionReadingPanel, MissionClosurePanel } from "./components/mission/MissionComponents.jsx";
 import { OutputCard, HistorySection, MissionTokenRail, ReflectionSummary } from "./components/mission/MissionOutput.jsx";
-import { EventCardSectionLabel, FacilitatorTabLabel, FacilitatorScreenShareButton, FacilitatorScreenSharePanel, TeamScreenShareViewer, RoomMapPanel, TokenManagementPanel, FacilitatorToolsDrawer } from "./components/facilitator/FacilitatorComponents.jsx";
+import { GuidedMissionPanel } from "./components/mission/GuidedMissionPanel.jsx";
+import { EventCardSectionLabel, FacilitatorTabLabel, FacilitatorScreenSharePanel, TeamScreenShareViewer, RoomMapPanel, TokenManagementPanel, FacilitatorToolsDrawer } from "./components/facilitator/FacilitatorComponents.jsx";
 import { PromptInsightsPanel } from "./components/facilitator/PromptInsightsPanel.jsx";
 import { AnamnesisInsightsPanel } from "./components/facilitator/AnamnesisInsightsPanel.jsx";
+import { ParticipantInsightsPanel } from "./components/facilitator/ParticipantInsightsPanel.jsx";
+import { PromptQualityLabPanel } from "./components/facilitator/PromptQualityLabPanel.jsx";
+import {
+  MIN_PARTICIPANT_ANALYSIS_PROMPTS,
+  PROMPT_QUALITY_MODEL_1,
+  PROMPT_QUALITY_MODEL_2,
+  buildParticipantDescriptor,
+  getAllParticipantDescriptors,
+  getEventPromptQualityModel,
+  getParticipantAnalysisEntry,
+  getParticipantAnalysisMap,
+} from "./components/facilitator/participantAnalysisUtils.js";
 import { DashboardPanel } from "./components/facilitator/DashboardPanel.jsx";
 import { MissionsPanel } from "./components/facilitator/MissionsPanel.jsx";
+import { buildPromptQualityModel2Analysis } from "./components/facilitator/promptQualityModel2Utils.js";
 import { ANAMNESIS_UNKNOWN_VALUE, ANAMNESIS_QUESTIONS, ANAMNESIS_STOPWORDS, isAnamnesisEnabled, getAnamnesisResponse, hasCompletedAnamnesis, getAnamnesisAnswerChoice, getAnamnesisAnswerNote, isAnamnesisUnknownChoice, isAnamnesisAnswerFilled, countAnsweredAnamnesisQuestions, normalizeAnamnesisText, normalizeAnamnesisAnswer, getAnamnesisQuestionResults, extractAnamnesisKeywords } from "./data/anamnesis.js";
 import {
   FREE_ACTION_KEY, FREE_ACTION_LABEL, TRAINING_THREAD_ID, CHAT_AI_MODE, CODING_AI_MODE,
@@ -39,12 +53,35 @@ import {
 } from "./utils.js";
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
+import {
+  AGENT_MISSION_ID,
+  RAG_MISSION_ID,
+  isAgentMission as isAgentGuidedMission,
+  isGuidedMissionId,
+  isGuidedMission,
+  getGuidedMissionExplainPane,
+  getGuidedMissionModeLabel,
+  createDefaultGuidedMissionParticipantState,
+  normalizeGuidedMissionParticipantState,
+  getGuidedMissionEntryState,
+  setGuidedMissionEntryState,
+  createDefaultGuidedMissionState,
+  guidedMissionStateHasHistory,
+} from "./data/guidedMissions.js";
 import { FALLBACK_MODEL_CATALOG, DEFAULT_CHAT_MODEL, DEFAULT_CODING_MODEL, getModelCatalog, getModelsForMode, getCatalogEntries, findModelEntry, getModelPricingMap, getModelLabel, getDefaultModelForMode, supportsWebSearch, getDefaultWebSearchModel } from "./data/models.js";
+import { listEvents as listEventsPerTeam, getEventState, putEventStateOCC, getTeamState, putTeamStateOCC, postTokenLog, putHelpRequest, postHelpRequest, deleteAllEventData, deleteTeamScopedData, listTeamExecutions } from "./api/perTeam.js";
+import { useEventState } from "./hooks/useEventState.js";
+import { useTeamState } from "./hooks/useTeamState.js";
+import { useTeamExecutions } from "./hooks/useTeamExecutions.js";
+import { useHelpRequests } from "./hooks/useHelpRequests.js";
+import { useTokenLogs } from "./hooks/useTokenLogs.js";
+import { usePresence } from "./hooks/usePresence.js";
+import { useDashboard } from "./hooks/useDashboard.js";
 
 const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
 const CODING_AI_REASONING_EFFORT = "medium";
-const TECHNICAL_ANALYSIS_MODEL = "gpt-4.1-mini";
+const TECHNICAL_ANALYSIS_MODEL = "gpt-4o-mini";
 const FACILITATOR_PASSWORD = "camila";
 const SURVIVAL_PASSWORD = "2805";
 const DEFAULT_TOKEN_GRANT_AMOUNT = 15000;
@@ -53,16 +90,15 @@ const SURVIVAL_STORE = "techhall:survival:v1";
 const SURVIVAL_THEME_DARK = "dark";
 const SURVIVAL_THEME_LIGHT = "light";
 const BRAND_LOADER_DURATION_MS = 700;
-const REMOTE_SYNC_SAVE_DEBOUNCE_MS = 80;
 const CONFIG_POLL_MS = 30000;
-const STATE_POLL_MS_WITH_REALTIME = 5000;
-const STATE_POLL_MS_WITHOUT_REALTIME = 3000;
 const TIMER_NOTICE_TTL_MS = 30000;
 const TIMER_LOCK_TTL_MS = 15000;
 const MAX_ATTACHMENT_COUNT = 3;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 12000;
 const ATTACHMENT_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.png,.jpg,.jpeg,.webp";
+const RAG_ATTACHMENT_COUNT = 5;
+const RAG_ATTACHMENT_ACCEPT = ".txt,.md,.pdf";
 const SURVIVAL_CHAT_MISSION = {
   id: "survival_chat",
   num: 0,
@@ -89,9 +125,143 @@ const SURVIVAL_CODING_MISSION = {
   acoes: [],
 };
 
-
 const STORE = "techhall:v3";
 const SHOW_DEV_SWITCH = true;
+
+function buildDashboardEnrichedEvent(baseEvent, dash) {
+  if (!baseEvent) return baseEvent;
+  if (!dash) return baseEvent;
+  const eventPayload = dash.event?.payload || {};
+  const mergedEvent = migrateEventToFixedMissions({
+    ...baseEvent,
+    ...eventPayload,
+    participantAnalyses: baseEvent.participantAnalyses || eventPayload.participantAnalyses || {},
+    promptQualityModel: getEventPromptQualityModel(baseEvent || eventPayload),
+  });
+  const teamRows = dash.teams || [];
+  const reKeyAllTeams = (selector) => {
+    const out = {};
+    teamRows.forEach((row) => {
+      const payload = row.payload || {};
+      const map = selector(payload) || {};
+      Object.entries(map).forEach(([missionId, val]) => {
+        out[`${row.team_idx}__${missionId}`] = val;
+      });
+      });
+    return out;
+  };
+  const mergeExecutionGroups = (summaryGroups = {}, detailedGroups = {}) => {
+    const merged = { ...summaryGroups };
+    Object.entries(detailedGroups || {}).forEach(([key, value]) => {
+      if (!Array.isArray(value) || !value.length) return;
+      const hasDetailedPrompt = value.some((exec) => typeof exec?.input === "string" && exec.input.trim().length > 0);
+      if (hasDetailedPrompt || !Array.isArray(merged[key]) || !merged[key]?.length) {
+        merged[key] = value;
+      }
+    });
+    return merged;
+  };
+  const resolveDashboardTokenValue = (row) => {
+    if (typeof row?.tokens === "number") return row.tokens;
+    return row?.tokens?.total ?? 0;
+  };
+  const resolveDashboardInputTokens = (row) => {
+    if (typeof row?.tokens === "number") return 0;
+    return row?.tokens?.input ?? 0;
+  };
+  const resolveDashboardOutputTokens = (row) => {
+    if (typeof row?.tokens === "number") return 0;
+    return row?.tokens?.output ?? 0;
+  };
+  const summarizedExecucoes = (() => {
+    const groups = {};
+    (dash.recentExecutions || []).forEach((row) => {
+      if (row.mission_id === "__training__") return;
+      const key = `${row.team_idx}__${row.mission_id}`;
+      const payload = row.payload || {};
+      (groups[key] ||= []).push({
+        ...payload,
+        id: row.id,
+        ts: payload.ts || row.created_at,
+        tokens: payload.tokens ?? resolveDashboardTokenValue(row),
+        inputTokens: payload.inputTokens ?? resolveDashboardInputTokens(row),
+        outputTokens: payload.outputTokens ?? resolveDashboardOutputTokens(row),
+        custo: payload.custo ?? row.custo ?? 0,
+        aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+      });
+    });
+    return groups;
+  })();
+  const summarizedTrainingRuns = (() => {
+    const groups = {};
+    (dash.trainingExecutions || dash.recentExecutions || []).forEach((row) => {
+      if (row.mission_id !== "__training__") return;
+      const payload = row.payload || {};
+      (groups[`${row.team_idx}`] ||= []).push({
+        ...payload,
+        id: row.id,
+        ts: payload.ts || row.created_at,
+        tokens: payload.tokens ?? resolveDashboardTokenValue(row),
+        inputTokens: payload.inputTokens ?? resolveDashboardInputTokens(row),
+        outputTokens: payload.outputTokens ?? resolveDashboardOutputTokens(row),
+        custo: payload.custo ?? row.custo ?? 0,
+        aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+      });
+    });
+    return groups;
+  })();
+  return {
+    ...mergedEvent,
+    participantAnalyses: baseEvent.participantAnalyses || mergedEvent.participantAnalyses || {},
+    reflexoes: reKeyAllTeams((p) => p.reflexoes),
+    conclusoes: reKeyAllTeams((p) => p.conclusoes),
+    questionariosPendentes: reKeyAllTeams((p) => p.questionariosPendentes),
+    missionGlossaries: reKeyAllTeams((p) => p.missionGlossaries),
+    preservedMissionUsage: reKeyAllTeams((p) => p.preservedMissionUsage),
+    agentMissionParticipants: reKeyAllTeams((p) => p.agentMissionParticipants),
+    anamnesisResponses: Object.fromEntries(
+      teamRows
+        .filter((row) => row.payload?.anamnese)
+        .map((row) => [row.team_idx, row.payload.anamnese]),
+    ),
+    execucoes: mergeExecutionGroups(summarizedExecucoes, baseEvent.execucoes || {}),
+    trainingRuns: mergeExecutionGroups(summarizedTrainingRuns, baseEvent.trainingRuns || {}),
+    helpRequests: (dash.helpRequests || []).map((row) => ({
+      id: row.id,
+      teamIdx: row.team_idx,
+      missionId: row.mission_id,
+      status: row.status,
+      kind: row.payload?.kind || row.kind || null,
+      createdAt: row.created_at,
+      message: row.payload?.message || "",
+      missionName: row.payload?.missionName || "",
+      teamName: row.payload?.teamName || row.payload?.memberName || "",
+      studentName: row.payload?.memberName || row.payload?.teamName || "",
+      timerRemainingMs: row.payload?.timerRemainingMs || null,
+      currentUsage: row.payload?.currentUsage || null,
+      currentLimit: row.payload?.currentLimit || null,
+    })),
+    tokenOperationalLogs: dash.tokenLogs || [],
+    presenceMap: Object.fromEntries((dash.presence || []).map((p) => [p.team_idx, { memberName: p.member_name, lastSeenAt: p.last_seen_at }])),
+  };
+}
+
+function reshapeDashboardExecutionRow(row) {
+  const payload = row?.payload || {};
+  const totalTokens = typeof row?.tokens === "number" ? row.tokens : row?.tokens?.total ?? 0;
+  const inputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.input ?? 0;
+  const outputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.output ?? 0;
+  return {
+    ...payload,
+    id: row.id,
+    ts: payload.ts || row.created_at,
+    tokens: payload.tokens ?? totalTokens,
+    inputTokens: payload.inputTokens ?? inputTokens,
+    outputTokens: payload.outputTokens ?? outputTokens,
+    custo: payload.custo ?? row.custo ?? 0,
+    aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+  };
+}
 
 function buildRunSteps(apiConfigured) {
   return SIMULATION_STEPS.map((step, index) => ({
@@ -99,6 +269,45 @@ function buildRunSteps(apiConfigured) {
     status: index === 0 ? "active" : "pending",
     label: step.label,
   }));
+}
+
+function isAgentMission(mission) {
+  return isAgentGuidedMission(mission);
+}
+
+function getAgentParticipantStateKey(teamIdx, participantKey) {
+  return `${teamIdx}__${participantKey}`;
+}
+
+function getActiveAgentParticipantKey(memberName = "", teamName = "") {
+  const normalized = normalizeStudentName(memberName || "") || normalizeStudentName(teamName || "") || "participant";
+  return normalized.toLowerCase();
+}
+
+function getAgentMissionParticipantState(evento, teamIdx, participantKey) {
+  if (!evento || teamIdx === null || teamIdx === undefined || !participantKey) return createDefaultGuidedMissionParticipantState();
+  const key = getAgentParticipantStateKey(teamIdx, participantKey);
+  return normalizeGuidedMissionParticipantState(evento.agentMissionParticipants?.[key] || null);
+}
+
+function getGuidedMissionParticipantState(evento, teamIdx, participantKey, missionId) {
+  const rootState = getAgentMissionParticipantState(evento, teamIdx, participantKey);
+  return getGuidedMissionEntryState(rootState, missionId);
+}
+
+function buildMissionAttachmentPolicy(mission) {
+  if (mission?.id === RAG_MISSION_ID) {
+    return {
+      count: RAG_ATTACHMENT_COUNT,
+      accept: RAG_ATTACHMENT_ACCEPT,
+      allowedExtensions: new Set(["txt", "md", "pdf"]),
+    };
+  }
+  return {
+    count: MAX_ATTACHMENT_COUNT,
+    accept: ATTACHMENT_ACCEPT,
+    allowedExtensions: null,
+  };
 }
 function loadStore() {
   try {
@@ -178,39 +387,6 @@ async function copyTextToClipboard(text) {
   return successful;
 }
 
-async function fetchRemoteState() {
-  const response = await fetch(`/api/state?ts=${Date.now()}`, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "Falha ao carregar estado remoto.");
-  }
-  const data = await response.json();
-  return {
-    ...data,
-    serverNowMs: data?.serverNow ? new Date(data.serverNow).getTime() : null,
-  };
-}
-
-async function saveRemoteState(events) {
-  const response = await fetch("/api/state", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ events }),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "Falha ao salvar estado remoto.");
-  }
-  const data = await response.json();
-  return {
-    ...data,
-    serverNowMs: data?.serverNow ? new Date(data.serverNow).getTime() : null,
-  };
-}
 
 function estimateCost(pricingMap, model, inputTokens, outputTokens) {
   const price = pricingMap?.[model] || pricingMap?.[DEFAULT_CHAT_MODEL] || { input: 0, output: 0 };
@@ -294,10 +470,13 @@ function makeEvent({ name, desc, rawTeams }) {
     preservedMissionUsage: {},
     missionGlossaries: {},
     missionTokenPolicies: {},
+    agentMissionParticipants: {},
     tokenGrants: [],
     tokenOperationalLogs: [],
     helpRequests: [],
     helpDisabledMap: {},
+    participantAnalyses: {},
+    promptQualityModel: PROMPT_QUALITY_MODEL_1,
     anamnesisEnabled: false,
     anamnesisResponses: {},
     trainingRuns: {},
@@ -360,7 +539,30 @@ function getExecucoes(evento, teamIdx, missionId) {
 }
 
 function getTrainingRuns(evento, teamIdx) {
-  return evento.trainingRuns?.[`${teamIdx}`] || [];
+  const runs = evento.trainingRuns?.[`${teamIdx}`] || [];
+  const resetAt = getMissionResetAt(evento, teamIdx, "__training__");
+  if (!resetAt) return runs;
+  return runs.filter((exec) => exec.ts && exec.ts >= resetAt);
+}
+
+function getMissionHasAnyHistory(evento, teamIdx, missionId) {
+  if (!evento || teamIdx === null || teamIdx === undefined || !missionId) return false;
+  const rawExecs = evento.execucoes?.[`${teamIdx}__${missionId}`] || [];
+  const reflexao = evento.reflexoes?.[`${teamIdx}__${missionId}`] || null;
+  const pending = evento.questionariosPendentes?.[`${teamIdx}__${missionId}`] || null;
+  const conclusao = evento.conclusoes?.[`${teamIdx}__${missionId}`] || null;
+  const preserved = getPreservedMissionUsage(evento, teamIdx, missionId);
+  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const preservedTotal = Number(preserved?.total || 0);
+  if (isGuidedMissionId(missionId)) {
+    const hasGuidedState = Object.entries(evento.agentMissionParticipants || {}).some(([key, value]) => {
+      if (!key.startsWith(`${teamIdx}__`)) return false;
+      const rootState = normalizeGuidedMissionParticipantState(value);
+      return guidedMissionStateHasHistory(getGuidedMissionEntryState(rootState, missionId));
+    });
+    return hasGuidedState || rawExecs.length > 0 || Boolean(resetAt);
+  }
+  return rawExecs.length > 0 || Boolean(reflexao) || Boolean(pending) || Boolean(conclusao) || preservedTotal > 0 || Boolean(resetAt);
 }
 
 function getReflexao(evento, teamIdx, missionId) {
@@ -620,7 +822,18 @@ function getEventAnnouncements(evento) {
 
 function getUnreadAnnouncementsForTeam(evento, teamIdx) {
   if (teamIdx === null || teamIdx === undefined) return [];
-  return getEventAnnouncements(evento).filter((announcement) => !announcement.readBy?.[teamIdx]);
+  let dismissedList = [];
+  if (typeof window !== "undefined") {
+    try {
+      dismissedList = JSON.parse(localStorage.getItem(`dismissed_announcements__${evento.id}__${teamIdx}`) || "[]");
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  return getEventAnnouncements(evento).filter((announcement) => {
+    if (dismissedList.includes(announcement.id)) return false;
+    return !announcement.readBy?.[teamIdx];
+  });
 }
 
 function getLatestUnreadAnnouncementForTeam(evento, teamIdx) {
@@ -630,6 +843,14 @@ function getLatestUnreadAnnouncementForTeam(evento, teamIdx) {
 
 function isAnnouncementDismissedForTeam(evento, teamIdx, announcementId) {
   if (teamIdx === null || teamIdx === undefined || !announcementId) return false;
+  if (typeof window !== "undefined") {
+    try {
+      const dismissedList = JSON.parse(localStorage.getItem(`dismissed_announcements__${evento.id}__${teamIdx}`) || "[]");
+      if (dismissedList.includes(announcementId)) return true;
+    } catch (e) {
+      console.error(e);
+    }
+  }
   const announcement = getEventAnnouncements(evento).find((item) => item.id === announcementId);
   if (!announcement) return false;
   return Boolean(announcement.dismissedBy?.[teamIdx]);
@@ -759,219 +980,6 @@ function toTimestamp(value) {
   return Number.isFinite(time) ? time : 0;
 }
 
-function mergeRecordArraysById(remoteItems = [], localItems = [], candidateFields = ["updatedAt", "submittedAt", "resolvedAt", "cancelledAt", "createdAt", "ts"]) {
-  const merged = new globalThis.Map();
-  [...remoteItems, ...localItems].forEach((item) => {
-    if (!item?.id) return;
-    const previous = merged.get(item.id);
-    if (!previous) {
-      merged.set(item.id, item);
-      return;
-    }
-    merged.set(item.id, pickLatestByTimestamp(previous, item, candidateFields));
-  });
-  return [...merged.values()];
-}
-
-function mergeObjectMaps(remoteMap = {}, localMap = {}, pickValue) {
-  const keys = new Set([...Object.keys(remoteMap || {}), ...Object.keys(localMap || {})]);
-  return Object.fromEntries(
-    [...keys].map((key) => {
-      const remoteValue = remoteMap?.[key];
-      const localValue = localMap?.[key];
-      return [key, pickValue ? pickValue(remoteValue, localValue) : localValue ?? remoteValue];
-    }),
-  );
-}
-
-function mergeExecucaoMaps(remoteMap = {}, localMap = {}) {
-  const keys = new Set([...Object.keys(remoteMap || {}), ...Object.keys(localMap || {})]);
-  return Object.fromEntries(
-    [...keys].map((key) => {
-      const mergedRuns = mergeRecordArraysById(remoteMap?.[key] || [], localMap?.[key] || [], ["ts"]);
-      mergedRuns.sort((a, b) => toTimestamp(a.ts) - toTimestamp(b.ts));
-      return [key, mergedRuns];
-    }),
-  );
-}
-
-function pickLatestByTimestamp(remoteValue, localValue, candidateFields = []) {
-  if (!remoteValue) return localValue;
-  if (!localValue) return remoteValue;
-
-  const remoteTs = Math.max(...candidateFields.map((field) => toTimestamp(remoteValue?.[field])), 0);
-  const localTs = Math.max(...candidateFields.map((field) => toTimestamp(localValue?.[field])), 0);
-
-  if (localTs >= remoteTs) return { ...remoteValue, ...localValue };
-  return { ...localValue, ...remoteValue };
-}
-
-function mergePresenceMaps(remoteMap = {}, localMap = {}) {
-  return mergeObjectMaps(remoteMap, localMap, (remoteValue, localValue) =>
-    pickLatestByTimestamp(remoteValue, localValue, ["lastSeenAt"]),
-  );
-}
-
-function mergeAnnouncements(remoteItems = [], localItems = []) {
-  const merged = new globalThis.Map();
-  [...remoteItems, ...localItems].forEach((item) => {
-    if (!item?.id) return;
-    const previous = merged.get(item.id) || {};
-    const remoteLike = previous;
-    const localLike = item;
-    const newestBase = pickLatestByTimestamp(remoteLike, localLike, ["updatedAt", "createdAt"]);
-    merged.set(item.id, {
-      ...previous,
-      ...newestBase,
-      dismissedBy: {
-        ...(previous.dismissedBy || {}),
-        ...(item.dismissedBy || {}),
-      },
-      readBy: {
-        ...(previous.readBy || {}),
-        ...(item.readBy || {}),
-      },
-    });
-  });
-  return [...merged.values()].sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeHelpRequestArrays(remoteItems = [], localItems = []) {
-  const merged = mergeRecordArraysById(remoteItems, localItems, ["resolvedAt", "cancelledAt", "updatedAt", "createdAt"]);
-  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeTokenPolicies(remotePolicies = {}, localPolicies = {}) {
-  return mergeObjectMaps(remotePolicies, localPolicies, (remoteValue, localValue) =>
-    pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
-  );
-}
-
-function mergeTokenGrants(remoteItems = [], localItems = []) {
-  const merged = mergeRecordArraysById(remoteItems, localItems, ["updatedAt", "createdAt"]);
-  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeTokenOperationalLogs(remoteItems = [], localItems = []) {
-  const merged = mergeRecordArraysById(remoteItems, localItems, ["createdAt", "updatedAt"]);
-  return merged.sort((a, b) => toTimestamp(a.createdAt) - toTimestamp(b.createdAt));
-}
-
-function mergeMissionGlossaries(remoteGlossaries = {}, localGlossaries = {}) {
-  const keys = new Set([...Object.keys(remoteGlossaries || {}), ...Object.keys(localGlossaries || {})]);
-  const merged = {};
-  keys.forEach((key) => {
-    merged[key] = mergeGlossaryEntries(remoteGlossaries?.[key] || [], localGlossaries?.[key] || []);
-  });
-  return merged;
-}
-
-function mergeScreenShareState(remoteState = {}, localState = {}) {
-  return pickLatestByTimestamp(remoteState, localState, ["startedAt", "endedAt"]);
-}
-
-function mergeSessionTimerState(remoteTimer = {}, localTimer = {}) {
-  const remoteUpdatedAt = toTimestamp(remoteTimer?.updatedAt);
-  const localUpdatedAt = toTimestamp(localTimer?.updatedAt);
-
-  if (remoteUpdatedAt || localUpdatedAt) {
-    return remoteUpdatedAt >= localUpdatedAt
-      ? { ...localTimer, ...remoteTimer }
-      : { ...remoteTimer, ...localTimer };
-  }
-
-  return pickLatestByTimestamp(remoteTimer, localTimer, ["startedAt", "endsAt"]);
-}
-
-function mergeTimerNotice(remoteNotice, localNotice) {
-  return pickLatestByTimestamp(remoteNotice, localNotice, ["createdAt"]);
-}
-
-function mergeMissions(remoteMissions = [], localMissions = []) {
-  const mergedById = new globalThis.Map();
-
-  [...remoteMissions, ...localMissions].forEach((mission, index) => {
-    const missionId = mission?.id || `__index_${index}`;
-    const previous = mergedById.get(missionId);
-    if (!previous) {
-      mergedById.set(missionId, mission);
-      return;
-    }
-    mergedById.set(missionId, pickLatestByTimestamp(previous, mission, ["updatedAt"]));
-  });
-
-  return [...mergedById.values()];
-}
-
-function mergeEventEntity(remoteEvent, localEvent) {
-  if (!remoteEvent) return localEvent;
-  if (!localEvent) return remoteEvent;
-
-  const remoteUpdatedAt = toTimestamp(remoteEvent.updatedAt || remoteEvent.createdAt);
-  const localUpdatedAt = toTimestamp(localEvent.updatedAt || localEvent.createdAt);
-  const newestEvent = localUpdatedAt >= remoteUpdatedAt ? localEvent : remoteEvent;
-  const oldestEvent = newestEvent === localEvent ? remoteEvent : localEvent;
-
-  return {
-    ...oldestEvent,
-    ...newestEvent,
-    teams: newestEvent.teams || oldestEvent.teams || [],
-    missions: mergeMissions(remoteEvent.missions || [], localEvent.missions || []),
-    execucoes: mergeExecucaoMaps(remoteEvent.execucoes, localEvent.execucoes),
-    reflexoes: mergeObjectMaps(remoteEvent.reflexoes, localEvent.reflexoes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "ts"]),
-    ),
-    questionariosPendentes: mergeObjectMaps(remoteEvent.questionariosPendentes, localEvent.questionariosPendentes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt", "openedAt"]),
-    ),
-    conclusoes: mergeObjectMaps(remoteEvent.conclusoes, localEvent.conclusoes, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt", "closedAt", "concludedAt"]),
-    ),
-    preservedMissionUsage: {
-      ...(remoteEvent.preservedMissionUsage || {}),
-      ...(localEvent.preservedMissionUsage || {}),
-    },
-    missionGlossaries: mergeMissionGlossaries(remoteEvent.missionGlossaries, localEvent.missionGlossaries),
-    missionTokenPolicies: mergeTokenPolicies(remoteEvent.missionTokenPolicies, localEvent.missionTokenPolicies),
-    tokenGrants: mergeTokenGrants(remoteEvent.tokenGrants, localEvent.tokenGrants),
-    tokenOperationalLogs: mergeTokenOperationalLogs(remoteEvent.tokenOperationalLogs, localEvent.tokenOperationalLogs),
-    helpRequests: mergeHelpRequestArrays(remoteEvent.helpRequests, localEvent.helpRequests),
-    helpDisabledMap: mergeObjectMaps(remoteEvent.helpDisabledMap, localEvent.helpDisabledMap, (remoteValue, localValue) =>
-      pickLatestByTimestamp(remoteValue, localValue, ["updatedAt"]),
-    ),
-    anamnesisEnabled: newestEvent.anamnesisEnabled ?? oldestEvent.anamnesisEnabled ?? false,
-    anamnesisResponses: mergeObjectMaps(
-      remoteEvent.anamnesisResponses,
-      localEvent.anamnesisResponses,
-      (remoteValue, localValue) => pickLatestByTimestamp(remoteValue, localValue, ["submittedAt", "updatedAt"]),
-    ),
-    missionResets: mergeObjectMaps(remoteEvent.missionResets, localEvent.missionResets, (r, l) => {
-      if (!r) return l;
-      if (!l) return r;
-      return r >= l ? r : l;
-    }),
-    trainingRuns: mergeExecucaoMaps(remoteEvent.trainingRuns, localEvent.trainingRuns),
-    trainingHelpRequests: mergeHelpRequestArrays(remoteEvent.trainingHelpRequests, localEvent.trainingHelpRequests),
-    announcements: mergeAnnouncements(getEventAnnouncements(remoteEvent), getEventAnnouncements(localEvent)),
-    presenceMap: mergePresenceMaps(remoteEvent.presenceMap, localEvent.presenceMap),
-    sessionTimer: mergeSessionTimerState(remoteEvent.sessionTimer, localEvent.sessionTimer),
-    sessionTimerNotice: mergeTimerNotice(remoteEvent.sessionTimerNotice, localEvent.sessionTimerNotice),
-    screenShare: mergeScreenShareState(remoteEvent.screenShare, localEvent.screenShare),
-    updatedAt: newestEvent.updatedAt || oldestEvent.updatedAt || new Date().toISOString(),
-    createdAt: remoteEvent.createdAt || localEvent.createdAt || newestEvent.createdAt || oldestEvent.createdAt || new Date().toISOString(),
-  };
-}
-
-function mergeEventCollections(remoteEvents = [], localEvents = []) {
-  const mergedById = new globalThis.Map();
-  [...remoteEvents, ...localEvents].forEach((event) => {
-    if (!event?.id) return;
-    const previous = mergedById.get(event.id);
-    mergedById.set(event.id, mergeEventEntity(previous, event));
-  });
-  return [...mergedById.values()].sort((a, b) => toTimestamp(a.createdAt || a.updatedAt) - toTimestamp(b.createdAt || b.updatedAt));
-}
-
 function stampUpdatedEvents(previousEvents = [], nextEvents = []) {
   const previousById = new globalThis.Map(previousEvents.map((event) => [event.id, event]));
   const now = new Date().toISOString();
@@ -1031,13 +1039,16 @@ function migrateEventToFixedMissions(event) {
   const announcements = getEventAnnouncements(event);
   const baseEvent = {
     ...event,
+    promptQualityModel: getEventPromptQualityModel(event),
     announcements,
     announcement: null,
     sessionTimerNotice: event.sessionTimerNotice || null,
     missionGlossaries: event.missionGlossaries || {},
+    agentMissionParticipants: event.agentMissionParticipants || {},
     missionTokenPolicies: event.missionTokenPolicies || {},
     tokenGrants: event.tokenGrants || [],
     tokenOperationalLogs: event.tokenOperationalLogs || [],
+    participantAnalyses: event.participantAnalyses || {},
     anamnesisEnabled: Boolean(event.anamnesisEnabled),
     anamnesisResponses: event.anamnesisResponses || {},
   };
@@ -1070,6 +1081,7 @@ function migrateEventToFixedMissions(event) {
     conclusoes: alreadyCanonical ? baseEvent.conclusoes || {} : {},
     preservedMissionUsage: alreadyCanonical ? baseEvent.preservedMissionUsage || {} : {},
     missionGlossaries: alreadyCanonical ? baseEvent.missionGlossaries || {} : {},
+    agentMissionParticipants: alreadyCanonical ? baseEvent.agentMissionParticipants || {} : {},
     helpRequests: alreadyCanonical ? baseEvent.helpRequests || [] : [],
     helpDisabledMap: alreadyCanonical ? baseEvent.helpDisabledMap || {} : {},
   };
@@ -1101,6 +1113,7 @@ function normalizeEventsForProduct(events = []) {
       );
     return {
       ...migrated,
+      participantAnalyses: migrated.participantAnalyses || {},
       execucoes: clearMap(migrated.execucoes),
       trainingRuns: clearMap(migrated.trainingRuns),
     };
@@ -2012,6 +2025,317 @@ async function gerarExplicacaoGuiadaIA({ model, modelPricing, mission, input, at
   }, { historyContext });
 }
 
+function normalizeParticipantAnalysisDimension(value) {
+  const rawLevel = `${value?.level || "Simples"}`.trim() || "Simples";
+  const normalizedLevelMap = {
+    emergente: "Simples",
+    consistente: "Solida",
+    sofisticada: "Refinada",
+    simples: "Simples",
+    solida: "Solida",
+    sólida: "Solida",
+    refinada: "Refinada",
+  };
+  return {
+    level: normalizedLevelMap[rawLevel.toLowerCase()] || rawLevel,
+    summary: reframeParticipantAnalysisText(`${value?.summary || ""}`.trim()),
+    evidence: Array.isArray(value?.evidence)
+      ? value.evidence
+          .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+          .filter(Boolean)
+          .slice(0, 5)
+      : [],
+  };
+}
+
+function pickHighestParticipantLevel(...levels) {
+  const rank = {
+    emergente: 0,
+    simples: 0,
+    consistente: 1,
+    solida: 1,
+    sólida: 1,
+    sofisticada: 2,
+    refinada: 2,
+  };
+  const labelMap = {
+    emergente: "Simples",
+    simples: "Simples",
+    consistente: "Solida",
+    solida: "Solida",
+    sólida: "Solida",
+    sofisticada: "Refinada",
+    refinada: "Refinada",
+  };
+  const values = levels
+    .map((item) => `${item || ""}`.trim())
+    .filter(Boolean);
+  if (!values.length) return "Simples";
+  const highest = values.reduce((best, current) => {
+    const bestRank = rank[best.toLowerCase()] ?? 0;
+    const currentRank = rank[current.toLowerCase()] ?? 0;
+    return currentRank > bestRank ? current : best;
+  }, values[0]);
+  return labelMap[highest.toLowerCase()] || highest;
+}
+
+function mergeParticipantDimensions(...parts) {
+  const entries = parts.filter(Boolean);
+  if (!entries.length) return normalizeParticipantAnalysisDimension(null);
+  const level = pickHighestParticipantLevel(...entries.map((item) => item?.level));
+  const summary = entries.map((item) => `${item?.summary || ""}`.trim()).filter(Boolean).join(" ");
+  const evidence = entries
+    .flatMap((item) => (Array.isArray(item?.evidence) ? item.evidence : []))
+    .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+    .filter(Boolean);
+  return {
+    level,
+    summary: reframeParticipantAnalysisText(summary),
+    evidence: [...new Set(evidence)].slice(0, 5),
+  };
+}
+
+function reframeParticipantAnalysisText(text) {
+  const raw = `${text || ""}`.trim();
+  if (!raw) return "";
+  return raw
+    .replace(
+      /respostas?\s+alinhadas?\s+com\s+as\s+capacidades?\s+do\s+modelo/gi,
+      "Pedidos alinhados com as capacidades do modo e do modelo usados",
+    )
+    .replace(/a resposta da ia/gi, "a interacao conduzida pela pessoa com a IA")
+    .replace(/a resposta do modelo/gi, "a formulacao feita pela pessoa para orientar o modelo")
+    .replace(/qualidade da resposta/gi, "qualidade da orientacao dada a IA")
+    .replace(/resposta apropriada ao contexto limitado do prompt/gi, "Pedido coerente com o contexto limitado apresentado")
+    .replace(
+      /ausencia de conteudo tecnico ou pedagogico especifico na resposta/gi,
+      "Ausencia de direcionamento tecnico ou pedagogico especifico nos pedidos",
+    )
+    .replace(
+      /conteudo muito geral devido a falta de especificidade do prompt/gi,
+      "Pedidos ainda gerais, com pouca especificidade em partes do historico",
+    )
+    .replace(
+      /o prompt nao continha um pedido claro, entao a resposta precisou ser generica e de orientacao/gi,
+      "Em parte do historico, os pedidos nao deixaram claro o resultado desejado, o que limitou a interacao",
+    )
+    .replace(/apresentacao de opcoes uteis para o usuario/gi, "Pedidos que abriram espaco para comparar opcoes e caminhos possiveis")
+    .replace(/resposta clara e educada/gi, "Pedidos formulados de modo claro e direto");
+}
+
+function normalizeParticipantAnalysis(payload, meta = {}) {
+  const dimensions = payload?.dimensions || {};
+  const operationalDimension = dimensions.operations
+    ? normalizeParticipantAnalysisDimension(dimensions.operations)
+    : mergeParticipantDimensions(dimensions.tools, dimensions.model_selection);
+  return {
+    participant_id: `${payload?.participant_id || meta.participantId || ""}`.trim(),
+    profiles: Array.isArray(payload?.profiles) ? payload.profiles.map((item) => `${item || ""}`.trim()).filter(Boolean) : [],
+    learning_archetypes: Array.isArray(payload?.learning_archetypes)
+      ? payload.learning_archetypes.map((item) => `${item || ""}`.trim()).filter(Boolean)
+      : [],
+    autonomy_level: `${payload?.autonomy_level || ""}`.trim(),
+    dimensions: {
+      intent: normalizeParticipantAnalysisDimension(dimensions.intent),
+      context: normalizeParticipantAnalysisDimension(dimensions.context),
+      instruction: normalizeParticipantAnalysisDimension(dimensions.instruction),
+      iteration: normalizeParticipantAnalysisDimension(dimensions.iteration),
+      operations: operationalDimension,
+      efficiency: normalizeParticipantAnalysisDimension(dimensions.efficiency),
+    },
+    evolution: {
+      summary: reframeParticipantAnalysisText(`${payload?.evolution?.summary || ""}`.trim()),
+      evolved_competencies: Array.isArray(payload?.evolution?.evolved_competencies)
+        ? payload.evolution.evolved_competencies
+            .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+            .filter(Boolean)
+        : [],
+      stable_patterns: Array.isArray(payload?.evolution?.stable_patterns)
+        ? payload.evolution.stable_patterns
+            .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+            .filter(Boolean)
+        : [],
+      usage_changes: Array.isArray(payload?.evolution?.usage_changes)
+        ? payload.evolution.usage_changes
+            .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+            .filter(Boolean)
+        : [],
+    },
+    strengths: Array.isArray(payload?.strengths)
+      ? payload.strengths.map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim())).filter(Boolean)
+      : [],
+    opportunities: Array.isArray(payload?.opportunities)
+      ? payload.opportunities.map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim())).filter(Boolean)
+      : [],
+    recommendations: Array.isArray(payload?.recommendations)
+      ? payload.recommendations
+          .map((item) => reframeParticipantAnalysisText(`${item || ""}`.trim()))
+          .filter(Boolean)
+          .slice(0, 5)
+      : [],
+    analysis_confidence:
+      typeof payload?.analysis_confidence === "string"
+        ? payload.analysis_confidence
+        : {
+            level: `${payload?.analysis_confidence?.level || meta.confidenceLabel || "media"}`.trim(),
+            rationale: `${payload?.analysis_confidence?.rationale || ""}`.trim(),
+          },
+  };
+}
+
+function hasParticipantExecutionMaterial(event = null) {
+  if (!event) return false;
+  return Boolean(
+    Object.keys(event.execucoes || {}).length ||
+    Object.keys(event.trainingRuns || {}).length,
+  );
+}
+
+async function gerarLeituraPedagogicaParticipanteIA({
+  participant,
+  eventName,
+  modelPricing,
+}) {
+  const analysisModel = TECHNICAL_ANALYSIS_MODEL;
+  const detailedHistoryLimit = 8;
+  const detailedHistory = participant.history.slice(-detailedHistoryLimit);
+  const historicalOverflow = participant.history.slice(0, Math.max(0, participant.history.length - detailedHistoryLimit));
+  const overflowSummary = historicalOverflow.length
+    ? {
+        rounds: historicalOverflow.length,
+        chatRounds: historicalOverflow.filter((exec) => (exec.aiMode || CHAT_AI_MODE) === CHAT_AI_MODE).length,
+        codingRounds: historicalOverflow.filter((exec) => (exec.aiMode || CHAT_AI_MODE) === CODING_AI_MODE).length,
+        trainingRounds: historicalOverflow.filter((exec) => exec.missionId === TRAINING_THREAD_ID || exec.missionId === "__training__").length,
+        tokens: historicalOverflow.reduce((sum, exec) => sum + (exec.tokens || 0), 0),
+        cost: historicalOverflow.reduce((sum, exec) => sum + (typeof exec.custo === "number" ? exec.custo : 0), 0),
+      }
+    : null;
+  const historyLines = detailedHistory.map((exec, index) => {
+    const attachmentSummary = Array.isArray(exec.attachments) && exec.attachments.length
+      ? exec.attachments.map((item) => `${item.name} (${item.kind || "arquivo"})`).join(", ")
+      : "sem anexos";
+    return [
+      `Rodada detalhada ${index + 1}`,
+      `- timestamp: ${exec.ts || ""}`,
+      `- modo: ${exec.aiMode || CHAT_AI_MODE}`,
+      `- modelo selecionado: ${exec.selectedModel || "nao informado"}`,
+      `- modelo efetivo: ${exec.effectiveModel || exec.selectedModel || "nao informado"}`,
+      `- tokens totais: ${exec.tokens || 0}`,
+      `- custo estimado: ${typeof exec.custo === "number" ? exec.custo : 0}`,
+      `- anexos: ${attachmentSummary}`,
+      `- prompt/input: ${truncateForAnalysis(exec.input || "", 180)}`,
+    ].join("\n");
+  });
+
+  const prompt = [
+    "Voce e um sistema de leitura pedagogica longitudinal de uso de IA.",
+    "Nao atribua nota numerica.",
+    "Nao avalie qualidade de prompt com vies escolar ou apenas por tamanho, tecnicismo ou jargao.",
+    "Seu trabalho e identificar padroes de uso, competencias observadas, oportunidades de desenvolvimento e evolucao ao longo do tempo.",
+    "Trabalhe apenas com o historico fornecido. Nao invente evidencias ausentes.",
+    "Sempre fundamente a leitura em evidencias observadas nas interacoes.",
+    "Considere bons prompts em formas diversas: curtos, longos, estruturados ou diretos podem ser bons dependendo da tarefa.",
+    "Atribua merito apenas ao que a pessoa fez para orientar a IA: formulacao, contexto, escolhas de modo, iteracao, refinamento e adequacao operacional.",
+    "Nao elogie a resposta da IA como se isso fosse competencia da pessoa.",
+    "Evite frases centradas na saida do modelo, como 'respostas alinhadas' ou 'boa resposta tecnica'.",
+    "Prefira formulacoes como 'os pedidos tenderam a...', 'houve adequacao entre a solicitacao e o modo usado...', 'a pessoa refinou...', 'a interacao mostrou...'.",
+    "Use estes arquetipos de aprendizagem quando fizer sentido, podendo indicar mais de um em ordem de predominancia:",
+    '- "Explorador": aprende testando, variando e sondando possibilidades.',
+    '- "Planejador": organiza antes de executar e tende a estruturar intencao.',
+    '- "Consultor": usa IA sobretudo para consulta, esclarecimento e validacao.',
+    '- "Copiloto": trabalha em ida e volta, refinando com a IA ao longo do processo.',
+    '- "Produtor": usa IA como mecanismo de entrega e aceleracao de producao.',
+    "Profiles possiveis de uso com IA: Explorador, Executor, Analista, Construtor, Orquestrador.",
+    "Nas dimensoes intent, context, instruction, iteration, operations e efficiency, use level com apenas: Simples, Solida ou Refinada.",
+    "Em operations, consolide escolhas de modo, ferramenta e modelo em uma unica leitura de escolhas operacionais.",
+    "No campo autonomy_level, use apenas: Dependente, Assistido ou Autonomo.",
+    "Retorne apenas JSON valido, sem markdown, seguindo exatamente esta estrutura:",
+    `{
+  "participant_id": "",
+  "profiles": [],
+  "learning_archetypes": [],
+  "autonomy_level": "",
+  "dimensions": {
+    "intent": { "level": "", "summary": "", "evidence": [] },
+    "context": { "level": "", "summary": "", "evidence": [] },
+    "instruction": { "level": "", "summary": "", "evidence": [] },
+    "iteration": { "level": "", "summary": "", "evidence": [] },
+    "operations": { "level": "", "summary": "", "evidence": [] },
+    "efficiency": { "level": "", "summary": "", "evidence": [] }
+  },
+  "evolution": {
+    "summary": "",
+    "evolved_competencies": [],
+    "stable_patterns": [],
+    "usage_changes": []
+  },
+  "strengths": [],
+  "opportunities": [],
+  "recommendations": [],
+  "analysis_confidence": {
+    "level": "",
+    "rationale": ""
+  }
+}`,
+    "Cada lista curta deve ter no maximo 5 itens.",
+    "As recomendacoes devem ser praticas, especificas, acionaveis e baseadas em evidencias do historico.",
+    `Evento: ${eventName || "Nao informado"}`,
+    "Recorte da leitura: Historico completo consolidado do participante no evento, incluindo treino e missoes quando rastreaveis.",
+    `Participante nominal principal: ${participant.displayName}`,
+    `Confianca de identificacao: ${participant.confidenceLabel}`,
+    `Origem da identificacao: ${participant.source}`,
+    `Time: ${participant.teamName}`,
+    `Quantidade total de rodadas: ${participant.history.length}`,
+    overflowSummary
+      ? `Resumo das rodadas anteriores ao recorte detalhado: ${overflowSummary.rounds} rodadas (${overflowSummary.chatRounds} chat, ${overflowSummary.codingRounds} coding, ${overflowSummary.trainingRounds} treino), ${overflowSummary.tokens} tokens, custo estimado ${overflowSummary.cost.toFixed(4)}.`
+      : "",
+    "Historico cronologico:",
+    historyLines.join("\n\n"),
+  ].join("\n\n");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    let result;
+    try {
+      result = await fetchChatCompletion({
+        model: analysisModel,
+        signal: controller.signal,
+        messages: [
+          {
+            role: "system",
+            content: "Produza apenas JSON valido. Nao use markdown. Nao inclua texto fora do JSON.",
+          },
+          { role: "user", content: prompt },
+        ],
+      });
+    } catch (error) {
+      const message = `${error?.message || ""}`.toLowerCase();
+      if (error?.name === "AbortError" || message.includes("aborted")) {
+        throw new Error("A análise demorou mais do que o esperado. Tente novamente.");
+      }
+      throw error;
+    }
+    const parsed = tryParseJson(result.output) || tryParseJson(extractJsonObject(result.output));
+    if (!parsed) return null;
+    return {
+      analysis: normalizeParticipantAnalysis(parsed, {
+        participantId: participant.displayName,
+        confidenceLabel: participant.confidenceLabel,
+      }),
+      usage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        totalTokens: result.inputTokens + result.outputTokens,
+        cost: estimateCost(modelPricing, analysisModel, result.inputTokens, result.outputTokens),
+        model: analysisModel,
+      },
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchChatCompletion({ model, messages, reasoningEffort, signal }) {
   const requestBody = {
     model,
@@ -2514,6 +2838,9 @@ function App() {
   const [missionTogglePending, setMissionTogglePending] = useState({});
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [materialsDrawerOpen, setMaterialsDrawerOpen] = useState(false);
+  const [participantPromptAnalysisOpen, setParticipantPromptAnalysisOpen] = useState(false);
+  const [participantUtilityRailExpanded, setParticipantUtilityRailExpanded] = useState(false);
+  const [participantInsightsDrawerState, setParticipantInsightsDrawerState] = useState({ open: false, teamIdx: null });
   const [studentResourcePreview, setStudentResourcePreview] = useState(null);
   const [planningApprovalState, setPlanningApprovalState] = useState({
     open: false,
@@ -2525,6 +2852,7 @@ function App() {
   const [tokenLimitModalOpen, setTokenLimitModalOpen] = useState(false);
   const [facilitatorToolsOpen, setFacilitatorToolsOpen] = useState(false);
   const [facilitatorToolView, setFacilitatorToolView] = useState(FACILITATOR_TOOL_VIEWS.MENU);
+  const [facilitatorUtilityRailExpanded, setFacilitatorUtilityRailExpanded] = useState(false);
   const [tokenGrantTargetMissionId, setTokenGrantTargetMissionId] = useState("");
   const [tokenPolicyCustomInput, setTokenPolicyCustomInput] = useState("15000");
   const [activeStudentName, setActiveStudentName] = useState(initialParticipantSession.activeStudentName || "");
@@ -2532,6 +2860,8 @@ function App() {
   const [timerMinutesInput, setTimerMinutesInput] = useState("10:00");
   const [clockNow, setClockNow] = useState(Date.now());
   const serverClockOffsetRef = useRef(0);
+  const participantUtilityRailRef = useRef(null);
+  const facilitatorUtilityRailRef = useRef(null);
   const [survivalAccessGranted, setSurvivalAccessGranted] = useState(Boolean(initialSurvivalStore.authenticated));
   const [survivalPasswordInput, setSurvivalPasswordInput] = useState("");
   const [survivalAuthError, setSurvivalAuthError] = useState("");
@@ -2562,7 +2892,6 @@ function App() {
     [CHAT_AI_MODE]: initialSurvivalStore.models?.[CHAT_AI_MODE] || initialLocalStore.chatModel || DEFAULT_CHAT_MODEL,
     [CODING_AI_MODE]: initialSurvivalStore.models?.[CODING_AI_MODE] || initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
   }));
-  const [survivalPlanningMode, setSurvivalPlanningMode] = useState(initialSurvivalStore.planningMode || "off");
   const [survivalBehaviorModes, setSurvivalBehaviorModes] = useState(() => ({
     [CHAT_AI_MODE]: {
       investigate: Boolean(initialSurvivalStore.behaviorModes?.[CHAT_AI_MODE]?.investigate),
@@ -2572,9 +2901,12 @@ function App() {
       guided: Boolean(initialSurvivalStore.behaviorModes?.[CODING_AI_MODE]?.guided),
     },
   }));
+  const [survivalPlanningMode, setSurvivalPlanningMode] = useState(initialSurvivalStore.planningMode || "off");
   const [survivalTheme, setSurvivalTheme] = useState(
     initialSurvivalStore.theme === SURVIVAL_THEME_LIGHT ? SURVIVAL_THEME_LIGHT : SURVIVAL_THEME_DARK,
   );
+  const [survivalThreadResetNonce, setSurvivalThreadResetNonce] = useState(0);
+  const [survivalModeNotice, setSurvivalModeNotice] = useState({ open: false, title: "", body: "" });
   const [survivalAttachments, setSurvivalAttachments] = useState([]);
   const [survivalPendingAttachments, setSurvivalPendingAttachments] = useState([]);
   const [survivalRunning, setSurvivalRunning] = useState(false);
@@ -2582,8 +2914,6 @@ function App() {
   const [survivalPendingPrompt, setSurvivalPendingPrompt] = useState("");
   const [survivalError, setSurvivalError] = useState("");
   const [survivalClearConfirmOpen, setSurvivalClearConfirmOpen] = useState(false);
-  const [survivalThreadResetNonce, setSurvivalThreadResetNonce] = useState(0);
-  const [survivalModeNotice, setSurvivalModeNotice] = useState({ open: false, title: "", body: "" });
   const survivalLiveAnswerRef = useRef(null);
   const survivalFileInputRef = useRef(null);
   const [serverConfig, setServerConfig] = useState({
@@ -2594,13 +2924,27 @@ function App() {
     sharedStateConfigured: false,
     supabaseUrl: "",
     supabaseAnonKey: "",
-    remoteStateKey: "techhall-v1",
   });
   const [storeHydrated, setStoreHydrated] = useState(false);
+  const supabaseRealtimeClient = useMemo(() => {
+    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
+    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storage: {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {},
+        },
+      },
+    });
+  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
   const composerFileInputRef = useRef(null);
   const lastEventMetaSavedRef = useRef({ id: null, name: "", desc: "" });
-  const lastRemoteEventsRef = useRef(JSON.stringify(initialLocalStore.events || []));
   const currentEventsRef = useRef(initialLocalStore.events || []);
+  const participantAnalysisInflightRef = useRef(new Set());
   const brandLoaderTimerRef = useRef(null);
 
   function clearBrandLoaderTimer() {
@@ -2622,12 +2966,6 @@ function App() {
   useEffect(() => {
     saveStore(store);
   }, [store]);
-
-  function syncServerClock(serverNowMs) {
-    if (!Number.isFinite(serverNowMs) || serverNowMs <= 0) return;
-    serverClockOffsetRef.current = serverNowMs - Date.now();
-    setClockNow(Date.now() + serverClockOffsetRef.current);
-  }
 
   function getSyncedNowMs() {
     return Date.now() + serverClockOffsetRef.current;
@@ -2696,21 +3034,6 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    async function fetchRemoteStateWithRetry(maxAttempts = 3) {
-      let lastError;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
-        if (cancelled) return null;
-        try {
-          return await fetchRemoteState();
-        } catch (err) {
-          lastError = err;
-          console.warn(`[state] tentativa ${attempt + 1}/${maxAttempts} falhou:`, err.message);
-        }
-      }
-      throw lastError;
-    }
-
     async function bootstrapStore() {
       try {
         const config = await fetchServerConfig();
@@ -2718,15 +3041,30 @@ function App() {
         setServerConfig(config);
 
         if (config.sharedStateConfigured) {
-          const remoteState = await fetchRemoteStateWithRetry(3);
-          if (cancelled || !remoteState) return;
-          syncServerClock(remoteState.serverNowMs);
-          const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          lastRemoteEventsRef.current = JSON.stringify(normalizedRemoteEvents);
-          setStore((current) => ({
-            ...current,
-            events: normalizedRemoteEvents,
-          }));
+          const eventList = await listEventsPerTeam();
+          if (cancelled) return;
+          const events = normalizeEventsForProduct(
+            (
+              await Promise.all(
+                eventList.map(async (item) => {
+                  try {
+                    const detail = await getEventState(item.event_id);
+                    const payload = { ...(detail.payload || {}) };
+                    delete payload.participantAnalyses;
+                    const localEvent = (currentEventsRef.current || []).find((event) => event.id === item.event_id);
+                    return {
+                      id: item.event_id,
+                      ...payload,
+                      participantAnalyses: localEvent?.participantAnalyses || {},
+                    };
+                  } catch {
+                    return null;
+                  }
+                }),
+              )
+            ).filter(Boolean)
+          );
+          setStore((current) => ({ ...current, eventList, events }));
         }
       } catch (error) {
         console.error("[state] falha ao carregar estado remoto:", error);
@@ -2741,6 +3079,59 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!storeHydrated || !supabaseRealtimeClient) return undefined;
+    const channel = supabaseRealtimeClient
+      .channel("event_state__list")
+      .on("postgres_changes", { event: "*", schema: "public", table: "event_state" }, (change) => {
+        if (change.eventType === "DELETE") {
+          const removedId = change.old?.event_id;
+          if (!removedId) return;
+          setStore((current) => ({
+            ...current,
+            eventList: (current.eventList || []).filter((item) => item.event_id !== removedId),
+            events: (current.events || []).filter((event) => event.id !== removedId),
+          }));
+          return;
+        }
+        const row = change.new;
+        if (!row) return;
+        setStore((current) => {
+          const payload = row.payload || {};
+          const nextPayload = { ...payload };
+          delete nextPayload.participantAnalyses;
+          const events = current.events || [];
+          const previousEvent = events.find((event) => event.id === row.event_id) || null;
+          const nextEvent = {
+            id: row.event_id,
+            ...nextPayload,
+            participantAnalyses: previousEvent?.participantAnalyses || {},
+          };
+          const replaced = events.some((event) => event.id === row.event_id);
+          const nextEvents = replaced
+            ? events.map((event) => (event.id === row.event_id ? nextEvent : event))
+            : [...events, nextEvent];
+          const normalizedNextEvents = normalizeEventsForProduct(nextEvents);
+          const eventList = current.eventList || [];
+          const nextListItem = {
+            event_id: row.event_id,
+            name: payload.name || row.event_id,
+            status: payload.status || "draft",
+            mode: payload.mode || "missions",
+            updated_at: row.updated_at,
+          };
+          const nextList = eventList.some((item) => item.event_id === row.event_id)
+            ? eventList.map((item) => (item.event_id === row.event_id ? nextListItem : item))
+            : [...eventList, nextListItem];
+          return { ...current, eventList: nextList, events: normalizedNextEvents };
+        });
+      })
+      .subscribe();
+    return () => {
+      supabaseRealtimeClient.removeChannel(channel);
+    };
+  }, [storeHydrated, supabaseRealtimeClient]);
 
   useEffect(() => {
     if (!toastText) return undefined;
@@ -2765,98 +3156,10 @@ function App() {
     window.open(studentResourcePreview.href, "_blank", "noopener,noreferrer");
   }
 
-  const supabaseRealtimeClient = useMemo(() => {
-    if (!serverConfig.supabaseConfigured || !serverConfig.supabaseUrl || !serverConfig.supabaseAnonKey) return null;
-    return createClient(serverConfig.supabaseUrl, serverConfig.supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-  }, [serverConfig.supabaseAnonKey, serverConfig.supabaseConfigured, serverConfig.supabaseUrl]);
-
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now() + serverClockOffsetRef.current), 1000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (!storeHydrated) return undefined;
-
-    const serializedEvents = JSON.stringify(store.events || []);
-    if (serializedEvents === lastRemoteEventsRef.current) return undefined;
-
-    if (!serverConfig.sharedStateConfigured) return undefined;
-
-    const timer = window.setTimeout(() => {
-      (async () => {
-        try {
-          const remoteState = await fetchRemoteState();
-          syncServerClock(remoteState.serverNowMs);
-          const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          const mergedEvents = normalizeEventsForProduct(mergeEventCollections(normalizedRemoteEvents, store.events || []));
-          const saveResult = await saveRemoteState(mergedEvents);
-          syncServerClock(saveResult.serverNowMs);
-          // Re-merge with current state to preserve any updates that happened during the async fetch
-          setStore((current) => {
-            const safeMerged = normalizeEventsForProduct(mergeEventCollections(mergedEvents, current.events || []));
-            const safeSerialized = JSON.stringify(safeMerged);
-            lastRemoteEventsRef.current = safeSerialized;
-            return JSON.stringify(current.events || []) === safeSerialized
-              ? current
-              : { ...current, events: safeMerged };
-          });
-        } catch (error) {
-          console.error(error);
-        }
-      })();
-    }, REMOTE_SYNC_SAVE_DEBOUNCE_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [serverConfig.sharedStateConfigured, store.events, storeHydrated]);
-
-  useEffect(() => {
-    if (!storeHydrated || !supabaseRealtimeClient || !serverConfig.remoteStateKey) return undefined;
-
-    const activeEventId = timeEventId || facSelectedId;
-    const activeStateKey = activeEventId ? `event-${activeEventId}` : serverConfig.remoteStateKey;
-
-    const channel = supabaseRealtimeClient
-      .channel(`app-state-${activeStateKey}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "app_state",
-          filter: `id=eq.${activeStateKey}`,
-        },
-        (payload) => {
-          const nextData = payload.new?.payload;
-          let nextEvents = [];
-          if (nextData) {
-            if (Array.isArray(nextData.events)) {
-              nextEvents = normalizeEventsForProduct(nextData.events);
-            } else if (typeof nextData === "object" && nextData.id) {
-              nextEvents = normalizeEventsForProduct([nextData]);
-            }
-          }
-          setStore((current) => {
-            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(nextEvents, current.events || []));
-            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-            return {
-              ...current,
-              events: mergedEvents,
-            };
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabaseRealtimeClient.removeChannel(channel);
-    };
-  }, [serverConfig.remoteStateKey, storeHydrated, supabaseRealtimeClient, timeEventId, facSelectedId]);
 
   // Poll config at a low frequency — it rarely changes and doesn't need realtime cadence
   useEffect(() => {
@@ -2873,94 +3176,6 @@ function App() {
 
     return () => window.clearInterval(timer);
   }, [screen]);
-
-  // Poll state as fallback — slower when Realtime is active, faster when it's not
-  useEffect(() => {
-    if (!["workspace", "facilitador", "team", "entry"].includes(screen)) return undefined;
-
-    const interval = supabaseRealtimeClient ? STATE_POLL_MS_WITH_REALTIME : STATE_POLL_MS_WITHOUT_REALTIME;
-
-    const timer = window.setInterval(async () => {
-      try {
-        if (serverConfig.sharedStateConfigured) {
-          const remoteState = await fetchRemoteState();
-          syncServerClock(remoteState.serverNowMs);
-          const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          setStore((current) => {
-            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
-            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-            return { ...current, events: mergedEvents };
-          });
-          return;
-        }
-        // Bootstrap may have failed — try to recover config so next tick fetches remote
-        const recoveredConfig = await fetchServerConfig();
-        setServerConfig(recoveredConfig);
-        if (recoveredConfig.sharedStateConfigured) {
-          const remoteState = await fetchRemoteState();
-          syncServerClock(remoteState.serverNowMs);
-          const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
-          setStore((current) => {
-            const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
-            lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-            return { ...current, events: mergedEvents };
-          });
-          return;
-        }
-      } catch (error) {
-        console.error(error);
-      }
-
-      setStore((current) => {
-        const normalizedCurrentEvents = normalizeEventsForProduct(current.events || []);
-        lastRemoteEventsRef.current = JSON.stringify(normalizedCurrentEvents);
-        return { ...current, events: normalizedCurrentEvents };
-      });
-    }, interval);
-
-    return () => window.clearInterval(timer);
-  }, [screen, serverConfig.sharedStateConfigured, supabaseRealtimeClient]);
-
-  useEffect(() => {
-    if (!["workspace", "facilitador", "team"].includes(screen)) return undefined;
-    if (!serverConfig.sharedStateConfigured) return undefined;
-
-    let cancelled = false;
-    const syncImmediately = async () => {
-      if (cancelled) return;
-      try {
-        const remoteState = await fetchRemoteState();
-        if (cancelled) return;
-        syncServerClock(remoteState.serverNowMs);
-        const remoteEvents = normalizeEventsForProduct(remoteState.events || []);
-        setStore((current) => {
-          const mergedEvents = normalizeEventsForProduct(mergeEventCollections(remoteEvents, current.events || []));
-          lastRemoteEventsRef.current = JSON.stringify(mergedEvents);
-          return { ...current, events: mergedEvents };
-        });
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void syncImmediately();
-      }
-    };
-
-    const handleFocus = () => {
-      void syncImmediately();
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [screen, serverConfig.sharedStateConfigured]);
 
   useEffect(() => {
     if (!storeHydrated || !isLocalDev) return;
@@ -2994,41 +3209,25 @@ function App() {
 
   const allEvents = store.events || [];
   const events = allEvents.filter((event) => !isEventHidden(event));
+  const hiddenEventsCount = allEvents.length - events.length;
   const selectedEvent = events.find((event) => event.id === facSelectedId) || null;
   const teamEvent = events.find((event) => event.id === timeEventId) || null;
   const selectedEventMode = getEventMode(selectedEvent);
+  const apiConfigured = Boolean(serverConfig.openaiConfigured);
+
+  useEffect(() => {
+    if (!participantUtilityRailExpanded) return undefined;
+    function handlePointerDown(event) {
+      if (participantUtilityRailRef.current?.contains(event.target)) return;
+      setParticipantUtilityRailExpanded(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [participantUtilityRailExpanded]);
   const teamEventMode = getEventMode(teamEvent);
   const isTrainingEvent = teamEventMode === TRAINING_MODE_EVENT;
   const team = teamEvent && timeTeamIdx !== null ? teamEvent.teams[timeTeamIdx] : null;
-  const selectedEventAnnouncements = getEventAnnouncements(selectedEvent);
-  const selectedEventLatestAnnouncement = selectedEventAnnouncements.length ? selectedEventAnnouncements[selectedEventAnnouncements.length - 1] : null;
-  const teamEventAnnouncements = getEventAnnouncements(teamEvent);
-  const teamUnreadAnnouncements = teamEvent && timeTeamIdx !== null ? getUnreadAnnouncementsForTeam(teamEvent, timeTeamIdx) : [];
-  const teamUnreadAnnouncementCount = teamUnreadAnnouncements.length;
-  const latestUnreadAnnouncement = teamEvent && timeTeamIdx !== null ? getLatestUnreadAnnouncementForTeam(teamEvent, timeTeamIdx) : null;
-  const selectedEventTimer = getSessionTimer(selectedEvent);
-  const selectedEventTimerRemainingMs = getSessionTimerRemainingMs(selectedEvent, clockNow);
-  const selectedEventTimerRunning = isSessionTimerRunning(selectedEvent, clockNow);
-  const selectedEventTimerNotice = getSessionTimerNotice(selectedEvent, clockNow);
-  const teamEventTimer = getSessionTimer(teamEvent);
-  const teamEventTimerRemainingMs = getSessionTimerRemainingMs(teamEvent, clockNow);
-  const teamEventTimerRunning = isSessionTimerRunning(teamEvent, clockNow);
-  const teamEventTimerNotice = getSessionTimerNotice(teamEvent, clockNow);
-  const teamTimerExpired = isSessionTimerExpired(teamEvent, clockNow);
-  const teamTimerLockActive = isSessionTimerLockActive(teamEvent, clockNow);
-  const selectedEventScreenShare = selectedEvent ? getScreenShareState(selectedEvent) : null;
-  const teamEventScreenShare = teamEvent ? getScreenShareState(teamEvent) : null;
-  const teamScreenShareSessionId =
-    teamEventScreenShare?.active && teamEvent
-      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
-      : "";
-  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
 
-  useEffect(() => {
-    if (!teamScreenShareSessionId) {
-      setDismissedScreenShareSession("");
-    }
-  }, [teamScreenShareSessionId]);
 
   useEffect(() => {
     if (!storeHydrated) return;
@@ -3052,59 +3251,510 @@ function App() {
     }
   }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
-  const currentMissionLocked = Boolean(!isTrainingEvent && currentMission && !currentMission.unlocked);
-  const currentExecs = currentMission && teamEvent
+  const currentAgentParticipantKey = useMemo(
+    () => getActiveAgentParticipantKey(activeStudentName, team?.name || ""),
+    [activeStudentName, team?.name],
+  );
+
+  const workspaceActive = screen === "workspace";
+  const perTeamEventId = workspaceActive ? timeEventId : null;
+  const perTeamTeamIdx = workspaceActive ? timeTeamIdx : null;
+  const perTeamMissionId = workspaceActive ? currentMission?.id ?? null : null;
+
+  const perTeamEventStateHook = useEventState(perTeamEventId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamTeamStateHook = useTeamState(perTeamEventId, perTeamTeamIdx, { realtimeClient: supabaseRealtimeClient });
+  const perTeamExecutionsHook = useTeamExecutions(perTeamEventId, perTeamTeamIdx, perTeamMissionId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamHelpHook = useHelpRequests(perTeamEventId, { realtimeClient: supabaseRealtimeClient });
+  const perTeamTokenLogHook = useTokenLogs(perTeamEventId, { realtimeClient: supabaseRealtimeClient, teamIdx: perTeamTeamIdx });
+  usePresence({
+    eventId: perTeamEventId,
+    teamIdx: perTeamTeamIdx,
+    memberName: activeStudentName,
+    enabled: workspaceActive,
+  });
+
+  const effectiveTeamEvent = useMemo(() => {
+    if (!teamEvent) return teamEvent;
+    const execKey = perTeamMissionId ? `${perTeamTeamIdx}__${perTeamMissionId}` : null;
+    const eventPayload = perTeamEventStateHook.state?.payload || {};
+    const teamPayload = perTeamTeamStateHook.state?.payload || {};
+    const reKey = (map) =>
+      Object.fromEntries(Object.entries(map || {}).map(([mid, val]) => [`${perTeamTeamIdx}__${mid}`, val]));
+    const reshapeExec = (row) => {
+      const payload = row?.payload || {};
+      const totalTokens = typeof row?.tokens === "number" ? row.tokens : row?.tokens?.total ?? 0;
+      const inputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.input ?? 0;
+      const outputTokens = typeof row?.tokens === "number" ? 0 : row?.tokens?.output ?? 0;
+      return {
+        ...payload,
+        id: row.id,
+        ts: payload.ts || row.created_at,
+        tokens: payload.tokens ?? totalTokens,
+        inputTokens: payload.inputTokens ?? inputTokens,
+        outputTokens: payload.outputTokens ?? outputTokens,
+        custo: payload.custo ?? row.custo ?? 0,
+        aiMode: payload.aiMode || (row.kind === "coding" ? CODING_AI_MODE : CHAT_AI_MODE),
+      };
+    };
+    const reshapedExecs = execKey ? perTeamExecutionsHook.executions.map(reshapeExec) : [];
+    const isTraining = perTeamMissionId === "__training__";
+    return {
+      ...eventPayload,
+      ...teamEvent,
+      execucoes: execKey && !isTraining
+        ? { ...(teamEvent.execucoes || {}), [execKey]: reshapedExecs }
+        : teamEvent.execucoes || {},
+      reflexoes: reKey(teamPayload.reflexoes),
+      conclusoes: reKey(teamPayload.conclusoes),
+      questionariosPendentes: reKey(teamPayload.questionariosPendentes),
+      missionGlossaries: reKey(teamPayload.missionGlossaries),
+      preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
+      agentMissionParticipants: {
+        ...reKey(teamPayload.agentMissionParticipants),
+        ...(teamEvent.agentMissionParticipants || {}),
+      },
+      trainingRuns: isTraining ? { [perTeamTeamIdx]: reshapedExecs } : {},
+      anamnesisResponses: teamPayload.anamnese ? { [perTeamTeamIdx]: teamPayload.anamnese } : {},
+      helpRequests: (perTeamHelpHook.items || [])
+        .filter((item) => item.team_idx === perTeamTeamIdx && (!perTeamMissionId || item.mission_id === perTeamMissionId || !item.mission_id))
+        .map((row) => ({
+          id: row.id,
+          teamIdx: row.team_idx,
+          missionId: row.mission_id,
+          status: row.status,
+          kind: row.payload?.kind || row.kind || null,
+          createdAt: row.created_at,
+          message: row.payload?.message || "",
+          missionName: row.payload?.missionName || "",
+          teamName: row.payload?.teamName || row.payload?.memberName || "",
+          studentName: row.payload?.memberName || row.payload?.teamName || "",
+          timerRemainingMs: row.payload?.timerRemainingMs || null,
+          currentUsage: row.payload?.currentUsage || null,
+          currentLimit: row.payload?.currentLimit || null,
+        })),
+      tokenOperationalLogs: perTeamTokenLogHook.items || [],
+    };
+  }, [
+    teamEvent,
+    perTeamMissionId,
+    perTeamTeamIdx,
+    perTeamEventStateHook.state,
+    perTeamTeamStateHook.state,
+    perTeamExecutionsHook.executions,
+    perTeamHelpHook.items,
+    perTeamTokenLogHook.items,
+  ]);
+
+  const facilitadorEventIdActive = screen === "facilitador" ? facSelectedId : null;
+  const perTeamDashboardHook = useDashboard(facilitadorEventIdActive, {
+    realtimeClient: supabaseRealtimeClient,
+    refreshMs: 5000,
+  });
+  const workspaceDashboardHook = useDashboard(screen === "workspace" ? teamEvent?.id || null : null, {
+    realtimeClient: supabaseRealtimeClient,
+    refreshMs: 5000,
+  });
+
+  const facilitadorBaseEvent = useMemo(
+    () => store.events?.find((event) => event.id === facSelectedId) || null,
+    [store.events, facSelectedId],
+  );
+
+  const effectiveFacilitadorEvent = useMemo(() => {
+    return buildDashboardEnrichedEvent(facilitadorBaseEvent, perTeamDashboardHook.data);
+  }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
+
+  const effectiveTeamAnalysisEvent = useMemo(
+    () => buildDashboardEnrichedEvent(effectiveTeamEvent || teamEvent, workspaceDashboardHook.data),
+    [effectiveTeamEvent, teamEvent, workspaceDashboardHook.data],
+  );
+
+  const selectedEventForRead = effectiveFacilitadorEvent || selectedEvent;
+  const teamEventForRead = effectiveTeamEvent || teamEvent;
+  const selectedEventAnnouncements = getEventAnnouncements(selectedEventForRead);
+  const selectedEventLatestAnnouncement = selectedEventAnnouncements.length ? selectedEventAnnouncements[selectedEventAnnouncements.length - 1] : null;
+  const teamEventAnnouncements = getEventAnnouncements(teamEventForRead);
+  const teamUnreadAnnouncements = teamEventForRead && timeTeamIdx !== null ? getUnreadAnnouncementsForTeam(teamEventForRead, timeTeamIdx) : [];
+  const teamUnreadAnnouncementCount = teamUnreadAnnouncements.length;
+  const latestUnreadAnnouncement = teamEventForRead && timeTeamIdx !== null ? getLatestUnreadAnnouncementForTeam(teamEventForRead, timeTeamIdx) : null;
+  const selectedEventTimer = getSessionTimer(selectedEventForRead);
+  const selectedEventTimerRemainingMs = getSessionTimerRemainingMs(selectedEventForRead, clockNow);
+  const selectedEventTimerRunning = isSessionTimerRunning(selectedEventForRead, clockNow);
+  const selectedEventTimerNotice = getSessionTimerNotice(selectedEventForRead, clockNow);
+  const teamEventTimer = getSessionTimer(teamEventForRead);
+  const teamEventTimerRemainingMs = getSessionTimerRemainingMs(teamEventForRead, clockNow);
+  const teamEventTimerRunning = isSessionTimerRunning(teamEventForRead, clockNow);
+  const teamEventTimerNotice = getSessionTimerNotice(teamEventForRead, clockNow);
+  const teamTimerExpired = isSessionTimerExpired(teamEventForRead, clockNow);
+  const teamTimerLockActive = isSessionTimerLockActive(teamEventForRead, clockNow);
+  const selectedEventScreenShare = selectedEventForRead ? getScreenShareState(selectedEventForRead) : null;
+  const teamEventScreenShare = teamEventForRead ? getScreenShareState(teamEventForRead) : null;
+  const teamScreenShareSessionId =
+    teamEventScreenShare?.active && teamEvent
+      ? `${teamEvent.id}:${teamEventScreenShare.roomName || ""}:${teamEventScreenShare.startedAt || ""}`
+      : "";
+  const teamScreenShareVisible = Boolean(teamScreenShareSessionId && dismissedScreenShareSession !== teamScreenShareSessionId);
+
+  useEffect(() => {
+    if (!teamScreenShareSessionId) {
+      setDismissedScreenShareSession("");
+    }
+  }, [teamScreenShareSessionId]);
+
+  const liveCurrentMission = !isTrainingEvent && effectiveTeamEvent && timeMissionIdx !== null
+    ? effectiveTeamEvent.missions?.[timeMissionIdx] || currentMission
+    : currentMission;
+  const currentGuidedMissionState = useMemo(
+    () =>
+      liveCurrentMission && isGuidedMission(liveCurrentMission)
+        ? getGuidedMissionParticipantState(effectiveTeamEvent || teamEvent, timeTeamIdx, currentAgentParticipantKey, liveCurrentMission.id)
+        : createDefaultGuidedMissionState(liveCurrentMission?.id || AGENT_MISSION_ID),
+    [currentAgentParticipantKey, effectiveTeamEvent, liveCurrentMission, teamEvent, timeTeamIdx],
+  );
+  const currentGuidedExplainContent = useMemo(
+    () => getGuidedMissionExplainPane(liveCurrentMission?.id, currentGuidedMissionState),
+    [currentGuidedMissionState, liveCurrentMission],
+  );
+  const currentMissionLocked = Boolean(!isTrainingEvent && liveCurrentMission && !liveCurrentMission.unlocked);
+  const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
-      ? getTrainingRuns(teamEvent, timeTeamIdx)
-      : getExecucoes(teamEvent, timeTeamIdx, currentMission.id)
+      ? getTrainingRuns(effectiveTeamEvent, timeTeamIdx)
+      : getExecucoes(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : [];
-  const currentReflexao = currentMission && teamEvent && !isTrainingEvent ? getReflexao(teamEvent, timeTeamIdx, currentMission.id) : null;
-  const currentQuestionarioPendente = currentMission && teamEvent && !isTrainingEvent ? isQuestionarioPendente(teamEvent, timeTeamIdx, currentMission.id) : false;
-  const currentQuestionarioPendenteSource = currentMission && teamEvent && !isTrainingEvent
-    ? getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id)
+  const currentReflexao = currentMission && effectiveTeamEvent && !isTrainingEvent ? getReflexao(effectiveTeamEvent, timeTeamIdx, currentMission.id) : null;
+  const currentQuestionarioPendente = currentMission && effectiveTeamEvent && !isTrainingEvent ? isQuestionarioPendente(effectiveTeamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentQuestionarioPendenteSource = currentMission && effectiveTeamEvent && !isTrainingEvent
+    ? getQuestionarioPendenteSource(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : null;
-  const currentConcluida = currentMission && teamEvent && !isTrainingEvent ? isConcluida(teamEvent, timeTeamIdx, currentMission.id) : false;
-  const currentConclusaoSource = currentMission && teamEvent && !isTrainingEvent
-    ? getConclusaoSource(teamEvent, timeTeamIdx, currentMission.id)
+  const currentConcluida = currentMission && effectiveTeamEvent && !isTrainingEvent ? isConcluida(effectiveTeamEvent, timeTeamIdx, currentMission.id) : false;
+  const currentConclusaoSource = currentMission && effectiveTeamEvent && !isTrainingEvent
+    ? getConclusaoSource(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : null;
-  const currentMissionStatus = currentMission && teamEvent && !isTrainingEvent ? getMissionClosureStatus(teamEvent, timeTeamIdx, currentMission.id) : "aberta";
+  const currentMissionStatus = currentMission && effectiveTeamEvent && !isTrainingEvent ? getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, currentMission.id) : "aberta";
   const latestCurrentExec = currentExecs.length ? currentExecs[currentExecs.length - 1] : null;
   const readingExec = missionFlow.exec || latestCurrentExec || null;
   const readingStage = Boolean(readingExec);
-  const hasMissionHistory = currentMission && teamEvent
+  const hasMissionHistory = currentMission && effectiveTeamEvent
     ? isTrainingEvent
       ? currentExecs.length > 0
       : currentExecs.length > 0 || Boolean(currentReflexao) || currentQuestionarioPendente || currentConcluida
     : false;
-  const preservedUsage = currentMission && teamEvent && !isTrainingEvent ? getPreservedMissionUsage(teamEvent, timeTeamIdx, currentMission.id) : null;
-  const currentHelpRequests = currentMission && teamEvent
+  const preservedUsage = currentMission && effectiveTeamEvent && !isTrainingEvent ? getPreservedMissionUsage(effectiveTeamEvent, timeTeamIdx, currentMission.id) : null;
+  const currentHelpRequests = currentMission && effectiveTeamEvent
     ? isTrainingEvent
-      ? [...getTrainingHelpRequests(teamEvent, timeTeamIdx), ...getTrainingTokenRequests(teamEvent, timeTeamIdx)]
-      : getHelpRequests(teamEvent, timeTeamIdx, currentMission.id)
+      ? [...getTrainingHelpRequests(effectiveTeamEvent, timeTeamIdx), ...getTrainingTokenRequests(effectiveTeamEvent, timeTeamIdx)]
+      : getHelpRequests(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : [];
   const currentOpenHelpCount = currentHelpRequests.filter((request) => request.status === "open" && request.kind !== "tokens").length;
   const currentOpenHelpRequest = currentHelpRequests.find((request) => request.status === "open" && request.kind !== "tokens") || null;
   const currentTokenMissionId = currentMission ? getTokenMissionId(currentMission.id, { isTraining: isTrainingEvent }) : null;
-  const currentTokenBudget = currentMission && teamEvent && timeTeamIdx !== null
-    ? getEffectiveMissionTokenBudget(teamEvent, timeTeamIdx, currentMission.id, { isTraining: isTrainingEvent })
+  const currentTokenBudget = currentMission && effectiveTeamEvent && timeTeamIdx !== null
+    ? getEffectiveMissionTokenBudget(effectiveTeamEvent, timeTeamIdx, currentMission.id, { isTraining: isTrainingEvent })
     : null;
   const currentOpenTokenRequest =
-    currentMission && teamEvent
+    currentMission && effectiveTeamEvent
       ? currentHelpRequests.find((request) => request.status === "open" && request.kind === "tokens") || null
       : null;
   const currentMissionOperationalLogs =
-    currentMission && teamEvent && timeTeamIdx !== null
-      ? getMissionTokenOperationalLogs(teamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
+    currentMission && effectiveTeamEvent && timeTeamIdx !== null
+      ? getMissionTokenOperationalLogs(effectiveTeamEvent, currentMission.id, timeTeamIdx, { isTraining: isTrainingEvent })
       : [];
   const facilitatorTabs = selectedEvent && isAnamnesisEnabled(selectedEvent)
     ? ["dashboard", "missoes", "prompts", "anamnese"]
     : ["dashboard", "missoes", "prompts"];
+  const effectivePromptQualityModel = getEventPromptQualityModel(effectiveFacilitadorEvent || selectedEvent);
+  const handleSetPromptQualityModel = useCallback((eventId, nextModel) => {
+    updateEvents((current) =>
+      current.map((event) =>
+        event.id === eventId
+          ? {
+              ...event,
+              promptQualityModel: nextModel === PROMPT_QUALITY_MODEL_2 ? PROMPT_QUALITY_MODEL_2 : PROMPT_QUALITY_MODEL_1,
+            }
+          : event,
+      ),
+    );
+  }, [updateEvents]);
+  const handleRetryParticipantAnalysis = useCallback(
+    async (teamIdx, requestedModel = effectivePromptQualityModel) => {
+      if (!effectiveFacilitadorEvent) return;
+      const hydratedEvent =
+        requestedModel === PROMPT_QUALITY_MODEL_2
+          ? await hydrateDetailedEventHistory(effectiveFacilitadorEvent.id, effectiveFacilitadorEvent)
+          : await hydrateDetailedTeamHistory(effectiveFacilitadorEvent.id, teamIdx, effectiveFacilitadorEvent);
+      const participant = buildParticipantDescriptor(hydratedEvent, teamIdx);
+      if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) {
+        setParticipantAnalysisEntry(effectiveFacilitadorEvent.id, participant.analysisKey, {
+          analysisKey: participant.analysisKey,
+          participantId: participant.participantId,
+          displayName: participant.displayName,
+          teamIdx,
+          teamName: participant.teamName,
+          confidence: participant.confidence,
+          confidenceLabel: participant.confidenceLabel,
+          source: participant.source,
+          status: "insufficient_history",
+          historySignature: participant.historySignature,
+          updatedAt: new Date().toISOString(),
+          generatedAt: null,
+          analysis: null,
+          usage: null,
+          errorMessage: `A análise só acontece a partir de ${MIN_PARTICIPANT_ANALYSIS_PROMPTS} prompts.`,
+        }, {
+          model: requestedModel,
+        });
+        return;
+      }
+      setParticipantAnalysisEntry(effectiveFacilitadorEvent.id, participant.analysisKey, {
+        analysisKey: participant.analysisKey,
+        participantId: participant.participantId,
+        displayName: participant.displayName,
+        teamIdx,
+        teamName: participant.teamName,
+        confidence: participant.confidence,
+        confidenceLabel: participant.confidenceLabel,
+        source: participant.source,
+        status: "pending",
+        historySignature: participant.historySignature,
+        updatedAt: new Date().toISOString(),
+        generatedAt: null,
+        analysis: null,
+        usage: null,
+        errorMessage: "Disparando análise...",
+      }, {
+        model: requestedModel,
+      });
+      if (requestedModel === PROMPT_QUALITY_MODEL_2) {
+        void runParticipantPromptQualityLabAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+          force: true,
+          sourceEvent: hydratedEvent,
+        });
+      } else {
+        void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+          force: true,
+          sourceEvent: hydratedEvent,
+        });
+      }
+    },
+    [effectiveFacilitadorEvent, effectivePromptQualityModel],
+  );
+  const handleOpenParticipantInsightsDrawer = useCallback(async (teamIdx) => {
+    setParticipantInsightsDrawerState({ open: true, teamIdx });
+    if (!effectiveFacilitadorEvent) return;
+    const hydratedEvent =
+      effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2
+        ? await hydrateDetailedEventHistory(effectiveFacilitadorEvent.id, effectiveFacilitadorEvent)
+        : await hydrateDetailedTeamHistory(effectiveFacilitadorEvent.id, teamIdx, effectiveFacilitadorEvent);
+    const participant = buildParticipantDescriptor(hydratedEvent, teamIdx);
+    if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) {
+      return;
+    }
+    if (effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2) {
+      void runParticipantPromptQualityLabAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+        sourceEvent: hydratedEvent,
+      });
+    } else {
+      void runParticipantJourneyAnalysis(effectiveFacilitadorEvent.id, teamIdx, {
+        sourceEvent: hydratedEvent,
+      });
+    }
+  }, [effectiveFacilitadorEvent, effectivePromptQualityModel]);
+  const handleCloseParticipantInsightsDrawer = useCallback(() => {
+    setParticipantInsightsDrawerState({ open: false, teamIdx: null });
+  }, []);
+  const selectedParticipantInsights =
+    effectiveFacilitadorEvent && participantInsightsDrawerState.teamIdx !== null
+      ? buildParticipantDescriptor(effectiveFacilitadorEvent, participantInsightsDrawerState.teamIdx, effectivePromptQualityModel)
+      : null;
+  const effectiveWorkspacePromptQualityModel = getEventPromptQualityModel(effectiveTeamAnalysisEvent || effectiveTeamEvent || teamEvent);
+  const currentParticipantInsights =
+    screen === "workspace" && (effectiveTeamAnalysisEvent || effectiveTeamEvent) && timeTeamIdx !== null
+      ? buildParticipantDescriptor(effectiveTeamAnalysisEvent || effectiveTeamEvent, timeTeamIdx, effectiveWorkspacePromptQualityModel)
+      : null;
   const selectedTokenPolicy = selectedEvent && tokenGrantTargetMissionId
     ? getMissionTokenPolicy(selectedEvent, tokenGrantTargetMissionId, {
         isTraining: tokenGrantTargetMissionId === TOKEN_MISSION_TRAINING_ID,
       })
     : null;
-  const teamHelpDisabled = teamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(teamEvent, timeTeamIdx) : false;
+  const teamHelpDisabled = effectiveTeamEvent && timeTeamIdx !== null ? isHelpDisabledForTeam(effectiveTeamEvent, timeTeamIdx) : false;
+  const openFacilitatorHelpCount = effectiveFacilitadorEvent ? getOpenHelpRequests(effectiveFacilitadorEvent).length : 0;
+  const facilitatorRailItems = [
+    {
+      key: FACILITATOR_TOOL_VIEWS.CONFIG,
+      label: "Configuração da IA",
+      icon: Sparkles,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.CONFIG,
+      indicator: apiConfigured ? "connected" : "disconnected",
+      disabled: false,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.CONFIG);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.BROADCAST,
+      label: "Mensagem para a turma",
+      icon: MessageSquareText,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.BROADCAST,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.BROADCAST);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.SCREEN,
+      label: "Projeção de tela",
+      icon: Monitor,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.SCREEN,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.SCREEN);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.TIMER,
+      label: "Cronômetro",
+      icon: CircleAlert,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.TIMER,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.TIMER);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.ROOM_MAP,
+      label: "Mapa da sala",
+      icon: MapIcon,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.ROOM_MAP,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.ROOM_MAP);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+  {
+    key: "help-requests",
+    label: "Pedidos de ajuda",
+    icon: LifeBuoy,
+    active: false,
+    badge: openFacilitatorHelpCount || 0,
+    disabled: !effectiveFacilitadorEvent,
+    run: () => {
+      setFacTab("dashboard");
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: FACILITATOR_TOOL_VIEWS.TOKENS,
+      label: "Gestão de tokens",
+      icon: Coins,
+      active: facilitatorToolsOpen && facilitatorToolView === FACILITATOR_TOOL_VIEWS.TOKENS,
+      disabled: !selectedEvent,
+      run: () => {
+        setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.TOKENS);
+        setFacilitatorToolsOpen(true);
+        setFacilitatorUtilityRailExpanded(false);
+      },
+    },
+  ];
+
+  const participantRailItems = [
+    {
+      key: "messages",
+      label: "Mensagens",
+      icon: MessageSquareText,
+      active: teamAnnouncementInboxOpen,
+      badge: teamUnreadAnnouncementCount || 0,
+      disabled: false,
+      run: () => {
+        handleOpenTeamAnnouncementInbox();
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "tokens",
+      label: "Extrato de tokens",
+      icon: FileText,
+      active: tokenDrawerOpen,
+      disabled: false,
+      run: () => {
+        setTokenDrawerOpen(true);
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "help",
+      label: currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda",
+      icon: LifeBuoy,
+      active: helpOpen,
+      badge: currentOpenHelpCount || 0,
+      disabled: teamHelpDisabled,
+      run: () => {
+        handleOpenHelp();
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "request-tokens",
+      label: currentOpenTokenRequest ? "Tokens solicitados" : "Solicitar tokens",
+      icon: Coins,
+      active: Boolean(currentOpenTokenRequest),
+      disabled: teamHelpDisabled || !currentMission || !currentTokenBudget?.blocked || Boolean(currentOpenTokenRequest),
+      run: () => {
+        handleSendTokenRequest();
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+    {
+      key: "analysis",
+      label: "Análise do prompt",
+      icon: GraduationCap,
+      active: participantPromptAnalysisOpen,
+      disabled: false,
+      run: () => {
+        setParticipantPromptAnalysisOpen(true);
+        setParticipantUtilityRailExpanded(false);
+        if (timeTeamIdx === null || !(effectiveTeamAnalysisEvent || effectiveTeamEvent)) return;
+        const analysisEvent = effectiveTeamAnalysisEvent || effectiveTeamEvent;
+        void (async () => {
+          const hydratedEvent =
+            effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2
+              ? await hydrateDetailedEventHistory(analysisEvent.id, analysisEvent)
+              : await hydrateDetailedTeamHistory(analysisEvent.id, timeTeamIdx, analysisEvent);
+          const participant = buildParticipantDescriptor(hydratedEvent, timeTeamIdx, effectiveWorkspacePromptQualityModel);
+          if ((participant.history?.length || 0) < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
+          if (effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2) {
+            void runParticipantPromptQualityLabAnalysis(analysisEvent.id, timeTeamIdx, {
+              sourceEvent: hydratedEvent,
+            });
+          } else {
+            void runParticipantJourneyAnalysis(analysisEvent.id, timeTeamIdx, {
+              sourceEvent: hydratedEvent,
+            });
+          }
+        })();
+      },
+    },
+    {
+      key: "student-area",
+      label: "Área do aluno",
+      icon: Users,
+      active: materialsDrawerOpen,
+      disabled: false,
+      run: () => {
+        setMaterialsDrawerOpen(true);
+        setParticipantUtilityRailExpanded(false);
+      },
+    },
+  ];
   const newEventStudents = parseStudentList(newEventForm.studentsRaw || "");
   const anamnesisTargetEvent = anamnesisContext ? events.find((event) => event.id === anamnesisContext.eventId) || null : null;
   const answeredAnamnesisCount = countAnsweredAnamnesisQuestions(anamnesisAnswers);
@@ -3224,18 +3874,18 @@ function App() {
   }, [currentMission?.id, currentQuestionarioPendente, isTrainingEvent]);
 
   useEffect(() => {
-    if (!teamEvent || timeTeamIdx === null || isTrainingEvent) return;
-    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
+    if (!effectiveTeamEvent || timeTeamIdx === null || isTrainingEvent) return;
+    const pendingMissionIdx = getFirstPendingMissionIndex(effectiveTeamEvent, timeTeamIdx);
     if (pendingMissionIdx >= 0 && timeMissionIdx !== pendingMissionIdx) {
       setTimeMissionIdx(pendingMissionIdx);
     }
-  }, [isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
+  }, [isTrainingEvent, effectiveTeamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
-    if (!teamEvent || timeTeamIdx === null || isTrainingEvent || !currentMissionLocked) return;
+    if (!effectiveTeamEvent || timeTeamIdx === null || isTrainingEvent || !currentMissionLocked) return;
 
-    const pendingMissionIdx = getFirstPendingMissionIndex(teamEvent, timeTeamIdx);
-    const firstUnlockedMissionIdx = teamEvent.missions.findIndex((mission) => mission.unlocked);
+    const pendingMissionIdx = getFirstPendingMissionIndex(effectiveTeamEvent, timeTeamIdx);
+    const firstUnlockedMissionIdx = effectiveTeamEvent.missions.findIndex((mission) => mission.unlocked);
     const fallbackMissionIdx = pendingMissionIdx >= 0 ? pendingMissionIdx : firstUnlockedMissionIdx >= 0 ? firstUnlockedMissionIdx : null;
 
     if (fallbackMissionIdx !== timeMissionIdx) {
@@ -3247,7 +3897,7 @@ function App() {
     setMissionInput("");
     setMissionAttachments([]);
     setRunError("Esta missão foi bloqueada pelo facilitador.");
-  }, [currentMissionLocked, isTrainingEvent, teamEvent, timeMissionIdx, timeTeamIdx]);
+  }, [currentMissionLocked, isTrainingEvent, effectiveTeamEvent, timeMissionIdx, timeTeamIdx]);
 
   useEffect(() => {
     if (!selectedEvent) {
@@ -3289,6 +3939,12 @@ function App() {
     selectedTokenPolicy?.customLimit,
     selectedTokenPolicy?.updatedAt,
   ]);
+
+  useEffect(() => {
+    if (!facilitatorTabs.includes(facTab)) {
+      setFacTab("dashboard");
+    }
+  }, [facTab, facilitatorTabs]);
 
   useEffect(() => {
     if (facTab === "anamnese" && (!selectedEvent || !isAnamnesisEnabled(selectedEvent))) {
@@ -3351,10 +4007,11 @@ function App() {
 
   const teamStudentOptions = useMemo(() => getEventStudentOptions(teamEvent), [teamEvent]);
 
-  const apiConfigured = Boolean(serverConfig.openaiConfigured);
   const modelCatalog = useMemo(() => getModelCatalog(serverConfig), [serverConfig]);
   const modelPricingMap = useMemo(() => getModelPricingMap(modelCatalog), [modelCatalog]);
   const currentMissionAiMode = currentMission ? getMissionAiMode(currentMission) : CHAT_AI_MODE;
+  const currentMissionAttachmentPolicy = buildMissionAttachmentPolicy(currentMission);
+  const isCurrentGuidedMission = isGuidedMission(currentMission);
   const chatInvestigateModeEnabled = Boolean(store.chatInvestigateMode);
   const chatWebSearchEnabled = Boolean(store.chatWebSearchEnabled);
   const codingGuidedModeEnabled = Boolean(store.codingGuidedMode);
@@ -3413,6 +4070,65 @@ function App() {
           }),
         }
       : survivalLatestExec;
+
+  useEffect(() => {
+    if (!apiConfigured || !latestCurrentExec || !currentMission || running) return;
+    if (!latestCurrentExec.technicalAnalysis?.pending) return;
+
+    const execId = latestCurrentExec.id;
+    const historyIndex = currentExecs.findIndex((e) => e.id === execId);
+    const priorExecs = historyIndex >= 0 ? currentExecs.slice(0, historyIndex) : [];
+    const historyContext = buildHistoryContext(priorExecs);
+
+    const model = latestCurrentExec.technicalAnalysisUsage?.model || selectedModelForMode;
+
+    void gerarExplicacaoGuiadaIA({
+      model,
+      modelPricing: modelPricingMap,
+      mission: currentMission,
+      input: latestCurrentExec.input || "",
+      attachments: latestCurrentExec.attachments || [],
+      acao: latestCurrentExec.acao || FREE_ACTION_KEY,
+      output: latestCurrentExec.output || "",
+      historyContext,
+    })
+      .then((guidedReasoning) => {
+        const finalTechnicalAnalysis =
+          guidedReasoning ||
+          buildTechnicalAnalysisUnavailable({
+            apiConfigured,
+            historyContext,
+          });
+        updateExecutionAnalysis(
+          teamEvent.id,
+          timeTeamIdx,
+          isTrainingEvent ? null : currentMission.id,
+          execId,
+          finalTechnicalAnalysis,
+          guidedReasoning?.usage || {
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            cost: 0,
+            model,
+          },
+        );
+      })
+      .catch((err) => {
+        console.error("Erro na auto-recuperação da explicação técnica:", err);
+      });
+  }, [
+    apiConfigured,
+    latestCurrentExec?.id,
+    latestCurrentExec?.technicalAnalysis?.pending,
+    currentMission?.id,
+    running,
+    selectedModelForMode,
+    teamEvent?.id,
+    timeTeamIdx,
+    isTrainingEvent,
+  ]);
+
   const devEventId = timeEventId || facSelectedId || events[0]?.id || "";
   const devEvent = events.find((event) => event.id === devEventId) || null;
   const devTeamIdx = devEvent && timeTeamIdx !== null && devEvent.teams[timeTeamIdx] ? timeTeamIdx : "";
@@ -3433,42 +4149,21 @@ function App() {
   ) : null;
 
   function updateEvents(updater) {
-    setStore((current) => {
-      const previousEvents = current.events || [];
-      const nextEvents = updater(previousEvents);
-      if (nextEvents === previousEvents) return current;
-      return {
-        ...current,
-        events: stampUpdatedEvents(previousEvents, nextEvents),
-      };
+    const previousEvents = currentEventsRef.current || [];
+    const nextEvents = updater(previousEvents);
+    if (nextEvents === previousEvents) return;
+    const stamped = stampUpdatedEvents(previousEvents, nextEvents);
+    currentEventsRef.current = stamped;
+    setStore((current) => ({ ...current, events: stamped }));
+    const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+    stamped.forEach((event) => {
+      if (previousById.get(event.id) !== event) {
+        void pushEventStateChange(event.id, event);
+      }
     });
   }
 
-  function markTeamPresence(eventId, teamIdx, memberName) {
-    if (!eventId || teamIdx === null || teamIdx === undefined) return;
-    const normalizedName = normalizeStudentName(memberName || "");
-    const now = Date.now();
-    updateEvents((current) => {
-      let changed = false;
-      const next = current.map((event) => {
-        if (event.id !== eventId) return event;
-        const existing = event.presenceMap?.[teamIdx];
-        const nextName = normalizedName || event.teams?.[teamIdx]?.name || `Time ${Number(teamIdx) + 1}`;
-        if (existing && existing.memberName === nextName && now - new Date(existing.lastSeenAt).getTime() < 10000) {
-          return event;
-        }
-        changed = true;
-        return {
-          ...event,
-          presenceMap: {
-            ...(event.presenceMap || {}),
-            [teamIdx]: { teamIdx, memberName: nextName, lastSeenAt: new Date(now).toISOString() },
-          },
-        };
-      });
-      return changed ? next : current;
-    });
-  }
+  function markTeamPresence() {}
 
   function showToast(message) {
     setToastText(message);
@@ -3488,74 +4183,402 @@ function App() {
     }
   }
 
-  async function flushCriticalEvents(nextEvents) {
-    if (!serverConfig.sharedStateConfigured) return;
+  const sliceEventStatePayload = useCallback((event) => {
+    if (!event) return {};
+    const {
+      id: _id,
+      participantAnalyses: _participantAnalyses,
+      execucoes: _execucoes,
+      trainingRuns: _trainingRuns,
+      reflexoes: _reflexoes,
+      conclusoes: _conclusoes,
+      questionariosPendentes: _questionariosPendentes,
+      missionGlossaries: _missionGlossaries,
+      preservedMissionUsage: _preservedMissionUsage,
+      anamnesisResponses: _anamnesisResponses,
+      helpRequests: _helpRequests,
+      tokenOperationalLogs: _tokenOperationalLogs,
+      presenceMap: _presenceMap,
+      trainingHelpRequests: _trainingHelpRequests,
+      ...eventWide
+    } = event;
+    return eventWide;
+  }, []);
+
+  const pushEventStateChange = useCallback(async (eventId, nextEventObject) => {
+    if (!eventId || !nextEventObject) return;
+    const payload = sliceEventStatePayload(nextEventObject);
     try {
-      const remoteState = await fetchRemoteState();
-      const normalizedRemoteEvents = normalizeEventsForProduct(remoteState.events || []);
-      const mergedEvents = normalizeEventsForProduct(mergeEventCollections(normalizedRemoteEvents, nextEvents || []));
-      const mergedSerialized = JSON.stringify(mergedEvents);
-      lastRemoteEventsRef.current = mergedSerialized;
-      currentEventsRef.current = mergedEvents;
-      await saveRemoteState(mergedEvents);
-      setStore((current) =>
-        JSON.stringify(current.events || []) === mergedSerialized
-          ? current
-          : {
-              ...current,
-              events: mergedEvents,
-            },
-      );
-    } catch (error) {
-      lastRemoteEventsRef.current = "__out_of_sync__";
-      console.error(error);
+      const current = await getEventState(eventId);
+      const result = await putEventStateOCC({
+        eventId,
+        initial: { payload: current.payload, version: current.version },
+        merge: () => payload,
+      });
+      if (!result.ok) {
+        console.warn(`pushEventStateChange ${eventId}: conflict, drop local change`);
+      }
+    } catch (err) {
+      if (err.statusCode === 404) {
+        try {
+          await putEventStateOCC({
+            eventId,
+            initial: { payload: {}, version: 0 },
+            merge: () => payload,
+          });
+        } catch (err2) {
+          console.error(`pushEventStateChange ${eventId} (initial): ${err2.message}`);
+        }
+        return;
+      }
+      console.error(`pushEventStateChange ${eventId}: ${err.message}`);
     }
-  }
+  }, [sliceEventStatePayload]);
 
   function updateCriticalEvents(updater) {
     const previousEvents = currentEventsRef.current || [];
     const nextEvents = updater(previousEvents);
     if (nextEvents === previousEvents) return;
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
-    const serializedEvents = JSON.stringify(stampedEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = serializedEvents;
     setStore((current) => ({
       ...current,
       events: stampedEvents,
     }));
-    void flushCriticalEvents(stampedEvents);
+    const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+    stampedEvents.forEach((event) => {
+      if (previousById.get(event.id) !== event) {
+        void pushEventStateChange(event.id, event);
+      }
+    });
   }
 
   function appendTokenOperationalLog(event, entry) {
+    const logId = `token_log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    void postTokenLog(event.id, {
+      id: logId,
+      team_idx: entry.teamIdx ?? null,
+      mission_id: entry.missionId || null,
+      payload: { ...entry, id: logId, createdAt },
+      created_at: createdAt,
+    });
     return {
       ...event,
       tokenOperationalLogs: [
         ...(event.tokenOperationalLogs || []),
-        {
-          id: `token_log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          createdAt: new Date().toISOString(),
-          ...entry,
-        },
+        { id: logId, createdAt, ...entry },
       ],
     };
   }
 
   function commitCriticalEventsDirect(nextEvents) {
-    const stampedEvents = stampUpdatedEvents(currentEventsRef.current || [], nextEvents);
+    const previousEvents = currentEventsRef.current || [];
+    const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
+    const previousById = new Map(previousEvents.map((event) => [event.id, event]));
+    stampedEvents.forEach((event) => {
+      if (previousById.get(event.id) !== event) {
+        void pushEventStateChange(event.id, event);
+      }
+    });
+  }
 
-    if (serverConfig.sharedStateConfigured) {
-      void saveRemoteState(stampedEvents)
-        .then((saveResult) => {
-          syncServerClock(saveResult.serverNowMs);
-        })
-        .catch((error) => {
-          lastRemoteEventsRef.current = "__out_of_sync__";
-          console.error("Failed to save critical event state:", error);
-        });
+  function updateEventsLocal(updater) {
+    const previousEvents = currentEventsRef.current || [];
+    const nextEvents = updater(previousEvents);
+    if (nextEvents === previousEvents) return;
+    const stamped = stampUpdatedEvents(previousEvents, nextEvents);
+    currentEventsRef.current = stamped;
+    setStore((current) => ({ ...current, events: stamped }));
+  }
+
+  function setParticipantAnalysisEntry(eventId, analysisKey, nextEntry, { persist = false, model = PROMPT_QUALITY_MODEL_1 } = {}) {
+    const applyUpdate = persist ? updateEvents : updateEventsLocal;
+    applyUpdate((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const currentBundle = event.participantAnalyses?.[analysisKey] || {};
+        return {
+          ...event,
+          participantAnalyses: {
+            ...(event.participantAnalyses || {}),
+            [analysisKey]:
+              model === PROMPT_QUALITY_MODEL_1
+                ? {
+                    ...nextEntry,
+                    models: {
+                      ...(currentBundle.models || {}),
+                      [PROMPT_QUALITY_MODEL_1]: nextEntry,
+                    },
+                  }
+                : {
+                    ...currentBundle,
+                    analysisKey: nextEntry.analysisKey,
+                    participantId: nextEntry.participantId,
+                    displayName: nextEntry.displayName,
+                    teamIdx: nextEntry.teamIdx,
+                    teamName: nextEntry.teamName,
+                    confidence: nextEntry.confidence,
+                    confidenceLabel: nextEntry.confidenceLabel,
+                    source: nextEntry.source,
+                    models: {
+                      ...(currentBundle.models || {}),
+                      [model]: nextEntry,
+                    },
+                  },
+          },
+        };
+      }),
+    );
+  }
+
+  async function hydrateDetailedTeamHistory(eventId, teamIdx, sourceEvent = null) {
+    const eventRef = sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId) || null;
+    if (!eventRef) return eventRef;
+    const rows = await listTeamExecutions(eventId, teamIdx, { limit: 5000 });
+    const missionGroups = {};
+    const trainingRuns = [];
+
+    (rows || []).forEach((row) => {
+      const exec = reshapeDashboardExecutionRow(row);
+      if (row.mission_id === "__training__") {
+        trainingRuns.push({ ...exec, missionId: TRAINING_THREAD_ID });
+        return;
+      }
+      const key = `${teamIdx}__${row.mission_id}`;
+      (missionGroups[key] ||= []).push({ ...exec, missionId: row.mission_id });
+    });
+
+    let hydratedEvent = null;
+    updateEventsLocal((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const nextEvent = {
+          ...event,
+          execucoes: {
+            ...(event.execucoes || {}),
+            ...missionGroups,
+          },
+          trainingRuns: {
+            ...(event.trainingRuns || {}),
+            [`${teamIdx}`]: trainingRuns,
+          },
+        };
+        hydratedEvent = nextEvent;
+        return nextEvent;
+      }),
+    );
+
+    if (hydratedEvent) return hydratedEvent;
+    return {
+      ...eventRef,
+      execucoes: {
+        ...(eventRef.execucoes || {}),
+        ...missionGroups,
+      },
+      trainingRuns: {
+        ...(eventRef.trainingRuns || {}),
+        [`${teamIdx}`]: trainingRuns,
+      },
+    };
+  }
+
+  async function hydrateDetailedEventHistory(eventId, sourceEvent = null) {
+    const eventRef = sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId) || null;
+    if (!eventRef) return eventRef;
+    const teamIndexes = Array.from({ length: Array.isArray(eventRef.teams) ? eventRef.teams.length : 0 }, (_, index) => index);
+    if (!teamIndexes.length) return eventRef;
+
+    const perTeamRows = await Promise.all(
+      teamIndexes.map(async (teamIdx) => ({
+        teamIdx,
+        rows: await listTeamExecutions(eventId, teamIdx, { limit: 5000 }),
+      })),
+    );
+
+    const nextExecucoes = { ...(eventRef.execucoes || {}) };
+    const nextTrainingRuns = { ...(eventRef.trainingRuns || {}) };
+
+    perTeamRows.forEach(({ teamIdx, rows }) => {
+      const missionGroups = {};
+      const trainingRuns = [];
+      (rows || []).forEach((row) => {
+        const exec = reshapeDashboardExecutionRow(row);
+        if (row.mission_id === "__training__") {
+          trainingRuns.push({ ...exec, missionId: TRAINING_THREAD_ID });
+          return;
+        }
+        const key = `${teamIdx}__${row.mission_id}`;
+        (missionGroups[key] ||= []).push({ ...exec, missionId: row.mission_id });
+      });
+      Object.assign(nextExecucoes, missionGroups);
+      nextTrainingRuns[`${teamIdx}`] = trainingRuns;
+    });
+
+    let hydratedEvent = null;
+    updateEventsLocal((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const nextEvent = {
+          ...event,
+          execucoes: nextExecucoes,
+          trainingRuns: nextTrainingRuns,
+        };
+        hydratedEvent = nextEvent;
+        return nextEvent;
+      }),
+    );
+
+    return hydratedEvent || {
+      ...eventRef,
+      execucoes: nextExecucoes,
+      trainingRuns: nextTrainingRuns,
+    };
+  }
+
+  async function runParticipantJourneyAnalysis(eventId, teamIdx, options = {}) {
+    if (!apiConfigured) return;
+    const latestEvent = options.sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId);
+    if (!latestEvent) return;
+
+    const participant = buildParticipantDescriptor(latestEvent, teamIdx);
+    if (participant.history.length < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
+
+    const existing = getParticipantAnalysisEntry(latestEvent, participant.analysisKey, PROMPT_QUALITY_MODEL_1);
+    if (
+      !options.force &&
+      existing?.status === "ready" &&
+      existing.historySignature === participant.historySignature &&
+      existing.analysis
+    ) {
+      return;
+    }
+
+    const inflightKey = `${eventId}::${participant.analysisKey}`;
+    if (participantAnalysisInflightRef.current.has(inflightKey)) return;
+    participantAnalysisInflightRef.current.add(inflightKey);
+
+    const pendingEntry = {
+      analysisKey: participant.analysisKey,
+      participantId: participant.participantId,
+      displayName: participant.displayName,
+      teamIdx,
+      teamName: participant.teamName,
+      confidence: participant.confidence,
+      confidenceLabel: participant.confidenceLabel,
+      source: participant.source,
+      status: "pending",
+      historySignature: participant.historySignature,
+      updatedAt: new Date().toISOString(),
+      generatedAt: null,
+      analysis: null,
+      usage: null,
+      errorMessage: "Preparando histórico da análise...",
+    };
+    setParticipantAnalysisEntry(eventId, participant.analysisKey, pendingEntry, { model: PROMPT_QUALITY_MODEL_1 });
+
+    try {
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "pending",
+        updatedAt: new Date().toISOString(),
+        errorMessage: "Consultando a IA no histórico geral...",
+      }, { model: PROMPT_QUALITY_MODEL_1 });
+      const result = await gerarLeituraPedagogicaParticipanteIA({
+        participant,
+        eventName: latestEvent.name,
+        modelPricing: modelPricingMap,
+      });
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: result?.analysis ? "ready" : "unavailable",
+        generatedAt: result?.analysis ? new Date().toISOString() : null,
+        updatedAt: new Date().toISOString(),
+        analysis: result?.analysis || null,
+        usage: result?.usage || null,
+        errorMessage: result?.analysis ? "" : "Nao foi possivel consolidar a leitura automaticamente.",
+      }, { model: PROMPT_QUALITY_MODEL_1 });
+    } catch (error) {
+      console.error("participant analysis:", error);
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "unavailable",
+        generatedAt: null,
+        updatedAt: new Date().toISOString(),
+        analysis: null,
+        usage: null,
+        errorMessage: error?.message || "Falha ao gerar a leitura pedagogica deste participante.",
+      }, { model: PROMPT_QUALITY_MODEL_1 });
+    } finally {
+      participantAnalysisInflightRef.current.delete(inflightKey);
+    }
+  }
+
+  async function runParticipantPromptQualityLabAnalysis(eventId, teamIdx, options = {}) {
+    const latestEvent = options.sourceEvent || (currentEventsRef.current || []).find((event) => event.id === eventId);
+    if (!latestEvent) return;
+
+    const participant = buildParticipantDescriptor(latestEvent, teamIdx);
+    if (participant.history.length < MIN_PARTICIPANT_ANALYSIS_PROMPTS) return;
+
+    const existing = getParticipantAnalysisEntry(latestEvent, participant.analysisKey, PROMPT_QUALITY_MODEL_2);
+    if (
+      !options.force &&
+      existing?.status === "ready" &&
+      existing.historySignature === participant.historySignature &&
+      existing.analysis
+    ) {
+      return;
+    }
+
+    const pendingEntry = {
+      analysisKey: participant.analysisKey,
+      participantId: participant.participantId,
+      displayName: participant.displayName,
+      teamIdx,
+      teamName: participant.teamName,
+      confidence: participant.confidence,
+      confidenceLabel: participant.confidenceLabel,
+      source: participant.source,
+      status: "pending",
+      historySignature: participant.historySignature,
+      updatedAt: new Date().toISOString(),
+      generatedAt: null,
+      analysis: null,
+      usage: null,
+      errorMessage: "Consolidando o Prompt Quality Lab...",
+    };
+
+    setParticipantAnalysisEntry(eventId, participant.analysisKey, pendingEntry, { model: PROMPT_QUALITY_MODEL_2 });
+
+    try {
+      const analysis = buildPromptQualityModel2Analysis({
+        participant,
+        eventName: latestEvent.name,
+        missions: latestEvent.missions || [],
+      });
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "ready",
+        generatedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        analysis,
+        usage: null,
+        errorMessage: "",
+      }, { model: PROMPT_QUALITY_MODEL_2 });
+    } catch (error) {
+      console.error("prompt quality lab:", error);
+      setParticipantAnalysisEntry(eventId, participant.analysisKey, {
+        ...pendingEntry,
+        status: "unavailable",
+        generatedAt: null,
+        updatedAt: new Date().toISOString(),
+        analysis: null,
+        usage: null,
+        errorMessage: error?.message || "Falha ao consolidar o modelo 2 desta análise.",
+      }, { model: PROMPT_QUALITY_MODEL_2 });
     }
   }
 
@@ -3613,9 +4636,23 @@ function App() {
       return;
     }
     const createdAt = new Date(getSyncedNowMs()).toISOString();
+    const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
+    const allHelpRequests = [
+      ...(perTeamHelpHook.items || []),
+      ...(perTeamDashboardHook.data?.helpRequests || []),
+    ];
+    const matchingOpenRequests = allHelpRequests.filter(
+      (request) =>
+        (request.payload?.kind === "tokens" || request.kind === "tokens") &&
+        request.status === "open" &&
+        (request.mission_id === tokenMissionId || request.missionId === tokenMissionId) &&
+        (scope === "turma" || (request.team_idx ?? request.teamIdx) === teamIdx),
+    );
+    matchingOpenRequests.forEach((request) => {
+      void putHelpRequest(eventId, request.id, { status: "resolved" });
+    });
     const nextEvents = (currentEventsRef.current || []).map((event) => {
       if (event.id !== eventId) return event;
-      const tokenMissionId = getTokenMissionId(missionId, { isTraining: missionId === TOKEN_MISSION_TRAINING_ID });
       const nextEvent = {
         ...event,
         tokenGrants: [
@@ -3675,29 +4712,24 @@ function App() {
     }
 
     const createdAt = new Date(getSyncedNowMs()).toISOString();
-    const nextEvents = (currentEventsRef.current || []).map((event) =>
-      event.id !== teamEvent.id
-        ? event
-        : {
-            ...event,
-            helpRequests: [
-              ...(event.helpRequests || []),
-              {
-                id: `token_help_${Date.now()}`,
-                kind: "tokens",
-                teamIdx: timeTeamIdx,
-                missionId: currentTokenBudget.missionId,
-                message: "Solicitação de liberação de tokens.",
-                status: "open",
-                createdAt,
-                updatedAt: createdAt,
-                currentUsage: currentTokenBudget.usage.totalTokens,
-                currentLimit: currentTokenBudget.effectiveLimit,
-              },
-            ],
-          },
-    );
-    commitCriticalEventsDirect(nextEvents);
+    const requestId = `token_help_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const requestEntry = {
+      id: requestId,
+      team_idx: timeTeamIdx,
+      mission_id: currentTokenBudget.missionId,
+      status: "open",
+      payload: {
+        kind: "tokens",
+        teamIdx: timeTeamIdx,
+        missionId: currentTokenBudget.missionId,
+        message: "Solicitação de liberação de tokens.",
+        memberName: activeStudentName || "",
+        currentUsage: currentTokenBudget.usage.totalTokens,
+        currentLimit: currentTokenBudget.effectiveLimit,
+      },
+      created_at: createdAt,
+    };
+    void postHelpRequest(teamEvent.id, requestEntry).catch((err) => console.error("token request:", err));
     showToast("Solicitação enviada ao facilitador.");
   }
 
@@ -3744,18 +4776,26 @@ function App() {
     event.target.value = "";
     if (!files.length) return;
 
-    if (missionAttachments.length >= MAX_ATTACHMENT_COUNT) {
-      showToast(`Limite de ${MAX_ATTACHMENT_COUNT} arquivos por rodada.`);
+    const attachmentPolicy = currentMissionAttachmentPolicy;
+    const maxAttachmentCount = attachmentPolicy.count;
+    const allowedExtensions = attachmentPolicy.allowedExtensions;
+
+    if (missionAttachments.length >= maxAttachmentCount) {
+      showToast(`Limite de ${maxAttachmentCount} arquivos por rodada.`);
       return;
     }
 
-    const availableSlots = MAX_ATTACHMENT_COUNT - missionAttachments.length;
+    const availableSlots = maxAttachmentCount - missionAttachments.length;
     const nextFiles = files.slice(0, availableSlots);
 
     try {
       const validFiles = nextFiles.filter((file) => {
         if (file.size > MAX_ATTACHMENT_SIZE) {
           showToast(`${file.name} excede o limite de 10 MB.`);
+          return false;
+        }
+        if (allowedExtensions && !allowedExtensions.has(getFileExtension(file.name))) {
+          showToast(`${file.name} não é um tipo permitido nesta missão.`);
           return false;
         }
         if (classifyAttachment(file) === "unsupported") {
@@ -3779,7 +4819,7 @@ function App() {
       failures.forEach((failure) => showToast(failure.message || `${failure.fileName}: falha ao anexar.`));
       warnings.forEach((warning) => showToast(warning));
       if (!records.length) return;
-      setMissionAttachments((current) => [...current, ...records].slice(0, MAX_ATTACHMENT_COUNT));
+      setMissionAttachments((current) => [...current, ...records].slice(0, maxAttachmentCount));
       showToast(`${records.length} arquivo(s) anexado(s)`);
     } catch (error) {
       console.error(error);
@@ -4587,11 +5627,8 @@ function App() {
     }
 
     try {
-      if (serverConfig.supabaseConfigured) {
-        const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
-        lastRemoteEventsRef.current = JSON.stringify(normalizedEvents);
-        await saveRemoteState(normalizedEvents);
-      }
+      const normalizedEvents = normalizeEventsForProduct(nextEventsSnapshot);
+      normalizedEvents.forEach((event) => void pushEventStateChange(event.id, event));
       showToast(archive ? "Evento ocultado e histórico salvo" : "Evento ocultado da lista ativa");
     } catch (error) {
       console.error(error);
@@ -4605,6 +5642,33 @@ function App() {
 
   function handleDeleteEvent(eventId) {
     void removeEventFromActiveList(eventId, { archive: false });
+  }
+
+  function handleRestoreHiddenEvents() {
+    const hiddenEvents = (store.events || []).filter((event) => isEventHidden(event));
+    if (!hiddenEvents.length) {
+      showToast("Nenhum evento oculto para reexibir");
+      return;
+    }
+    const hiddenIds = new Set(hiddenEvents.map((event) => event.id));
+    const nextEvents = (store.events || []).map((event) =>
+      hiddenIds.has(event.id)
+        ? {
+            ...event,
+            hiddenAt: null,
+            hiddenReason: null,
+          }
+        : event,
+    );
+    setStore((current) => ({
+      ...current,
+      events: nextEvents,
+      archivedEvents: (current.archivedEvents || []).filter((entry) => !hiddenIds.has(entry?.event?.id)),
+    }));
+    nextEvents.forEach((event) => {
+      if (hiddenIds.has(event.id)) void pushEventStateChange(event.id, event);
+    });
+    showToast(hiddenEvents.length === 1 ? "Evento reexibido" : "Eventos reexibidos");
   }
 
   function handleSetStatus(eventId, status) {
@@ -4638,6 +5702,17 @@ function App() {
   }
 
   function applyImportedTeams(eventId, teams) {
+    const baseEvent = events.find((event) => event.id === eventId);
+    const oldTeamCount = baseEvent?.teams?.length || 0;
+    void (async () => {
+      for (let teamIdx = 0; teamIdx < oldTeamCount; teamIdx += 1) {
+        try {
+          await deleteTeamScopedData(eventId, teamIdx);
+        } catch (err) {
+          console.error(`applyImportedTeams delete ${teamIdx}:`, err);
+        }
+      }
+    })();
     updateEvents((current) =>
       current.map((event) =>
         event.id !== eventId
@@ -4697,6 +5772,37 @@ function App() {
   }
 
   function handleRemoveTeam(eventId, index) {
+    const baseEvent = events.find((event) => event.id === eventId);
+    const totalTeams = baseEvent?.teams?.length || 0;
+    void (async () => {
+      const collected = [];
+      for (let oldIdx = index + 1; oldIdx < totalTeams; oldIdx += 1) {
+        try {
+          const state = await getTeamState(eventId, oldIdx).catch((err) => (err.statusCode === 404 ? null : Promise.reject(err)));
+          collected.push({ oldIdx, payload: state?.payload || null });
+        } catch (err) {
+          console.error(`handleRemoveTeam capture ${oldIdx}:`, err);
+          collected.push({ oldIdx, payload: null });
+        }
+      }
+      try {
+        await deleteTeamScopedData(eventId, index);
+        for (const { oldIdx } of collected) {
+          await deleteTeamScopedData(eventId, oldIdx).catch((err) => console.error(`delete shift ${oldIdx}:`, err));
+        }
+        for (const { oldIdx, payload } of collected) {
+          if (!payload) continue;
+          await putTeamStateOCC({
+            eventId,
+            teamIdx: oldIdx - 1,
+            initial: { payload: {}, version: 0 },
+            merge: () => payload,
+          }).catch((err) => console.error(`reinsert ${oldIdx}→${oldIdx - 1}:`, err));
+        }
+      } catch (err) {
+        console.error(`handleRemoveTeam ${eventId}/${index}:`, err);
+      }
+    })();
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
@@ -4726,6 +5832,7 @@ function App() {
           questionariosPendentes: filterMissionKeyMap(event.questionariosPendentes),
           conclusoes: filterMissionKeyMap(event.conclusoes),
           preservedMissionUsage: filterMissionKeyMap(event.preservedMissionUsage),
+          agentMissionParticipants: filterMissionKeyMap(event.agentMissionParticipants),
           helpRequests: (event.helpRequests || []).filter((request) => request.teamIdx !== index),
           helpDisabledMap: remapTeamScopedMap(event.helpDisabledMap),
           trainingRuns: Object.fromEntries(
@@ -4763,14 +5870,10 @@ function App() {
     const updatedEvents = stampUpdatedEvents(previousEvents, nextEvents);
 
     currentEventsRef.current = updatedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(updatedEvents);
     setStore((current) => ({ ...current, events: updatedEvents }));
 
     try {
-      if (serverConfig.sharedStateConfigured) {
-        const saveResult = await saveRemoteState(updatedEvents);
-        syncServerClock(saveResult.serverNowMs);
-      }
+      updatedEvents.forEach((event) => void pushEventStateChange(event.id, event));
       showToast(unlocked ? "Missão liberada" : "Missão bloqueada");
     } catch (error) {
       console.error("Failed to save mission toggle:", error);
@@ -4791,7 +5894,6 @@ function App() {
           ),
         );
         currentEventsRef.current = revertedEvents;
-        lastRemoteEventsRef.current = "__out_of_sync__";
         return { ...current, events: revertedEvents };
       });
       showToast(error.message || "Falha ao salvar a missão");
@@ -4894,7 +5996,7 @@ function App() {
     setScreen("team");
   }
 
-  function handleEscolherTime(index, memberName = "") {
+  async function handleEscolherTime(index, memberName = "") {
     const selectedEvent = events.find((event) => event.id === timeEventId) || null;
     const eventMode = selectedEvent ? getEventMode(selectedEvent) : MISSIONS_MODE_EVENT;
     const pendingMissionIdx =
@@ -4905,7 +6007,19 @@ function App() {
         : -1;
     const normalizedMemberName = normalizeStudentName(memberName || "") || selectedEvent?.teams?.[index]?.name || "";
 
-    if (selectedEvent && isAnamnesisEnabled(selectedEvent) && !hasCompletedAnamnesis(selectedEvent, index)) {
+    let anamneseAlreadyDone = false;
+    if (selectedEvent && isAnamnesisEnabled(selectedEvent)) {
+      try {
+        const teamState = await getTeamState(selectedEvent.id, index);
+        anamneseAlreadyDone = Boolean(teamState.payload?.anamnese?.submittedAt);
+      } catch (err) {
+        if (err.statusCode !== 404) {
+          console.error(`team_state ${selectedEvent.id}/${index} load for anamnese check:`, err);
+        }
+      }
+    }
+
+    if (selectedEvent && isAnamnesisEnabled(selectedEvent) && !anamneseAlreadyDone) {
       setActiveStudentName(normalizedMemberName);
       setAnamnesisAnswers({});
       setAnamnesisError("");
@@ -5039,6 +6153,13 @@ function App() {
     }, {});
     const submittedAt = new Date().toISOString();
 
+    const anamneseEntry = {
+      teamIdx: anamnesisContext.teamIdx,
+      memberName: anamnesisContext.memberName,
+      answers: normalizedAnswers,
+      submittedAt,
+      updatedAt: submittedAt,
+    };
     updateEvents((current) =>
       current.map((event) =>
         event.id !== anamnesisContext.eventId
@@ -5047,17 +6168,35 @@ function App() {
               ...event,
               anamnesisResponses: {
                 ...(event.anamnesisResponses || {}),
-                [anamnesisContext.teamIdx]: {
-                  teamIdx: anamnesisContext.teamIdx,
-                  memberName: anamnesisContext.memberName,
-                  answers: normalizedAnswers,
-                  submittedAt,
-                  updatedAt: submittedAt,
-                },
+                [anamnesisContext.teamIdx]: anamneseEntry,
               },
             },
       ),
     );
+    void (async () => {
+      const eventId = anamnesisContext.eventId;
+      const teamIdx = anamnesisContext.teamIdx;
+      let initial = { payload: {}, version: 0 };
+      try {
+        const current = await getTeamState(eventId, teamIdx);
+        initial = { payload: current.payload, version: current.version };
+      } catch (err) {
+        if (err.statusCode !== 404) {
+          console.error("submit anamnese (load team_state):", err);
+          return;
+        }
+      }
+      try {
+        await putTeamStateOCC({
+          eventId,
+          teamIdx,
+          initial,
+          merge: (payload) => ({ ...(payload || {}), anamnese: anamneseEntry }),
+        });
+      } catch (err) {
+        console.error("submit anamnese (put team_state):", err);
+      }
+    })();
 
     setAnamnesisOpen(false);
     setAnamnesisAnswers({});
@@ -5086,42 +6225,141 @@ function App() {
     setTimeMissionIdx(index);
   }
 
+  function handleChangeCurrentGuidedMissionState(nextMissionStateOrUpdater) {
+    if (!currentMission || !isGuidedMission(currentMission)) return;
+    patchCurrentGuidedMissionState(currentMission.id, (currentMissionState) =>
+      typeof nextMissionStateOrUpdater === "function"
+        ? nextMissionStateOrUpdater(currentMissionState)
+        : nextMissionStateOrUpdater,
+    );
+  }
+
+  function handlePersistCurrentGuidedMissionExecution(execData) {
+    if (!teamEvent || timeTeamIdx === null || !currentMission) return;
+    saveExecution(teamEvent.id, timeTeamIdx, currentMission.id, execData);
+  }
+
+  function handleResetGuidedMission() {
+    if (!currentMission || !isGuidedMission(currentMission)) return;
+    patchCurrentGuidedMissionState(currentMission.id, () => createDefaultGuidedMissionState(currentMission.id));
+    setRunning(false);
+    setRunError("");
+    setMissionInput("");
+    setMissionAttachments([]);
+    showToast("Jornada da missão reiniciada");
+  }
+
+  function handleGoToGeneralChat() {
+    const missions = effectiveTeamEvent?.missions;
+    if (!Array.isArray(missions) || !missions.length) {
+      showToast("A missão Análise geral ainda não foi liberada pelo facilitador.");
+      return;
+    }
+    const idx = missions.findIndex((entry) => entry?.id === "mission_general_chat");
+    if (idx < 0) {
+      showToast("A missão Análise geral ainda não foi liberada pelo facilitador.");
+      return;
+    }
+    setTimeMissionIdx(idx);
+    setMissionInput("");
+    setMissionAttachments([]);
+    setRunning(false);
+    setRunError("");
+  }
+
   function saveExecution(eventId, teamIdx, missionId, execData) {
+    const executionId = `${execData.id || `${teamIdx}_${missionId}_${execData.ts || Date.now()}`}`;
+    void perTeamExecutionsHook.append({
+      id: executionId,
+      mission_id: missionId,
+      kind: execData.aiMode === CODING_AI_MODE ? "coding" : "chat",
+      payload: execData,
+      tokens: execData.usage || execData.tokens || {},
+      custo: execData.cost ?? execData.custo ?? null,
+      created_at: execData.ts || new Date().toISOString(),
+    });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const key = `${teamIdx}__${missionId}`;
-        const execucoes = { ...(event.execucoes || {}) };
-        execucoes[key] = [...(execucoes[key] || []), execData];
-        const teams = event.teams.map((item, index) => (index === teamIdx ? { ...item, runs: (item.runs || 0) + 1 } : item));
-        return { ...event, execucoes, teams };
+        const existingExecs = Array.isArray(event.execucoes?.[key]) ? event.execucoes[key] : [];
+        const nextExecs = existingExecs.some((exec) => exec.id === execData.id) ? existingExecs : [...existingExecs, execData];
+        const participantAnalyses = Object.fromEntries(
+          Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== teamIdx),
+        );
+        return {
+          ...event,
+          execucoes: {
+            ...(event.execucoes || {}),
+            [key]: nextExecs,
+          },
+          participantAnalyses,
+        };
       }),
     );
   }
 
   function saveTrainingExecution(eventId, teamIdx, execData) {
+    const executionId = `${execData.id || `training_${teamIdx}_${execData.ts || Date.now()}`}`;
+    void perTeamExecutionsHook.append({
+      id: executionId,
+      mission_id: "__training__",
+      kind: "training",
+      payload: execData,
+      tokens: execData.usage || execData.tokens || {},
+      custo: execData.cost ?? execData.custo ?? null,
+      created_at: execData.ts || new Date().toISOString(),
+    });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const key = `${teamIdx}`;
-        const trainingRuns = { ...(event.trainingRuns || {}) };
-        trainingRuns[key] = [...(trainingRuns[key] || []), execData];
-        const teams = event.teams.map((item, index) => (index === teamIdx ? { ...item, runs: (item.runs || 0) + 1 } : item));
-        return { ...event, trainingRuns, teams };
+        const existingRuns = Array.isArray(event.trainingRuns?.[key]) ? event.trainingRuns[key] : [];
+        const nextRuns = existingRuns.some((exec) => exec.id === execData.id) ? existingRuns : [...existingRuns, execData];
+        const participantAnalyses = Object.fromEntries(
+          Object.entries(event.participantAnalyses || {}).filter(([, entry]) => Number(entry?.teamIdx) !== teamIdx),
+        );
+        return {
+          ...event,
+          trainingRuns: {
+            ...(event.trainingRuns || {}),
+            [key]: nextRuns,
+          },
+          participantAnalyses,
+        };
       }),
     );
   }
 
   function updateExecutionAnalysis(eventId, teamIdx, missionId, execId, technicalAnalysis, technicalAnalysisUsage) {
+    const isTraining = !missionId;
+    const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
+    const baseEvent = events.find((event) => event.id === eventId) || null;
+    const currentGlossary = baseEvent ? getMissionGlossary(baseEvent, teamIdx, glossaryMissionId, { isTraining }) : [];
+    const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
+      accumulatedGlossary: currentGlossary,
+    });
+    const execPatch = {
+      explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || undefined,
+      reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || undefined,
+      reasoningDetails: normalizedAnalysis,
+      technicalAnalysis: normalizedAnalysis,
+      technicalAnalysisUsage,
+    };
+    void perTeamExecutionsHook.patchPayload(execId, execPatch);
+    void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+      const existing = payload || {};
+      return {
+        ...existing,
+        missionGlossaries: {
+          ...(existing.missionGlossaries || {}),
+          [glossaryMissionId]: normalizedAnalysis.glossary.accumulated,
+        },
+      };
+    });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const isTraining = !missionId;
-        const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
-        const currentGlossary = getMissionGlossary(event, teamIdx, glossaryMissionId, { isTraining });
-        const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
-          accumulatedGlossary: currentGlossary,
-        });
         const missionGlossaries = {
           ...(event.missionGlossaries || {}),
           [getMissionGlossaryKey(teamIdx, glossaryMissionId)]: normalizedAnalysis.glossary.accumulated,
@@ -5130,41 +6368,19 @@ function App() {
           const key = `${teamIdx}__${missionId}`;
           const execucoes = { ...(event.execucoes || {}) };
           execucoes[key] = (execucoes[key] || []).map((exec) =>
-            exec.id !== execId
-              ? exec
-              : {
-                  ...exec,
-                  explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
-                  reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
-                  reasoningDetails: normalizedAnalysis,
-                  technicalAnalysis: normalizedAnalysis,
-                  technicalAnalysisUsage,
-                },
+            exec.id !== execId ? exec : { ...exec, ...execPatch },
           );
           return { ...event, execucoes, missionGlossaries };
         }
-
         const key = `${teamIdx}`;
         const trainingRuns = { ...(event.trainingRuns || {}) };
         trainingRuns[key] = (trainingRuns[key] || []).map((exec) =>
-          exec.id !== execId
-            ? exec
-            : {
-                ...exec,
-                explicacao: getTechnicalAnalysisLeadText(normalizedAnalysis) || exec.explicacao,
-                reasoningSummary: getTechnicalAnalysisReasoningSummary(normalizedAnalysis) || exec.reasoningSummary,
-                reasoningDetails: normalizedAnalysis,
-                technicalAnalysis: normalizedAnalysis,
-                technicalAnalysisUsage,
-              },
+          exec.id !== execId ? exec : { ...exec, ...execPatch },
         );
         return { ...event, trainingRuns, missionGlossaries };
       }),
     );
 
-    const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
-      accumulatedGlossary: missionFlow.exec?.technicalAnalysis?.glossary?.accumulated || [],
-    });
     setMissionFlow((current) =>
       current.exec?.id !== execId
         ? current
@@ -5183,15 +6399,16 @@ function App() {
   }
 
   function updateExecutionTechnicalFeedback(eventId, teamIdx, missionId, execId, feedback) {
+    const nextFeedback = {
+      rating: feedback.rating,
+      reason: feedback.reason || "",
+      comment: feedback.comment || "",
+      submittedAt: new Date().toISOString(),
+    };
+    void perTeamExecutionsHook.patchPayload(execId, { technicalFeedback: nextFeedback });
     updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const nextFeedback = {
-          rating: feedback.rating,
-          reason: feedback.reason || "",
-          comment: feedback.comment || "",
-          submittedAt: new Date().toISOString(),
-        };
         if (missionId) {
           const key = `${teamIdx}__${missionId}`;
           const execucoes = { ...(event.execucoes || {}) };
@@ -5239,33 +6456,51 @@ function App() {
   }
 
   function saveReflection(eventId, teamIdx, missionId, missionName, respostas, comment) {
-    updateCriticalEvents((current) =>
+    const submittedAt = new Date().toISOString();
+    const reflexao = {
+      key: `${teamIdx}__${missionId}`,
+      teamIdx,
+      missionId,
+      missionName,
+      respostas,
+      comment: comment || "",
+      submittedAt,
+      ts: submittedAt,
+    };
+    void perTeamTeamStateHook.update((payload) => {
+      const pendingMap = { ...(payload?.questionariosPendentes || {}) };
+      const pendingEntry = pendingMap[missionId];
+      delete pendingMap[missionId];
+      const pendingSource = typeof pendingEntry === "object" && pendingEntry ? pendingEntry.source : "team";
+      return {
+        ...(payload || {}),
+        reflexoes: { ...(payload?.reflexoes || {}), [missionId]: reflexao },
+        questionariosPendentes: pendingMap,
+        conclusoes: {
+          ...(payload?.conclusoes || {}),
+          [missionId]: {
+            closedAt: submittedAt,
+            updatedAt: submittedAt,
+            source: pendingSource === "team" ? "team" : "facilitator",
+          },
+        },
+      };
+    });
+    updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
         const key = `${teamIdx}__${missionId}`;
-        const submittedAt = new Date().toISOString();
-        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
-        const pendingSource =
-          typeof questionariosPendentes[key] === "object" && questionariosPendentes[key]
-            ? questionariosPendentes[key].source
-            : "team";
-        delete questionariosPendentes[key];
+        const pendingMap = { ...(event.questionariosPendentes || {}) };
+        const pendingEntry = pendingMap[key];
+        delete pendingMap[key];
+        const pendingSource = typeof pendingEntry === "object" && pendingEntry ? pendingEntry.source : "team";
         return {
           ...event,
           reflexoes: {
             ...(event.reflexoes || {}),
-            [key]: {
-              key,
-              teamIdx,
-              missionId,
-              missionName,
-              respostas,
-              comment: comment || "",
-              submittedAt,
-              ts: submittedAt,
-            },
+            [key]: reflexao,
           },
-          questionariosPendentes,
+          questionariosPendentes: pendingMap,
           conclusoes: {
             ...(event.conclusoes || {}),
             [key]: {
@@ -5279,29 +6514,82 @@ function App() {
     );
   }
 
-  function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
-    if (!teamIndexes.length) return;
-    updateCriticalEvents((current) =>
+  async function patchTeamStatePerTeamWithFallback(eventId, teamIdx, mergeFn) {
+    let initial = { payload: {}, version: 0 };
+    try {
+      const current = await getTeamState(eventId, teamIdx);
+      initial = { payload: current.payload, version: current.version };
+    } catch (err) {
+      if (err.statusCode !== 404) {
+        console.error(`team_state ${eventId}/${teamIdx} load:`, err);
+        return;
+      }
+    }
+    try {
+      await putTeamStateOCC({ eventId, teamIdx, initial, merge: mergeFn });
+    } catch (err) {
+      console.error(`team_state ${eventId}/${teamIdx} put:`, err);
+    }
+  }
+
+  function patchAgentMissionState(eventId, teamIdx, participantKey, updater) {
+    if (!eventId || teamIdx === null || teamIdx === undefined || !participantKey) return;
+    void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+      const existing = payload || {};
+      const currentState = normalizeGuidedMissionParticipantState(existing.agentMissionParticipants?.[participantKey] || null);
+      const nextState = normalizeGuidedMissionParticipantState(updater(currentState));
+      return {
+        ...existing,
+        agentMissionParticipants: {
+          ...(existing.agentMissionParticipants || {}),
+          [participantKey]: nextState,
+        },
+      };
+    });
+    updateEvents((current) =>
       current.map((event) => {
         if (event.id !== eventId) return event;
-        const pendingMap = { ...(event.questionariosPendentes || {}) };
-        teamIndexes.forEach((teamIdx) => {
-          const key = `${teamIdx}__${missionId}`;
-          if (!getConclusaoEntry(event, teamIdx, missionId)) {
-            const openedAt = new Date().toISOString();
-            pendingMap[key] = {
-              openedAt,
-              updatedAt: openedAt,
-              source,
-            };
-          }
-        });
+        const scopedKey = getAgentParticipantStateKey(teamIdx, participantKey);
+        const currentState = normalizeGuidedMissionParticipantState(event.agentMissionParticipants?.[scopedKey] || null);
+        const nextState = normalizeGuidedMissionParticipantState(updater(currentState));
         return {
           ...event,
-          questionariosPendentes: pendingMap,
+          agentMissionParticipants: {
+            ...(event.agentMissionParticipants || {}),
+            [scopedKey]: nextState,
+          },
         };
       }),
     );
+  }
+
+  function patchCurrentAgentMissionState(updater) {
+    if (!teamEvent || timeTeamIdx === null || !currentAgentParticipantKey) return;
+    patchAgentMissionState(teamEvent.id, timeTeamIdx, currentAgentParticipantKey, updater);
+  }
+
+  function patchCurrentGuidedMissionState(missionId, updater) {
+    if (!missionId) return;
+    patchCurrentAgentMissionState((rootState) => {
+      const currentMissionState = getGuidedMissionEntryState(rootState, missionId);
+      const nextMissionState = updater(currentMissionState);
+      return setGuidedMissionEntryState(rootState, missionId, nextMissionState);
+    });
+  }
+
+  function openMissionQuestionnaireForTeams(eventId, missionId, teamIndexes, source = "facilitator") {
+    if (!teamIndexes.length) return;
+    const openedAt = new Date().toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const conclusoes = existing.conclusoes || {};
+        if (conclusoes[missionId]) return existing;
+        const pending = { ...(existing.questionariosPendentes || {}) };
+        pending[missionId] = { openedAt, updatedAt: openedAt, source };
+        return { ...existing, questionariosPendentes: pending };
+      });
+    });
   }
 
   function handleTeamCloseMission() {
@@ -5319,18 +6607,13 @@ function App() {
   function handleCancelTeamMissionClosure() {
     if (!teamEvent || timeTeamIdx === null || !currentMission || isTrainingEvent) return;
     if (getQuestionarioPendenteSource(teamEvent, timeTeamIdx, currentMission.id) !== "team") return;
-    const key = `${timeTeamIdx}__${currentMission.id}`;
-    updateCriticalEvents((current) =>
-      current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
-        const questionariosPendentes = { ...(event.questionariosPendentes || {}) };
-        delete questionariosPendentes[key];
-        return {
-          ...event,
-          questionariosPendentes,
-        };
-      }),
-    );
+    const targetMissionId = currentMission.id;
+    void patchTeamStatePerTeamWithFallback(teamEvent.id, timeTeamIdx, (payload) => {
+      const existing = payload || {};
+      const pending = { ...(existing.questionariosPendentes || {}) };
+      delete pending[targetMissionId];
+      return { ...existing, questionariosPendentes: pending };
+    });
     setReflectionAnswers({});
     setReflectionComment("");
     setReflectionError("");
@@ -5363,6 +6646,21 @@ function App() {
       return;
     }
     const concludedAt = new Date().toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const pending = { ...(existing.questionariosPendentes || {}) };
+        delete pending[missionId];
+        return {
+          ...existing,
+          questionariosPendentes: pending,
+          conclusoes: {
+            ...(existing.conclusoes || {}),
+            [missionId]: { closedAt: concludedAt, updatedAt: concludedAt, source: "facilitator_no_evaluation" },
+          },
+        };
+      });
+    });
     updateCriticalEvents((current) =>
       current.map((item) => {
         if (item.id !== eventId) return item;
@@ -5398,6 +6696,25 @@ function App() {
       return;
     }
     const resetAt = new Date(getSyncedNowMs()).toISOString();
+    teamIndexes.forEach((teamIdx) => {
+      void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+        const existing = payload || {};
+        const reflexoes = { ...(existing.reflexoes || {}) };
+        delete reflexoes[missionId];
+        return {
+          ...existing,
+          reflexoes,
+          questionariosPendentes: {
+            ...(existing.questionariosPendentes || {}),
+            [missionId]: { source: "reopened", updatedAt: resetAt },
+          },
+          conclusoes: {
+            ...(existing.conclusoes || {}),
+            [missionId]: { source: "reopened", updatedAt: resetAt },
+          },
+        };
+      });
+    });
     const nextEvents = (currentEventsRef.current || []).map((item) => {
       if (item.id !== eventId) return item;
       const questionariosPendentes = { ...(item.questionariosPendentes || {}) };
@@ -5442,16 +6759,27 @@ function App() {
     if (!teamEvent || timeTeamIdx === null) return;
     const nextDisabled = !teamHelpDisabled;
     const nowIso = new Date().toISOString();
+    const eventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+
+    if (nextDisabled) {
+      const openTeamRequests = (perTeamHelpHook.items || []).filter(
+        (item) => item.team_idx === targetTeamIdx && item.status === "open",
+      );
+      openTeamRequests.forEach((request) => {
+        void putHelpRequest(eventId, request.id, { status: "cancelled" });
+      });
+    }
 
     updateEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== eventId) return event;
 
         const baseEvent = {
           ...event,
           helpDisabledMap: {
             ...(event.helpDisabledMap || {}),
-            [timeTeamIdx]: {
+            [targetTeamIdx]: {
               disabled: nextDisabled,
               updatedAt: nowIso,
             },
@@ -5461,7 +6789,7 @@ function App() {
         if (!nextDisabled) return baseEvent;
 
         const cancelRequest = (request) =>
-          request.teamIdx === timeTeamIdx && request.status === "open"
+          request.teamIdx === targetTeamIdx && request.status === "open"
             ? {
                 ...request,
                 status: "cancelled",
@@ -5670,6 +6998,18 @@ function App() {
       setTeamAnnouncementOpen(false);
       return;
     }
+    if (typeof window !== "undefined") {
+      try {
+        const storageKey = `dismissed_announcements__${teamEvent.id}__${timeTeamIdx}`;
+        const dismissedList = JSON.parse(localStorage.getItem(storageKey) || "[]");
+        if (!dismissedList.includes(latestUnreadAnnouncement.id)) {
+          dismissedList.push(latestUnreadAnnouncement.id);
+          localStorage.setItem(storageKey, JSON.stringify(dismissedList));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
     const nowIso = new Date(getSyncedNowMs()).toISOString();
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== teamEvent.id
@@ -5704,6 +7044,20 @@ function App() {
       setTeamAnnouncementInboxOpen(true);
       return;
     }
+    if (typeof window !== "undefined") {
+      try {
+        const storageKey = `dismissed_announcements__${teamEvent.id}__${timeTeamIdx}`;
+        const dismissedList = JSON.parse(localStorage.getItem(storageKey) || "[]");
+        teamEventAnnouncements.forEach((announcement) => {
+          if (!dismissedList.includes(announcement.id)) {
+            dismissedList.push(announcement.id);
+          }
+        });
+        localStorage.setItem(storageKey, JSON.stringify(dismissedList));
+      } catch (e) {
+        console.error(e);
+      }
+    }
     const nowIso = new Date(getSyncedNowMs()).toISOString();
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== teamEvent.id
@@ -5735,44 +7089,23 @@ function App() {
     const message = helpMessage.trim();
     if (!message) return;
     if (currentOpenHelpRequest) return;
-    const nowIso = new Date(getSyncedNowMs()).toISOString();
-    const nextEvents = (currentEventsRef.current || []).map((event) =>
-      event.id !== teamEvent.id
-        ? event
-        : {
-            ...event,
-            ...(isTrainingEvent
-              ? {
-                  trainingHelpRequests: [
-                    ...(event.trainingHelpRequests || []),
-                    {
-                      id: `help_${Date.now()}`,
-                      teamIdx: timeTeamIdx,
-                      message,
-                      status: "open",
-                      createdAt: nowIso,
-                      updatedAt: nowIso,
-                    },
-                  ],
-                }
-              : {
-                  helpRequests: [
-                    ...(event.helpRequests || []),
-                    {
-                      id: `help_${Date.now()}`,
-                      teamIdx: timeTeamIdx,
-                      missionId: currentMission.id,
-                      message,
-                      status: "open",
-                      createdAt: nowIso,
-                      updatedAt: nowIso,
-                    },
-                  ],
-                }),
-          },
-    );
-    commitCriticalEventsDirect(nextEvents);
-
+    const requestId = `hr_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const helpTeamName = teamEvent.teams?.[timeTeamIdx]?.name || `Time ${(timeTeamIdx ?? 0) + 1}`;
+    const helpTimerRemainingMs = getSessionTimerRemainingMs(teamEvent, getSyncedNowMs()) || null;
+    void perTeamHelpHook.create({
+      id: requestId,
+      team_idx: timeTeamIdx,
+      mission_id: currentMission?.id || null,
+      status: "open",
+      payload: {
+        message,
+        missionName: currentMission?.name || "",
+        memberName: activeStudentName || "",
+        teamName: helpTeamName,
+        timerRemainingMs: helpTimerRemainingMs,
+      },
+      created_at: new Date().toISOString(),
+    });
     setHelpOpen(false);
     setHelpMessage("");
     showToast("Pedido de ajuda enviado ao facilitador");
@@ -5780,6 +7113,7 @@ function App() {
 
   function handleCancelHelpRequest(eventId, requestId) {
     const nowIso = new Date(getSyncedNowMs()).toISOString();
+    void putHelpRequest(eventId, requestId, { status: "cancelled" });
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== eventId
         ? event
@@ -5820,6 +7154,7 @@ function App() {
 
   function handleResolveHelpRequest(eventId, requestId) {
     const nowIso = new Date(getSyncedNowMs()).toISOString();
+    void putHelpRequest(eventId, requestId, { status: "resolved" });
     const nextEvents = (currentEventsRef.current || []).map((event) =>
       event.id !== eventId
         ? event
@@ -5865,27 +7200,55 @@ function App() {
     );
     const stampedEvents = stampUpdatedEvents(previousEvents, nextEvents);
     currentEventsRef.current = stampedEvents;
-    lastRemoteEventsRef.current = JSON.stringify(stampedEvents);
     setStore((current) => ({ ...current, events: stampedEvents }));
-
-    // Save directly without fetch-merge cycle — only facilitator writes screenShare
-    if (serverConfig.sharedStateConfigured) {
-      saveRemoteState(stampedEvents)
-        .then((saveResult) => {
-          syncServerClock(saveResult.serverNowMs);
-        })
-        .catch((error) => {
-          console.error("Failed to save screen share state:", error);
-        });
-    }
+    stampedEvents.forEach((event) => void pushEventStateChange(event.id, event));
   }
 
-  function handleResetMissionFromZero() {
-    if (!teamEvent || timeTeamIdx === null || !currentMission) return;
-    const key = getMissionUsageKey(timeTeamIdx, currentMission.id);
-    const resetAt = new Date(getSyncedNowMs()).toISOString();
+  function handleResetMissionFromZero(missionId = currentMission?.id, missionIndex = timeMissionIdx) {
+    if (!teamEvent || timeTeamIdx === null || !missionId) return;
+    if (isGuidedMissionId(missionId)) {
+      if (!currentAgentParticipantKey) return;
+      const targetEventId = teamEvent.id;
+      const targetTeamIdx = timeTeamIdx;
+      const participantKey = currentAgentParticipantKey;
+      const resetAt = new Date(getSyncedNowMs()).toISOString();
+      patchAgentMissionState(targetEventId, targetTeamIdx, participantKey, (rootState) =>
+        setGuidedMissionEntryState(rootState, missionId, createDefaultGuidedMissionState(missionId)),
+      );
+      updateCriticalEvents((current) =>
+        current.map((event) => {
+          if (event.id !== targetEventId) return event;
+          const scopedKey = getAgentParticipantStateKey(targetTeamIdx, participantKey);
+          const currentRoot = normalizeGuidedMissionParticipantState(event.agentMissionParticipants?.[scopedKey] || null);
+          const nextParticipants = { ...(event.agentMissionParticipants || {}) };
+          nextParticipants[scopedKey] = setGuidedMissionEntryState(
+            currentRoot,
+            missionId,
+            createDefaultGuidedMissionState(missionId),
+          );
+          return {
+            ...event,
+            missionResets: { ...(event.missionResets || {}), [`${targetTeamIdx}__${missionId}`]: resetAt },
+            agentMissionParticipants: nextParticipants,
+          };
+        }),
+      );
+      setMissionInput("");
+      setRunError("");
+      setRunState(null);
+      setMissionFlow({ stage: "idle", exec: null });
+      showToast("Missão reaberta do zero");
+      return;
+    }
 
-    const removedTotals = currentExecs.reduce(
+    const key = getMissionUsageKey(timeTeamIdx, missionId);
+    const resetAt = new Date(getSyncedNowMs()).toISOString();
+    const targetEventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+    const targetMissionId = missionId;
+    const targetExecs = getExecucoes(effectiveTeamEvent || teamEvent, targetTeamIdx, targetMissionId);
+
+    const removedTotals = targetExecs.reduce(
       (acc, exec) => ({
         total: acc.total + (exec.tokens || 0),
         input: acc.input + (exec.inputTokens || 0),
@@ -5899,9 +7262,35 @@ function App() {
       { total: 0, input: 0, output: 0, cost: 0, explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0 },
     );
 
+    void patchTeamStatePerTeamWithFallback(targetEventId, targetTeamIdx, (payload) => {
+      const existing = payload || {};
+      const conclusoes = { ...(existing.conclusoes || {}) };
+      delete conclusoes[targetMissionId];
+      const pending = { ...(existing.questionariosPendentes || {}) };
+      delete pending[targetMissionId];
+      const reflexoes = { ...(existing.reflexoes || {}) };
+      delete reflexoes[targetMissionId];
+      const preservedMissionUsage = { ...(existing.preservedMissionUsage || {}) };
+      const prev = preservedMissionUsage[targetMissionId] || {
+        total: 0, input: 0, output: 0, cost: 0,
+        explanationTotal: 0, explanationInput: 0, explanationOutput: 0, explanationCost: 0,
+      };
+      preservedMissionUsage[targetMissionId] = {
+        total: prev.total + removedTotals.total,
+        input: prev.input + removedTotals.input,
+        output: prev.output + removedTotals.output,
+        cost: prev.cost + removedTotals.cost,
+        explanationTotal: prev.explanationTotal + removedTotals.explanationTotal,
+        explanationInput: prev.explanationInput + removedTotals.explanationInput,
+        explanationOutput: prev.explanationOutput + removedTotals.explanationOutput,
+        explanationCost: prev.explanationCost + removedTotals.explanationCost,
+      };
+      return { ...existing, conclusoes, questionariosPendentes: pending, reflexoes, preservedMissionUsage };
+    });
+
     updateCriticalEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
+        if (event.id !== targetEventId) return event;
         const preservedMissionUsage = { ...(event.preservedMissionUsage || {}) };
         const currentPreserved = preservedMissionUsage[key] || {
           total: 0, input: 0, output: 0, cost: 0,
@@ -5934,16 +7323,17 @@ function App() {
 
   function handleResetTrainingConversation() {
     if (!teamEvent || timeTeamIdx === null) return;
+    const eventId = teamEvent.id;
+    const targetTeamIdx = timeTeamIdx;
+    const resetAt = new Date(getSyncedNowMs()).toISOString();
 
     updateEvents((current) =>
       current.map((event) => {
-        if (event.id !== teamEvent.id) return event;
-        const trainingRuns = { ...(event.trainingRuns || {}) };
-        delete trainingRuns[`${timeTeamIdx}`];
+        if (event.id !== eventId) return event;
         return {
           ...event,
-          trainingRuns,
-          trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== timeTeamIdx),
+          missionResets: { ...(event.missionResets || {}), [`${targetTeamIdx}____training__`]: resetAt },
+          trainingHelpRequests: (event.trainingHelpRequests || []).filter((request) => request.teamIdx !== targetTeamIdx),
         };
       }),
     );
@@ -6009,13 +7399,7 @@ function App() {
       behaviorOptions: currentBehaviorOptions,
     });
 
-    const previewWindow =
-      shouldAutoOpenPreview && typeof window !== "undefined"
-        ? window.open("", "_blank")
-        : null;
-    if (previewWindow) {
-      renderPreviewWindowPlaceholder(previewWindow, "Preview em preparação", "A IA já começou a montar a instância HTML desta rodada.");
-    }
+    const previewWindow = null;
 
     try {
       if (!apiConfigured) {
@@ -6147,23 +7531,14 @@ function App() {
         ? extractGeneratedArtifacts(result.output, `rodada-${iterationNumber}`)
         : [];
       const htmlArtifact = generatedArtifacts.find((artifact) => artifact.previewMode === "html");
-      if (previewWindow) {
-        if (htmlArtifact) {
-          writePreviewWindowDocument(
-            previewWindow,
-            buildPreviewWindowHtmlDocument(htmlArtifact.content, htmlArtifact.fileName || "Preview HTML"),
-          );
-        } else {
-          renderPreviewWindowPlaceholder(
-            previewWindow,
-            "Sem preview executável",
-            "Esta rodada terminou, mas a IA não devolveu um arquivo HTML completo para abrir automaticamente.",
-          );
-        }
+      if (htmlArtifact) {
+        openHtmlPreviewWindow(htmlArtifact.content, htmlArtifact.fileName || "Preview HTML");
       }
       const execRecord = {
         id: `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         ts: new Date().toISOString(),
+        memberName: activeStudentName || "",
+        teamName: teamEvent.teams?.[timeTeamIdx]?.name || `Time ${timeTeamIdx + 1}`,
         input,
         attachments: sanitizeAttachmentsForStorage(attachments),
         acao,
@@ -6241,8 +7616,6 @@ function App() {
       showToast(wasPlanningOn ? "Plano concluído" : apiConfigured ? "Execução concluída" : "Execução simulada");
 
       if (wasPlanningOn) {
-        setStore((current) => ({ ...current, planningMode: "off" }));
-        setConfigForm((current) => ({ ...current, planningMode: "off" }));
         setPlanningApprovalState({
           open: true,
           input,
@@ -6577,18 +7950,16 @@ function App() {
                         <div className="composer-behavior-toolbar">
                           <div className="composer-behavior-row">
                             {survivalSelectedMode === CHAT_AI_MODE ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className={`behavior-toggle-btn is-web${survivalBehaviorOptions.webSearchEnabled ? " is-on" : ""}`}
-                                  aria-pressed={survivalBehaviorOptions.webSearchEnabled}
-                                  onClick={() => handleToggleSurvivalChatBehavior("webSearch")}
-                                  disabled={survivalRunning}
-                                >
-                                  <Newspaper size={14} strokeWidth={1.8} />
-                                  Pesquisar na web
-                                </button>
-                              </>
+                              <button
+                                type="button"
+                                className={`behavior-toggle-btn is-web${survivalBehaviorOptions.webSearchEnabled ? " is-on" : ""}`}
+                                aria-pressed={survivalBehaviorOptions.webSearchEnabled}
+                                onClick={() => handleToggleSurvivalChatBehavior("webSearch")}
+                                disabled={survivalRunning}
+                              >
+                                <Newspaper size={14} strokeWidth={1.8} />
+                                Pesquisar na web
+                              </button>
                             ) : null}
                           </div>
                         </div>
@@ -6766,9 +8137,6 @@ function App() {
                   <span className={`topbar-api-pill${apiConfigured ? " is-connected" : ""}`}>
                     {apiConfigured ? "API ligada" : "API não configurada"}
                   </span>
-                  {selectedEvent && getOpenHelpRequests(selectedEvent).length > 0 ? (
-                    <span className="topbar-help-pill">{getOpenHelpRequests(selectedEvent).length} ajuda(s)</span>
-                  ) : null}
                   {selectedEventTimerRunning ? (
                     <span className="topbar-live-pill">
                       <Clock3 size={12} strokeWidth={1.8} aria-hidden="true" />
@@ -6778,29 +8146,57 @@ function App() {
                   {selectedEventScreenShare?.active ? <span className="topbar-live-pill">tela ao vivo</span> : null}
                 </div>
                 <div className="topbar-actions-main">
-                  <FacilitatorScreenShareButton
-                    event={selectedEvent}
-                    screenShare={selectedEventScreenShare}
-                    onPublishState={(nextState) => {
-                      if (!selectedEvent) return;
-                      handlePublishScreenShare(selectedEvent.id, nextState);
-                    }}
-                    iconOnly
-                  />
-                  <button
-                    className="btn btn-sm topbar-tools-btn"
-                    onClick={() => {
-                      setFacilitatorToolView(FACILITATOR_TOOL_VIEWS.MENU);
-                      setFacilitatorToolsOpen(true);
-                    }}
-                  >
-                    <SlidersHorizontal size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Ferramentas do facilitador
-                  </button>
                 </div>
               </>
             }
           />
+
+          <div
+            ref={facilitatorUtilityRailRef}
+            className={`participant-utility-rail facilitator-utility-rail${facilitatorUtilityRailExpanded ? " is-expanded" : ""}`}
+            aria-label="Ferramentas do facilitador"
+            onMouseEnter={() => {
+              if (!facilitatorUtilityRailExpanded) setFacilitatorUtilityRailExpanded(true);
+            }}
+            onMouseLeave={() => {
+              if (facilitatorUtilityRailExpanded) setFacilitatorUtilityRailExpanded(false);
+            }}
+          >
+            {facilitatorRailItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.key} className="participant-utility-rail-item">
+                  {facilitatorUtilityRailExpanded ? (
+                    <button
+                      type="button"
+                      className={`participant-utility-rail-label${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                      onClick={item.run}
+                      disabled={item.disabled}
+                    >
+                      {item.label}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`participant-utility-rail-btn${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                    onClick={() => setFacilitatorUtilityRailExpanded((value) => !value)}
+                    disabled={item.disabled}
+                    title={item.label}
+                    aria-label={item.label}
+                  >
+                    <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+                    {item.indicator ? (
+                      <span
+                        className={`participant-utility-rail-indicator is-${item.indicator}`}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    {item.badge ? <span className="participant-utility-rail-badge">{item.badge}</span> : null}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
 
           <div className="fac-layout">
             <aside className="sidebar">
@@ -6927,6 +8323,30 @@ function App() {
               <button className="btn btn-add-full" onClick={() => setNewEventOpen(true)}>
                 + Novo evento
               </button>
+              {hiddenEventsCount ? (
+                <button
+                  className="event-restore-link"
+                  type="button"
+                  onClick={() =>
+                    openConfirm(
+                      "Reexibir eventos ocultos",
+                      "Para reexibir os eventos ocultados, digite a senha do facilitador.",
+                      handleRestoreHiddenEvents,
+                      {
+                        requiresPassword: true,
+                        confirmValue: FACILITATOR_PASSWORD,
+                        confirmLabel: "Senha do facilitador",
+                        confirmPlaceholder: "Digite a senha do facilitador",
+                        confirmHint: "Use a mesma senha usada para ocultar ou reexibir eventos.",
+                        confirmTone: "primary",
+                        confirmActionLabel: hiddenEventsCount === 1 ? "Reexibir evento" : "Reexibir eventos",
+                      },
+                    )
+                  }
+                >
+                  {hiddenEventsCount === 1 ? "Reexibir evento ocultado" : `Reexibir ${hiddenEventsCount} eventos ocultados`}
+                </button>
+              ) : null}
             </aside>
 
             <main className="fac-content">
@@ -6948,9 +8368,11 @@ function App() {
 
                   {facTab === "dashboard" && (
                     <DashboardPanel
-                      evento={selectedEvent}
+                      evento={effectiveFacilitadorEvent}
                       dashboardView={dashboardView}
                       setDashboardView={setDashboardView}
+                      promptQualityModel={effectivePromptQualityModel}
+                      onRetryParticipantAnalysis={handleRetryParticipantAnalysis}
                       openConfirm={openConfirm}
                       openDeleteConfirm={openDeleteConfirm}
                       handleFacilitatorCloseMission={handleFacilitatorCloseMission}
@@ -6965,7 +8387,7 @@ function App() {
 
                   {facTab === "missoes" && (
                     <MissionsPanel
-                      evento={selectedEvent}
+                      evento={effectiveFacilitadorEvent}
                       eventMode={selectedEventMode}
                       missionTogglePending={missionTogglePending}
                       missionFeedbackOpen={missionFeedbackOpen}
@@ -6983,9 +8405,14 @@ function App() {
                     />
                   )}
 
-                  {facTab === "prompts" && <PromptInsightsPanel evento={selectedEvent} />}
+                  {facTab === "prompts" && (
+                    <PromptInsightsPanel
+                      evento={effectiveFacilitadorEvent}
+                      onOpenParticipant={handleOpenParticipantInsightsDrawer}
+                    />
+                  )}
 
-                  {facTab === "anamnese" && <AnamnesisInsightsPanel evento={selectedEvent} />}
+                  {facTab === "anamnese" && <AnamnesisInsightsPanel evento={effectiveFacilitadorEvent} />}
 
                 </>
               )}
@@ -7092,7 +8519,7 @@ function App() {
               <div className="topbar-context-strip">
                 <span className="topbar-context-item">
                   <CalendarDays size={16} strokeWidth={1.8} aria-hidden="true" />
-                  <span className="topbar-context-value">{teamEvent.name}</span>
+                  <span className="topbar-context-value">{effectiveTeamEvent.name}</span>
                 </span>
                 <span className="topbar-context-item">
                   <Users size={16} strokeWidth={1.8} aria-hidden="true" />
@@ -7100,51 +8527,7 @@ function App() {
                 </span>
               </div>
             }
-            right={
-              <>
-                {teamEventAnnouncements.length ? (
-                  <button className="btn btn-sm topbar-participant-action" onClick={handleOpenTeamAnnouncementInbox}>
-                    <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Mensagens
-                    {teamUnreadAnnouncementCount ? <span className="help-trigger-badge">{teamUnreadAnnouncementCount}</span> : null}
-                  </button>
-                ) : null}
-                {!teamScreenShareVisible ? (
-                  <button className="btn btn-sm topbar-participant-action" onClick={() => setTokenDrawerOpen(true)}>
-                    <FileText size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Extrato de tokens
-                  </button>
-                ) : null}
-                {(currentMission || isTrainingEvent) && !teamScreenShareVisible ? (
-                  <>
-                    <button
-                      className={`btn btn-sm topbar-participant-action${teamHelpDisabled ? " is-disabled" : ""}`}
-                      onClick={handleOpenHelp}
-                      disabled={teamHelpDisabled}
-                    >
-                      <LifeBuoy size={14} strokeWidth={1.7} aria-hidden="true" />
-                      {currentOpenHelpRequest ? "Ajuda enviada" : "Pedir ajuda"}
-                      {currentOpenHelpCount ? <span className="help-trigger-badge">{currentOpenHelpCount}</span> : null}
-                    </button>
-                    <button
-                      className={`btn btn-sm topbar-participant-action topbar-token-request-btn${teamHelpDisabled ? " is-disabled" : ""}`}
-                      onClick={handleSendTokenRequest}
-                      disabled={teamHelpDisabled || !currentMission || !currentTokenBudget?.blocked || Boolean(currentOpenTokenRequest)}
-                      title={!currentTokenBudget?.blocked ? "Disponível quando o limite da missão for atingido" : undefined}
-                    >
-                      <Coins size={14} strokeWidth={1.7} aria-hidden="true" />
-                      {currentOpenTokenRequest ? "Tokens solicitados" : "Solicitar tokens"}
-                    </button>
-                  </>
-                ) : null}
-                {!teamScreenShareVisible ? (
-                  <button className="btn btn-sm topbar-participant-action topbar-student-area-btn" onClick={() => setMaterialsDrawerOpen(true)}>
-                    <Users size={14} strokeWidth={1.7} aria-hidden="true" />
-                    Área do aluno
-                  </button>
-                ) : null}
-              </>
-            }
+            right={null}
           />
           {devQuickSwitch ? <div className="dev-toolbar-shell">{devQuickSwitch}</div> : null}
           {!apiConfigured && <div className="demo-banner">Modo demonstração - sem chave OpenAI. Respostas são simuladas.</div>}
@@ -7157,6 +8540,50 @@ function App() {
             <div className="team-timer-notice-banner">
               <span className="team-timer-notice-kicker">Atualização do cronômetro</span>
               <span className="team-timer-notice-text">{teamEventTimerNotice.message}</span>
+            </div>
+          ) : null}
+          {!teamScreenShareVisible ? (
+            <div
+              ref={participantUtilityRailRef}
+              className={`participant-utility-rail${participantUtilityRailExpanded ? " is-expanded" : ""}`}
+              aria-label="Ações do participante"
+              onMouseEnter={() => {
+                if (!participantUtilityRailExpanded) setParticipantUtilityRailExpanded(true);
+              }}
+              onMouseLeave={() => {
+                if (participantUtilityRailExpanded) setParticipantUtilityRailExpanded(false);
+              }}
+            >
+              {participantRailItems
+                .filter((item) => item.key !== "request-tokens" || currentMission || isTrainingEvent)
+                .map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.key} className="participant-utility-rail-item">
+                      {participantUtilityRailExpanded ? (
+                        <button
+                          type="button"
+                          className={`participant-utility-rail-label${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                          onClick={item.run}
+                          disabled={item.disabled}
+                        >
+                          {item.label}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={`participant-utility-rail-btn${item.active ? " is-active" : ""}${item.disabled ? " is-disabled" : ""}`}
+                        onClick={() => setParticipantUtilityRailExpanded((value) => !value)}
+                        disabled={item.disabled}
+                        title={item.label}
+                        aria-label={item.label}
+                      >
+                        <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+                        {item.badge ? <span className="participant-utility-rail-badge">{item.badge}</span> : null}
+                      </button>
+                    </div>
+                  );
+                })}
             </div>
           ) : null}
           <div className={`workspace${teamScreenShareVisible ? " workspace-live-focus" : ""}`}>
@@ -7206,16 +8633,16 @@ function App() {
                       </button>
                     ) : null}
                   </div>
-                ) : !teamEvent.missions.length ? (
+                ) : !effectiveTeamEvent.missions.length ? (
                   <div className="empty-list-text">Nenhuma missão disponível.</div>
                 ) : (
                   <div className="ws-mission-list">
-                    {teamEvent.missions.map((mission, index) => {
+                    {effectiveTeamEvent.missions.map((mission, index) => {
                       const locked = !mission.unlocked;
-                      const missionStatus = getMissionClosureStatus(teamEvent, timeTeamIdx, mission.id);
+                      const missionStatus = getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const concluida = missionStatus === "concluida";
                       const aguardandoQuestionario = missionStatus === "aguardando_questionario";
-                      const execs = getExecucoes(teamEvent, timeTeamIdx, mission.id);
+                      const execs = getExecucoes(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const meta = concluida
                         ? "feito"
                         : aguardandoQuestionario
@@ -7226,7 +8653,7 @@ function App() {
                               ? "em andamento"
                               : "liberada";
                       const isCurrentMission = timeMissionIdx === index;
-                      const canResetMission = isCurrentMission && hasMissionHistory;
+                      const canResetMission = getMissionHasAnyHistory(effectiveTeamEvent, timeTeamIdx, mission.id);
                       return (
                         <div className="mission-item-wrap" key={`${mission.id}-${index}`}>
                           <button
@@ -7240,17 +8667,38 @@ function App() {
                                 {mission.num ? `${mission.num}. ` : ""}
                                 {mission.name}
                               </div>
-                              <span
-                                className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : aguardandoQuestionario ? " is-open" : " is-open"}`}
-                                aria-label={meta}
-                                title={meta}
-                              />
+                              <div className="mission-item-head-actions">
+                                {canResetMission ? (
+                                  <button
+                                    type="button"
+                                    className="mission-reset-icon-btn"
+                                    aria-label={`Reabrir ${mission.name} do zero`}
+                                    title="Reabrir missão do zero"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      openConfirm(
+                                        "Reiniciar missão",
+                                        `Deseja fazer um restart da missão ${mission.num ? `${mission.num}. ` : ""}${mission.name} para este time? O recorte visível da missão será reiniciado, mas o histórico bruto permanecerá preservado.`,
+                                        () => handleResetMissionFromZero(mission.id, index),
+                                      );
+                                    }}
+                                  >
+                                    <RotateCcw size={14} strokeWidth={1.9} />
+                                  </button>
+                                ) : null}
+                                <span
+                                  className={`mission-item-status-dot${locked ? " is-locked" : concluida ? " is-done" : aguardandoQuestionario ? " is-open" : " is-open"}`}
+                                  aria-label={meta}
+                                  title={meta}
+                                />
+                              </div>
                             </div>
                           </button>
                           {isCurrentMission ? (
                             <div className="mission-item-brief">
                               <div className="mission-item-brief-meta">
-                                <span>IA: {AI_MODE_LABELS[getMissionAiMode(mission)]}</span>
+                                <span>{isGuidedMission(mission) ? getGuidedMissionModeLabel(mission) : `IA: ${AI_MODE_LABELS[getMissionAiMode(mission)]}`}</span>
                               </div>
                               <div className="mission-item-brief-block">
                                 <strong className="mini-label mission-brief-label">
@@ -7267,20 +8715,6 @@ function App() {
                                 <p>{mission.instrucao || "Escreva o input abaixo e escolha a ação."}</p>
                               </div>
                             </div>
-                          ) : null}
-                          {canResetMission ? (
-                            <button
-                              className="mission-reset-btn"
-                              onClick={() =>
-                                openConfirm(
-                                  "Reabrir missão do zero",
-                                  "Isso vai apagar respostas, explicações, histórico, questionário e status de concluída desta missão para o time atual. Os tokens consumidos permanecerão no acumulado histórico. Deseja continuar?",
-                                  handleResetMissionFromZero,
-                                )
-                              }
-                            >
-                              Reabrir missão do zero
-                            </button>
                           ) : null}
                         </div>
                       );
@@ -7306,7 +8740,7 @@ function App() {
                 />
               ) : (
                 <>
-                  {!isTrainingEvent && !currentConcluida && !currentQuestionarioPendente ? (
+                  {!isTrainingEvent && !isCurrentGuidedMission && !currentConcluida && !currentQuestionarioPendente ? (
                     <div className="workspace-mission-top-actions">
                       <button
                         className="mission-close-btn is-compact"
@@ -7327,17 +8761,35 @@ function App() {
                   ) : null}
                   <div className="workspace-col-label is-block">
                     <span className="ws-column-label-icon" aria-hidden="true">
-                      <MessageSquareText size={15} strokeWidth={1.7} />
+                      {isCurrentGuidedMission ? <Waypoints size={15} strokeWidth={1.7} /> : <MessageSquareText size={15} strokeWidth={1.7} />}
                     </span>
                     <div className="workspace-col-label-copy workspace-col-label-copy-inline">
-                      <span className="workspace-col-label-title">TECH HALL GPT</span>
+                      <span className="workspace-col-label-title">{isCurrentGuidedMission ? "TECH HALL MISSION LAB" : "TECH HALL GPT"}</span>
                       <span className="workspace-col-label-sub workspace-col-label-sub-inline">
-                        {apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
+                        {isCurrentGuidedMission ? "GUIDED MISSION EXPERIENCE" : apiConfigured ? "CONNECTED TO OPENAI API" : "DEMO MODE"}
                       </span>
                     </div>
                   </div>
                   <div className="workspace-chat-body">
-                    {(!currentConcluida && !currentQuestionarioPendente) ? (
+                    {isCurrentGuidedMission ? (
+                      <GuidedMissionPanel
+                        mission={currentMission}
+                        participantName={activeStudentName}
+                        missionState={currentGuidedMissionState}
+                        composerInput={missionInput}
+                        attachments={missionAttachments}
+                        attachmentLimit={currentMissionAttachmentPolicy.count}
+                        attachmentAccept={currentMissionAttachmentPolicy.accept}
+                        onInputChange={setMissionInput}
+                        onAttachFiles={handleAttachFiles}
+                        onRemoveAttachment={handleRemoveAttachment}
+                        onChangeState={handleChangeCurrentGuidedMissionState}
+                        onPersistExecution={handlePersistCurrentGuidedMissionExecution}
+                        onCopyReport={() => void handleCopyResponse(currentGuidedMissionState.report || "")}
+                        onResetMission={handleResetGuidedMission}
+                        onGoToGeneralChat={handleGoToGeneralChat}
+                      />
+                    ) : (!currentConcluida && !currentQuestionarioPendente) ? (
                       <div className="input-card input-card-chat">
                         <div className="prompt-composer">
                           <PromptConversation
@@ -7403,12 +8855,12 @@ function App() {
                               value={missionInput}
                               onChange={(event) => setMissionInput(event.target.value)}
                               disabled={running || teamTimerLockActive || planningApprovalState.open}
-                              placeholder={planningApprovalState.open ? "Aceite ou reformule o plano acima" : "Escreva sua mensagem ou anexe até 3 arquivos"}
+                              placeholder={planningApprovalState.open ? "Aceite ou reformule o plano acima" : `Escreva sua mensagem ou anexe até ${currentMissionAttachmentPolicy.count} arquivos`}
                             />
                             <input
                               ref={composerFileInputRef}
                               type="file"
-                              accept={ATTACHMENT_ACCEPT}
+                              accept={currentMissionAttachmentPolicy.accept}
                               multiple
                               className="visually-hidden-file-input"
                               onChange={handleAttachFiles}
@@ -7419,8 +8871,8 @@ function App() {
                                   className="input-attach-btn"
                                   type="button"
                                   onClick={() => composerFileInputRef.current?.click()}
-                                  disabled={running || missionAttachments.length >= MAX_ATTACHMENT_COUNT}
-                                  title={`Anexar arquivo (${MAX_ATTACHMENT_COUNT} por rodada, até 10 MB cada)`}
+                                  disabled={running || missionAttachments.length >= currentMissionAttachmentPolicy.count}
+                                  title={`Anexar arquivo (${currentMissionAttachmentPolicy.count} por rodada, até 10 MB cada)`}
                                 >
                                   <Paperclip size={14} strokeWidth={1.8} />
                                   <span>Anexar</span>
@@ -7433,7 +8885,7 @@ function App() {
                                     aria-label="Planejar"
                                     aria-pressed={store.planningMode === "on"}
                                     onClick={() => handleQuickPlanningModeChange(store.planningMode === "on" ? "off" : "on")}
-                                    disabled={running || planningApprovalState.open}
+                                    disabled={running || planningApprovalState.open || isCurrentGuidedMission}
                                   >
                                     Planejar
                                   </button>
@@ -7444,7 +8896,7 @@ function App() {
                                     options={composerModelOptions}
                                     value={selectedModelForMode}
                                     onChange={handleQuickModelChange}
-                                    disabled={running}
+                                    disabled={running || isCurrentGuidedMission}
                                     dropUp
                                   />
                                 </div>
@@ -7474,7 +8926,7 @@ function App() {
                       </div>
                     ) : null}
 
-                    {!isTrainingEvent ? (
+                    {!isTrainingEvent && !isCurrentGuidedMission ? (
                       <>
                         <MissionClosurePanel
                           stage={missionFlow.stage}
@@ -7526,7 +8978,18 @@ function App() {
                   </div>
                 </div>
                 <div className="workspace-explain-body">
-                  {readingStage && readingExec ? (
+                  {isCurrentGuidedMission ? (
+                    <div className="agent-explain-placeholder">
+                      <div className="agent-explain-card">
+                        <div className="agent-explain-kicker">{currentGuidedExplainContent.kicker || "Componente em foco"}</div>
+                        <div className="agent-explain-title">{currentGuidedExplainContent.title}</div>
+                        <div
+                          className="agent-explain-copy"
+                          dangerouslySetInnerHTML={{ __html: currentGuidedExplainContent.html || "" }}
+                        />
+                      </div>
+                    </div>
+                  ) : readingStage && readingExec ? (
                     <MissionReadingPanel
                       exec={readingExec}
                       onSubmitFeedback={(feedback) => {
@@ -7673,6 +9136,46 @@ function App() {
         </div>
       ) : null}
 
+      {screen === "workspace" && participantPromptAnalysisOpen && currentParticipantInsights ? (
+        <div className="side-sheet-backdrop" onClick={() => setParticipantPromptAnalysisOpen(false)}>
+          <aside
+            className={`side-sheet side-sheet-right ${effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? "prompt-quality-lab-drawer" : "participant-insights-drawer"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="side-sheet-body participant-insights-drawer-body">
+              {effectiveWorkspacePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? (
+                <PromptQualityLabPanel
+                  evento={effectiveTeamAnalysisEvent || effectiveTeamEvent}
+                  participant={currentParticipantInsights}
+                  onClose={() => setParticipantPromptAnalysisOpen(false)}
+                  onRetryParticipantAnalysis={() => {
+                    if (timeTeamIdx === null || !(effectiveTeamAnalysisEvent || effectiveTeamEvent)) return;
+                    void runParticipantPromptQualityLabAnalysis((effectiveTeamAnalysisEvent || effectiveTeamEvent).id, timeTeamIdx, {
+                      force: true,
+                      sourceEvent: effectiveTeamAnalysisEvent || effectiveTeamEvent,
+                    });
+                  }}
+                />
+              ) : (
+                <ParticipantInsightsPanel
+                  evento={effectiveTeamAnalysisEvent || effectiveTeamEvent}
+                  participant={currentParticipantInsights}
+                  compact
+                  onClose={() => setParticipantPromptAnalysisOpen(false)}
+                  onRetryParticipantAnalysis={() => {
+                    if (timeTeamIdx === null || !(effectiveTeamAnalysisEvent || effectiveTeamEvent)) return;
+                    void runParticipantJourneyAnalysis((effectiveTeamAnalysisEvent || effectiveTeamEvent).id, timeTeamIdx, {
+                      force: true,
+                      sourceEvent: effectiveTeamAnalysisEvent || effectiveTeamEvent,
+                    });
+                  }}
+                />
+              )}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
       <Modal
         open={Boolean(studentResourcePreview)}
         onClose={() => setStudentResourcePreview(null)}
@@ -7714,6 +9217,7 @@ function App() {
           event={selectedEvent}
           activeView={facilitatorToolView}
           apiConfigured={apiConfigured}
+          promptQualityModel={getEventPromptQualityModel(selectedEvent)}
           announcement={selectedEventLatestAnnouncement}
           announcementCount={selectedEventAnnouncements.length}
           timer={selectedEventTimer}
@@ -7722,6 +9226,10 @@ function App() {
           timerNotice={selectedEventTimerNotice}
           timerMinutesInput={timerMinutesInput}
           onChangeTimerMinutes={setTimerMinutesInput}
+          onChangePromptQualityModel={(nextModel) => {
+            if (!selectedEvent) return;
+            handleSetPromptQualityModel(selectedEvent.id, nextModel);
+          }}
           onChangeView={setFacilitatorToolView}
           onClose={() => {
             setFacilitatorToolsOpen(false);
@@ -7758,6 +9266,40 @@ function App() {
           onChangeTokenPolicyCustomInput={setTokenPolicyCustomInput}
           onSaveMissionTokenPolicy={handleSaveMissionTokenPolicy}
         />
+      ) : null}
+
+      {screen === "facilitador" && participantInsightsDrawerState.open && selectedParticipantInsights ? (
+        <div className="side-sheet-backdrop" onClick={handleCloseParticipantInsightsDrawer}>
+          <aside
+            className={`side-sheet side-sheet-right ${effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? "prompt-quality-lab-drawer" : "participant-insights-drawer"}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="side-sheet-body participant-insights-drawer-body">
+              {effectivePromptQualityModel === PROMPT_QUALITY_MODEL_2 ? (
+                <PromptQualityLabPanel
+                  evento={effectiveFacilitadorEvent}
+                  participant={selectedParticipantInsights}
+                  onClose={handleCloseParticipantInsightsDrawer}
+                  onSelectParticipant={(teamIdx) => setParticipantInsightsDrawerState({ open: true, teamIdx })}
+                  onRetryParticipantAnalysis={(teamIdx) => {
+                    handleRetryParticipantAnalysis(teamIdx, PROMPT_QUALITY_MODEL_2);
+                  }}
+                />
+              ) : (
+                <ParticipantInsightsPanel
+                  evento={effectiveFacilitadorEvent}
+                  participant={selectedParticipantInsights}
+                  compact
+                  onClose={handleCloseParticipantInsightsDrawer}
+                  onRetryParticipantAnalysis={() => {
+                    if (participantInsightsDrawerState.teamIdx === null) return;
+                    handleRetryParticipantAnalysis(participantInsightsDrawerState.teamIdx, PROMPT_QUALITY_MODEL_1);
+                  }}
+                />
+              )}
+            </div>
+          </aside>
+        </div>
       ) : null}
 
       <Modal open={tokenLimitModalOpen} onClose={() => setTokenLimitModalOpen(false)} small className="token-limit-modal">

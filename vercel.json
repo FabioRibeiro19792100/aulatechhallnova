@@ -1,11 +1,11 @@
 {
   "framework": "vite",
   "functions": {
-    "api/state/index.js": { "maxDuration": 60 },
     "api/attachments/extract.js": { "maxDuration": 30 },
     "api/openai/chat.js": { "maxDuration": 60 },
     "api/openai/responses.js": { "maxDuration": 60 },
-    "api/openai/responses/stream.js": { "maxDuration": 60 }
+    "api/openai/responses/stream.js": { "maxDuration": 60 },
+    "api/event/[eventId]/dashboard.js": { "maxDuration": 30 }
   },
   "rewrites": [
     {

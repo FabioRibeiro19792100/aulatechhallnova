@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import {
   FileText, SlidersHorizontal, Users, Code2, LayoutDashboard, BookOpen, MessageSquareText,
-  Monitor, Map, Coins, Sparkles, CircleAlert, ArrowLeft, X,
+  Monitor, Map, Coins, Sparkles, CircleAlert, ArrowLeft, X, GraduationCap,
 } from "lucide-react";
 import {
   getScreenShareState,
@@ -51,6 +51,8 @@ export function FacilitatorTabLabel({ tab }) {
       ? LayoutDashboard
       : tab === "missoes"
         ? BookOpen
+        : tab === "participantes"
+          ? GraduationCap
         : tab === "anamnese"
           ? FileText
           : MessageSquareText;
@@ -60,7 +62,15 @@ export function FacilitatorTabLabel({ tab }) {
         <Icon strokeWidth={1.6} />
       </span>
       <span>
-        {tab === "dashboard" ? "Dashboard" : tab === "missoes" ? "Missões" : tab === "anamnese" ? "Anamnese" : "Prompts"}
+        {tab === "dashboard"
+          ? "Dashboard"
+          : tab === "missoes"
+            ? "Missões"
+            : tab === "participantes"
+              ? "Participantes"
+              : tab === "anamnese"
+                ? "Anamnese"
+                : "Prompts"}
       </span>
     </>
   );
@@ -554,6 +564,7 @@ export function FacilitatorToolsDrawer({
   event,
   activeView,
   apiConfigured,
+  promptQualityModel,
   announcement,
   announcementCount,
   timer,
@@ -562,6 +573,7 @@ export function FacilitatorToolsDrawer({
   timerNotice,
   timerMinutesInput,
   onChangeTimerMinutes,
+  onChangePromptQualityModel,
   onChangeView,
   onClose,
   onOpenConfig,
@@ -590,6 +602,12 @@ export function FacilitatorToolsDrawer({
       title: "Mensagem para a turma",
       meta: announcementCount ? `${announcementCount} mensagem(ns)` : "Nenhum aviso ativo",
       icon: MessageSquareText,
+    },
+    {
+      id: FACILITATOR_TOOL_VIEWS.SCREEN,
+      title: "Projeção de tela",
+      meta: screenShare?.active ? "Transmissão ao vivo" : "Tela inativa",
+      icon: Monitor,
     },
     {
       id: FACILITATOR_TOOL_VIEWS.TIMER,
@@ -662,6 +680,27 @@ export function FacilitatorToolsDrawer({
                   <button className={`btn btn-sm topbar-api-btn${apiConfigured ? " is-connected" : ""}`} onClick={onOpenConfig}>
                     {apiConfigured ? "Ver configuração" : "Configurar IA"}
                   </button>
+                  {event ? (
+                    <div className="fac-tools-config-block">
+                      <div className="fac-tools-inline-label">Modelo da análise de prompts</div>
+                      <div className="inline-choice-row event-mode-row">
+                        <button
+                          type="button"
+                          className={`choice-pill${promptQualityModel === "model1" ? " active" : ""}`}
+                          onClick={() => onChangePromptQualityModel?.("model1")}
+                        >
+                          Modelo 1
+                        </button>
+                        <button
+                          type="button"
+                          className={`choice-pill${promptQualityModel === "model2" ? " active" : ""}`}
+                          onClick={() => onChangePromptQualityModel?.("model2")}
+                        >
+                          Modelo 2
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </section>
               ) : null}
 
@@ -676,6 +715,16 @@ export function FacilitatorToolsDrawer({
                     <MessageSquareText size={14} strokeWidth={1.7} aria-hidden="true" />
                     {announcementCount ? "Nova mensagem" : "Criar mensagem"}
                   </button>
+                </section>
+              ) : null}
+
+              {activeView === FACILITATOR_TOOL_VIEWS.SCREEN ? (
+                <section className="fac-tools-section">
+                  <FacilitatorScreenSharePanel
+                    event={event}
+                    screenShare={screenShare}
+                    onPublishState={onPublishScreenShare}
+                  />
                 </section>
               ) : null}
 

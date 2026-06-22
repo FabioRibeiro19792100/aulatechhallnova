@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, Users, WandSparkles, Waypoints, X } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, ChevronDown, CircleAlert, Clock3, Code2, Coins, Copy, FileText, FileStack, FolderOpen, GraduationCap, HardDrive, LayoutDashboard, LifeBuoy, ListChecks, Map as MapIcon, Menu, MessageSquareText, Monitor, Newspaper, Paperclip, ReceiptText, RotateCcw, SlidersHorizontal, Sparkles, ThumbsDown, ThumbsUp, Trash2, Users, WandSparkles, Waypoints, X } from "lucide-react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { createClient } from "@supabase/supabase-js";
 import MarkdownMessage from "./MarkdownMessage.jsx";
@@ -264,9 +264,6 @@ function reshapeDashboardExecutionRow(row) {
 }
 
 function buildRunSteps(apiConfigured) {
-  if (apiConfigured) {
-    return [];
-  }
   return SIMULATION_STEPS.map((step, index) => ({
     ...step,
     status: index === 0 ? "active" : "pending",
@@ -1422,6 +1419,12 @@ function modelSupportsReasoning(model = "") {
   return /^gpt-5/i.test(model) || /^o[134]/i.test(model);
 }
 
+function resolveWebSearchRuntimeModel(catalog, selectedModel, webSearchEnabled) {
+  if (!webSearchEnabled) return selectedModel;
+  if (supportsWebSearch(catalog, selectedModel)) return selectedModel;
+  return getDefaultWebSearchModel(catalog);
+}
+
 function resolvePlanningRuntime(model, planningMode = "off") {
   if (planningMode !== "on") {
     return {
@@ -1449,13 +1452,33 @@ function resolvePlanningRuntime(model, planningMode = "off") {
   };
 }
 
-function resolveWebSearchRuntimeModel(catalog, selectedModel, webSearchEnabled) {
-  if (!webSearchEnabled) return selectedModel;
-  if (supportsWebSearch(catalog, selectedModel)) return selectedModel;
-  return getDefaultWebSearchModel(catalog);
+function buildBehaviorOptionsForAiMode(aiMode, {
+  investigateMode = false,
+  webSearchEnabled = false,
+  guidedMode = false,
+} = {}) {
+  if (aiMode === CHAT_AI_MODE) {
+    return {
+      investigateMode,
+      webSearchEnabled,
+    };
+  }
+  if (aiMode === CODING_AI_MODE) {
+    return {
+      guidedMode,
+    };
+  }
+  return {};
 }
 
-function buildPromptApplied({ mission, input, acao, historyContext, planningMode = "off", behaviorOptions = {} }) {
+function buildPromptApplied({
+  mission,
+  input = "",
+  acao,
+  historyContext,
+  planningMode = "off",
+  behaviorOptions = {},
+}) {
   const historyBlock = historyContext.length
     ? `\n\nContexto anterior desta missao:\n${historyContext
         .map(
@@ -1468,8 +1491,12 @@ function buildPromptApplied({ mission, input, acao, historyContext, planningMode
     ? "Diretriz da rodada: o time escreveu a propria instrucao livremente, sem usar uma acao rapida predefinida."
     : `Acao selecionada: ${getActionLabel(acao)}.`;
   const aiMode = getMissionAiMode(mission);
-  const systemPrompt = getSystemPrompt(aiMode, planningMode, behaviorOptions);
-  return [systemPrompt, actionBlock]
+  const systemPrompt = getSystemPrompt(aiMode, planningMode, buildBehaviorOptionsForAiMode(aiMode, behaviorOptions));
+  const htmlPrototypeHint =
+    aiMode === CODING_AI_MODE && isHtmlPrototypeRequest(input) && !requestsExplicitNonHtmlStack(input)
+      ? "Preferencia desta rodada: como o pedido parece um prototipo visual, interface web leve ou jogo simples, priorize um unico arquivo HTML autocontido com CSS e JavaScript embutidos, pronto para abrir no navegador. So escolha outra linguagem ou stack se o usuario pedir explicitamente."
+      : "";
+  return [systemPrompt, htmlPrototypeHint, actionBlock]
     .filter(Boolean)
     .join("\n\n")
     .concat(historyBlock);
@@ -1681,7 +1708,12 @@ function truncateForAnalysis(text = "", limit = 1800) {
 
 function isHtmlPrototypeRequest(input = "") {
   const normalized = `${input || ""}`.toLowerCase();
-  return /(front[\s-]?end|html|css|landing page|landing|pagina|página|site|webapp|web app|interface|ui|tela|prototype|prot[oó]tipo|componente visual)/i.test(normalized);
+  return /(front[\s-]?end|html|css|landing page|landing|pagina|página|site|webapp|web app|interface|ui|tela|prototype|prot[oó]tipo|componente visual|jogo|game|tic[\s-]?tac[\s-]?toe|jogo da velha|quiz|simulador|calculadora|mini app|mini aplicativo|dashboard simples)/i.test(normalized);
+}
+
+function requestsExplicitNonHtmlStack(input = "") {
+  const normalized = `${input || ""}`.toLowerCase();
+  return /(em python|use python|fa[çc]a em python|em java|use java|fa[çc]a em java|em c#|use c#|fa[çc]a em c#|em go|use go|fa[çc]a em go|em rust|use rust|fa[çc]a em rust|em react native|use react native|em flutter|use flutter|em swift|use swift|em kotlin|use kotlin|api em|backend em|script em python|cli em python)/i.test(normalized);
 }
 
 function inferArtifactExtension(language = "") {
@@ -2392,7 +2424,15 @@ function detectWebSearchUsage(data) {
   return hasWebSearchOutput || extractResponsesCitations(data).length > 0;
 }
 
-async function fetchResponsesCompletion({ model, instructions, input, previousResponseId, reasoningEffort, tools, toolChoice }) {
+async function fetchResponsesCompletion({
+  model,
+  instructions,
+  input,
+  previousResponseId,
+  reasoningEffort,
+  tools,
+  toolChoice,
+}) {
   const requestBody = {
     model,
     instructions,
@@ -2710,6 +2750,9 @@ function App() {
     chatModel: initialLocalStore.chatModel || initialLocalStore.model || DEFAULT_CHAT_MODEL,
     codingModel: initialLocalStore.codingModel || DEFAULT_CODING_MODEL,
     planningMode: initialLocalStore.planningMode || "off",
+    chatInvestigateMode: Boolean(initialLocalStore.chatInvestigateMode),
+    chatWebSearchEnabled: Boolean(initialLocalStore.chatWebSearchEnabled),
+    codingGuidedMode: Boolean(initialLocalStore.codingGuidedMode),
   }));
   const [screen, setScreen] = useState(initialIsSurvivalRoute ? "survival" : initialParticipantSession.screen || "home");
   const [facSelectedId, setFacSelectedId] = useState(null);
@@ -2870,6 +2913,7 @@ function App() {
   const [survivalRunState, setSurvivalRunState] = useState(null);
   const [survivalPendingPrompt, setSurvivalPendingPrompt] = useState("");
   const [survivalError, setSurvivalError] = useState("");
+  const [survivalClearConfirmOpen, setSurvivalClearConfirmOpen] = useState(false);
   const survivalLiveAnswerRef = useRef(null);
   const survivalFileInputRef = useRef(null);
   const [serverConfig, setServerConfig] = useState({
@@ -3968,6 +4012,9 @@ function App() {
   const currentMissionAiMode = currentMission ? getMissionAiMode(currentMission) : CHAT_AI_MODE;
   const currentMissionAttachmentPolicy = buildMissionAttachmentPolicy(currentMission);
   const isCurrentGuidedMission = isGuidedMission(currentMission);
+  const chatInvestigateModeEnabled = Boolean(store.chatInvestigateMode);
+  const chatWebSearchEnabled = Boolean(store.chatWebSearchEnabled);
+  const codingGuidedModeEnabled = Boolean(store.codingGuidedMode);
   const composerModelOptions = getModelsForMode(modelCatalog, currentMissionAiMode);
   const storedModelForMode =
     currentMissionAiMode === CODING_AI_MODE ? store.codingModel : store.chatModel;
@@ -3986,6 +4033,15 @@ function App() {
   const survivalExecs = survivalSelectedMode ? survivalConversations[survivalSelectedMode] || [] : [];
   const survivalTokenEntries = survivalSelectedMode ? survivalTokenLedger[survivalSelectedMode] || [] : [];
   const survivalDraft = survivalSelectedMode ? survivalDrafts[survivalSelectedMode] || "" : "";
+  const currentBehaviorOptions =
+    currentMissionAiMode === CHAT_AI_MODE
+      ? {
+          investigateMode: chatInvestigateModeEnabled,
+          webSearchEnabled: chatWebSearchEnabled,
+        }
+      : {
+          guidedMode: codingGuidedModeEnabled,
+        };
   const survivalBehaviorOptions =
     survivalSelectedMode === CHAT_AI_MODE
       ? {
@@ -4683,6 +4739,33 @@ function App() {
     setConfigForm((current) => ({ ...current, [storeKey]: nextModel }));
   }
 
+  function handleQuickChatBehaviorChange(key, value) {
+    setStore((current) => ({ ...current, [key]: value }));
+  }
+
+  function requestEnableMissionWebSearch() {
+    openConfirm(
+      "Ativar pesquisa na web?",
+      "Esse modo consulta fontes externas reais e atuais para responder. Ele pode aumentar latência e consumo de tokens. Deseja continuar?",
+      () => {
+        setStore((current) => ({ ...current, chatWebSearchEnabled: true }));
+      },
+      { confirmTone: "primary", confirmActionLabel: "Ativar busca" },
+    );
+  }
+
+  function handleMissionWebSearchToggle() {
+    if (chatWebSearchEnabled) {
+      handleQuickChatBehaviorChange("chatWebSearchEnabled", false);
+      return;
+    }
+    requestEnableMissionWebSearch();
+  }
+
+  function handleQuickCodingGuidedModeChange(value) {
+    setStore((current) => ({ ...current, codingGuidedMode: value }));
+  }
+
   function handleQuickPlanningModeChange(nextPlanningMode) {
     setStore((current) => ({ ...current, planningMode: nextPlanningMode }));
     setConfigForm((current) => ({ ...current, planningMode: nextPlanningMode }));
@@ -4847,6 +4930,7 @@ function App() {
     setSurvivalAccessGranted(false);
     setSurvivalPasswordInput("");
     setSurvivalAuthError("");
+    setSurvivalClearConfirmOpen(false);
     setSurvivalRunning(false);
     setSurvivalRunState(null);
     setSurvivalPendingPrompt("");
@@ -4860,6 +4944,7 @@ function App() {
     const changedMode = survivalSelectedMode && survivalSelectedMode !== aiMode;
     setSurvivalSelectedMode(aiMode);
     setSurvivalError("");
+    setSurvivalClearConfirmOpen(false);
     if (changedMode) {
       setSurvivalModeNotice({
         open: true,
@@ -4919,8 +5004,27 @@ function App() {
     }));
   }
 
+  function handleToggleSurvivalCodingGuidedMode() {
+    setSurvivalBehaviorModes((current) => ({
+      ...current,
+      [CODING_AI_MODE]: {
+        ...(current[CODING_AI_MODE] || {}),
+        guided: !current[CODING_AI_MODE]?.guided,
+      },
+    }));
+  }
+
   function handleToggleSurvivalTheme() {
     setSurvivalTheme((current) => (current === SURVIVAL_THEME_DARK ? SURVIVAL_THEME_LIGHT : SURVIVAL_THEME_DARK));
+  }
+
+  function handleRequestClearSurvivalConversation() {
+    if (!survivalSelectedMode || survivalRunning) return;
+    setSurvivalClearConfirmOpen(true);
+  }
+
+  function handleCancelClearSurvivalConversation() {
+    setSurvivalClearConfirmOpen(false);
   }
 
   function handleClearSurvivalConversation() {
@@ -4940,6 +5044,7 @@ function App() {
     setSurvivalAttachments([]);
     setSurvivalRunState(null);
     setSurvivalError("");
+    setSurvivalClearConfirmOpen(false);
     setSurvivalThreadResetNonce((current) => current + 1);
     saveSurvivalStore({
       authenticated: survivalAccessGranted,
@@ -7290,6 +7395,8 @@ function App() {
       reasoningDetails: null,
       usedHistory: historyContext.length > 0,
       simulationMode: apiConfigured ? "openai-live" : "mock-stream",
+      aiMode,
+      behaviorOptions: currentBehaviorOptions,
     });
 
     const previewWindow = null;
@@ -7335,18 +7442,22 @@ function App() {
             attachments,
             acao,
             model: selectedModel,
+            modelCatalog,
             modelPricing: modelPricingMap,
             planningMode: planningModeOverride,
+            behaviorOptions: currentBehaviorOptions,
             historyContext,
             previousResponseId: previousCodingResponseId,
             onDelta: apiConfigured
               ? (nextText) => {
                   liveAnswerRef.current?.pushAnswer(nextText);
+                  setRunState((current) => (current ? { ...current, displayedOutput: nextText } : current));
                 }
               : undefined,
             onReasoning: apiConfigured
               ? (nextReasoning) => {
                   liveAnswerRef.current?.pushReasoning(nextReasoning);
+                  setRunState((current) => (current ? { ...current, reasoningText: nextReasoning } : current));
                 }
               : undefined,
           })
@@ -7357,6 +7468,7 @@ function App() {
             model: selectedModel,
             modelPricing: modelPricingMap,
             planningMode: planningModeOverride,
+            behaviorOptions: currentBehaviorOptions,
             historyContext,
           });
 
@@ -7465,6 +7577,9 @@ function App() {
         planningMode: planningModeOverride,
         planningModeReal: Boolean(result.planningModeReal),
         planningResolution: result.planningResolution || "off",
+        behaviorOptions: currentBehaviorOptions,
+        citations: result.citations || [],
+        webSearchUsed: Boolean(result.webSearchUsed),
       };
 
       if (isTrainingEvent) {
@@ -7752,7 +7867,7 @@ function App() {
                       onClick={() => handleSelectSurvivalMode(CHAT_AI_MODE)}
                       disabled={survivalRunning}
                     >
-                      <MessageSquareText size={15} strokeWidth={1.7} />
+                      <MessageSquareText size={18} strokeWidth={1.45} />
                       Chat
                     </button>
                     <button
@@ -7761,7 +7876,7 @@ function App() {
                       onClick={() => handleSelectSurvivalMode(CODING_AI_MODE)}
                       disabled={survivalRunning}
                     >
-                      <Code2 size={15} strokeWidth={1.7} />
+                      <Code2 size={18} strokeWidth={1.45} />
                       Codex
                     </button>
                   </div>
@@ -8688,6 +8803,24 @@ function App() {
                             onApprovePlanning={() => void handleApprovePlannedMission()}
                             onAdjustPlanning={handleAdjustPlannedMission}
                           />
+                          <div className="composer-behavior-toolbar">
+                            <div className="composer-behavior-row">
+                              {currentMissionAiMode === CHAT_AI_MODE ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className={`behavior-toggle-btn is-web${chatWebSearchEnabled ? " is-on" : ""}`}
+                                    aria-pressed={chatWebSearchEnabled}
+                                    onClick={handleMissionWebSearchToggle}
+                                    disabled={running || planningApprovalState.open}
+                                  >
+                                    <Newspaper size={14} strokeWidth={1.8} />
+                                    Pesquisar na web
+                                  </button>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
                           <div className="prompt-entry-shell">
                             {missionAttachments.length ? (
                               <div className="composer-attachments">

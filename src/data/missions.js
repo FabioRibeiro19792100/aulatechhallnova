@@ -29,7 +29,9 @@ function getBehaviorPromptAddendum(aiMode, {
     const parts = [];
     if (planningMode === "on") {
       if (investigateMode) {
-        parts.push("Se faltar uma informacao critica para um plano confiavel, encerre com no maximo uma pergunta objetiva de clarificacao.");
+        parts.push(
+          "Se faltar uma informacao critica para um plano confiavel, encerre com no maximo uma pergunta objetiva de clarificacao.",
+        );
       }
       if (webSearchEnabled) {
         parts.push(
@@ -78,6 +80,7 @@ function getBehaviorPromptAddendum(aiMode, {
 
   return "";
 }
+
 export const SYSTEM_PROMPTS = {
   [CHAT_AI_MODE]: {
     off: [

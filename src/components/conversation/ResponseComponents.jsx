@@ -1,5 +1,5 @@
 import { forwardRef, useState, useEffect, useRef, useCallback, useImperativeHandle } from "react";
-import { ExternalLink, Newspaper } from "lucide-react";
+import { ExternalLink, Newspaper, Sparkles } from "lucide-react";
 import MarkdownMessage from "../../MarkdownMessage.jsx";
 
 export function ProcessingPipeline({ processingSteps }) {
@@ -138,6 +138,58 @@ export function ReasoningPanel({ text, live = false }) {
     </div>
   );
 }
+
+function normalizeOperationalStep(step) {
+  return `${step || ""}`
+    .trim()
+    .replace(/^[-*]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "");
+}
+
+function extractOperationalSteps(text) {
+  const normalized = `${text || ""}`.trim();
+  if (!normalized) return [];
+  const blocks = normalized
+    .split(/\n\s*\n/g)
+    .flatMap((block) => block.split("\n"))
+    .map(normalizeOperationalStep)
+    .filter(Boolean);
+  const deduped = [];
+  const seen = new Set();
+  blocks.forEach((block) => {
+    const key = block.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    deduped.push(block);
+  });
+  return deduped.slice(0, 6);
+}
+
+export function OperationalStepsPanel({ text, live = false }) {
+  const derivedSteps = extractOperationalSteps(text);
+  const steps = derivedSteps;
+  if (!steps.length) return null;
+
+  return (
+    <div className={`operational-steps-panel${live ? " is-live" : ""}`}>
+      <div className="operational-steps-head">
+        <div className="operational-steps-badge">
+          <Sparkles size={13} strokeWidth={1.8} />
+          <span>{live ? "Etapas em andamento" : "Etapas usadas"}</span>
+        </div>
+      </div>
+      <div className="operational-steps-list">
+        {steps.map((step, index) => (
+          <div className="operational-step-item" key={`${step}-${index}`}>
+            <span className="operational-step-index">{String(index + 1).padStart(2, "0")}</span>
+            <span className="operational-step-copy">{step}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 export function SourceListPanel({ citations = [], used = false, live = false }) {
   if (!used && !citations.length) return null;

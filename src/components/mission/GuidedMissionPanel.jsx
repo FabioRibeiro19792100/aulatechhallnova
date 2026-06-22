@@ -375,10 +375,11 @@ export function GuidedMissionPanel({
                     type="button"
                     key={`pack-${doc.name}`}
                     className={`guided-doc-chip ${chipKind}`}
+                    title={doc.name}
                     onClick={() => setOpenDoc({ name: doc.name, text: doc.text, kind: doc.kind || "md" })}
                   >
                     <FileText size={12} strokeWidth={1.9} />
-                    <span>{doc.name}</span>
+                    <span>{doc.label || doc.name}</span>
                   </button>
                 );
               })}
@@ -438,14 +439,6 @@ export function GuidedMissionPanel({
                     <div className="finetuning-case-block" key={block.label}>
                       <div className="finetuning-case-block-label">{block.label}</div>
                       <p>{block.text}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="finetuning-metrics">
-                  {FINE_TUNING_CASE.metrics.map((metric) => (
-                    <div className="finetuning-metric" key={metric.label}>
-                      <div className="finetuning-metric-value">{metric.value}</div>
-                      <div className="finetuning-metric-label">{metric.label}</div>
                     </div>
                   ))}
                 </div>

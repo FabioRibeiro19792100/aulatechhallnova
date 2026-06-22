@@ -50,6 +50,47 @@
   }
   .brand .dot{width:8px; height:8px; background:var(--responder); border-radius:50%;}
   .brand b{color:var(--ink); font-weight:600; letter-spacing:.16em;}
+  .brand-logo{
+    display:inline-block;
+    width:72px; height:22px;
+    background-image:url('data:image/png;base64,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');
+    background-repeat:no-repeat;
+    background-position:left center;
+    background-size:contain;
+    image-rendering:auto;
+    flex:0 0 auto;
+  }
+
+  /* Setas de navegação laterais */
+  .nav-arrow{
+    position:fixed;
+    top:50%;
+    transform:translateY(-50%);
+    z-index:50;
+    width:48px;
+    height:48px;
+    border-radius:50%;
+    border:1px solid var(--line);
+    background:var(--card);
+    color:var(--ink);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    box-shadow:0 8px 22px rgba(15,23,42,.10), 0 2px 6px rgba(15,23,42,.06);
+    transition:background .15s ease, border-color .15s ease, transform .15s ease, opacity .15s ease;
+  }
+  .nav-arrow:hover{background:var(--paper); border-color:var(--ink); transform:translateY(-50%) scale(1.04);}
+  .nav-arrow:disabled, .nav-arrow.is-disabled{opacity:.30; cursor:default; box-shadow:none; transform:translateY(-50%);}
+  .nav-arrow:disabled:hover, .nav-arrow.is-disabled:hover{background:var(--card); border-color:var(--line); transform:translateY(-50%);}
+  .nav-arrow.left{left:18px;}
+  .nav-arrow.right{right:18px;}
+  .nav-arrow svg{display:block; pointer-events:none;}
+  @media (max-width:760px){
+    .nav-arrow{width:40px; height:40px;}
+    .nav-arrow.left{left:8px;}
+    .nav-arrow.right{right:8px;}
+  }
 
   .kicker{
     font-family:var(--mono); font-size:12px; letter-spacing:.14em;
@@ -282,7 +323,7 @@
 
     <!-- 0. CAPA -->
     <section class="slide active" data-slide="0">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Missão de RAG</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Missão de RAG</span></div>
       <div class="cover-acronym">R<span>A</span>G</div>
       <div class="cover-sub">Retrieval · Augmented · Generation</div>
       <div class="cover-line">RAG conecta a IA a uma <em>base externa</em>: ela <em>busca o trecho certo</em>, monta o contexto e responde <em>citando a fonte</em>.</div>
@@ -296,7 +337,7 @@
 
     <!-- 1. SEM RAG vs COM RAG -->
     <section class="slide" data-slide="1">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· O contraste</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· O contraste</span></div>
       <div class="kicker"><span class="tick"></span><span>Por que RAG existe</span></div>
       <h2>Duas IAs respondendo a mesma pergunta.</h2>
       <div class="lead">A diferença não é o modelo — é se ele <strong>consulta documentos</strong> ou não.</div>
@@ -325,7 +366,7 @@
 
     <!-- 2. TRÊS PASSOS -->
     <section class="slide" data-slide="2">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· O pipeline</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· O pipeline</span></div>
       <div class="kicker"><span class="tick"></span><span>Visão geral</span></div>
       <h2>RAG funciona em três passos.</h2>
       <div class="lead">Um deles acontece <strong>uma vez</strong>. Os outros dois, <strong>a cada pergunta</strong>.</div>
@@ -359,7 +400,7 @@
 
     <!-- 3. BASE DE CONHECIMENTO -->
     <section class="slide" data-slide="3">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 1/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 1/10</span></div>
       <div class="kicker"><span class="tag p">Preparar</span><span>Termo 1</span></div>
       <div class="split">
         <div>
@@ -387,7 +428,7 @@
 
     <!-- 4. INDEXAÇÃO -->
     <section class="slide" data-slide="4">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 2/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 2/10</span></div>
       <div class="kicker"><span class="tag p">Preparar</span><span>Termo 2</span></div>
       <div class="split">
         <div>
@@ -417,7 +458,7 @@
 
     <!-- 5. TRECHO -->
     <section class="slide" data-slide="5">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 3/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 3/10</span></div>
       <div class="kicker"><span class="tag p">Preparar</span><span>Termo 3</span></div>
       <div class="split">
         <div>
@@ -445,7 +486,7 @@
 
     <!-- 6. EMBEDDING -->
     <section class="slide" data-slide="6">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 4/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 4/10</span></div>
       <div class="kicker"><span class="tag p">Preparar</span><span>Termo 4</span></div>
       <div class="split">
         <div>
@@ -472,7 +513,7 @@
 
     <!-- 7. BUSCA SEMÂNTICA -->
     <section class="slide" data-slide="7">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 5/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 5/10</span></div>
       <div class="kicker"><span class="tag b">Buscar</span><span>Termo 5</span></div>
       <div class="split">
         <div>
@@ -501,7 +542,7 @@
 
     <!-- 8. RECUPERAÇÃO -->
     <section class="slide" data-slide="8">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 6/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 6/10</span></div>
       <div class="kicker"><span class="tag b">Buscar</span><span>Termo 6</span></div>
       <div class="split">
         <div>
@@ -530,7 +571,7 @@
 
     <!-- 9. CONTEXTO -->
     <section class="slide" data-slide="9">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 7/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 7/10</span></div>
       <div class="kicker"><span class="tag b">Buscar</span><span>Termo 7</span></div>
       <div class="split">
         <div>
@@ -556,7 +597,7 @@
 
     <!-- 10. GERAÇÃO -->
     <section class="slide" data-slide="10">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 8/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 8/10</span></div>
       <div class="kicker"><span class="tag r">Responder</span><span>Termo 8</span></div>
       <div class="split">
         <div>
@@ -582,7 +623,7 @@
 
     <!-- 11. CITAÇÃO -->
     <section class="slide" data-slide="11">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 9/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 9/10</span></div>
       <div class="kicker"><span class="tag r">Responder</span><span>Termo 9</span></div>
       <div class="split">
         <div>
@@ -608,7 +649,7 @@
 
     <!-- 12. ALUCINAÇÃO -->
     <section class="slide" data-slide="12">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Vocabulário 10/10</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Vocabulário 10/10</span></div>
       <div class="kicker"><span class="tag r">Responder</span><span>Termo 10</span></div>
       <div class="split">
         <div>
@@ -635,7 +676,7 @@
 
     <!-- 13. RECAP -->
     <section class="slide" data-slide="13">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Recapitulando</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Recapitulando</span></div>
       <div class="kicker"><span class="tick"></span><span>Os 10 termos, agrupados</span></div>
       <h2>Os 10 termos nos 3 passos.</h2>
       <div class="recap">
@@ -680,7 +721,7 @@
 
     <!-- 14. COMO FAZER A MISSÃO -->
     <section class="slide" data-slide="14">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Como fazer a missão</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Como fazer a missão</span></div>
       <div class="kicker"><span class="tick"></span><span>Antes de começar</span></div>
       <h2>Como você vai fazer esta missão.</h2>
       <div class="lead">A missão é guiada: a IA conduz <strong>11 etapas</strong> (E0 → E10) sobre a base da NexaLog já indexada. Os passos abaixo te orientam.</div>
@@ -726,7 +767,7 @@
 
     <!-- 15. SUA VEZ -->
     <section class="slide" data-slide="15">
-      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Sua vez</span></div>
+      <div class="brand"><span class="dot"></span><span class="brand-logo" aria-label="Tech Hall" role="img"></span><span>· Sua vez</span></div>
       <div class="kicker"><span class="tick"></span><span>Hora de praticar</span></div>
       <h1>Agora você vê tudo isso rodar — passo a passo, com a NexaLog.</h1>
       <div class="lead">A IA vai conduzir uma etapa por vez. Você vai ver os trechos, a busca, o contexto montado, a resposta citada e o teste de limite. <strong>Leia as duas vozes</strong> na lateral: o que a IA faz e a boa prática para você.</div>
@@ -742,8 +783,13 @@
     </section>
 
   </div>
+  <button type="button" class="nav-arrow left" id="navPrev" aria-label="Slide anterior">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+  </button>
+  <button type="button" class="nav-arrow right" id="navNext" aria-label="Próximo slide">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+  </button>
 </div>
-
 <script>
 (function(){
   const slides = Array.from(document.querySelectorAll('.slide'));
@@ -784,9 +830,21 @@
     idx = next;
     slides[idx].classList.add('active');
     renderProgress();
+    syncArrows();
   }
 
-  document.addEventListener('keydown', (e) => {
+  function syncArrows(){
+    const prev = document.getElementById('navPrev');
+    const next = document.getElementById('navNext');
+    if (prev) prev.classList.toggle('is-disabled', idx <= 0);
+    if (next) next.classList.toggle('is-disabled', idx >= slides.length - 1);
+  }
+  const navPrev = document.getElementById('navPrev');
+  const navNext = document.getElementById('navNext');
+  if (navPrev) navPrev.addEventListener('click', (e) => { e.stopPropagation(); go(idx - 1); });
+  if (navNext) navNext.addEventListener('click', (e) => { e.stopPropagation(); go(idx + 1); });
+
+    document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); go(idx + 1); }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(idx - 1); }
   });
@@ -812,6 +870,7 @@
   window.addEventListener('resize', fit);
   fit();
   renderProgress();
+  syncArrows();
 })();
 </script>
 </body>

@@ -1959,6 +1959,33 @@ async function gerarExplicacaoGuiadaIA({ model, modelPricing, mission, input, at
     aiMode === CODING_AI_MODE
       ? "Missão em modo coding: enfatize implementação, debugging, arquitetura e refatoração."
       : "Missão em modo chat: enfatize clareza estrutural, intenção do prompt e qualidade da resposta.",
+    [
+      "Vocabulário canônico OBRIGATÓRIO (em todas as seções e no glossário). Mantenha o mesmo termo do começo ao fim, sem sinônimos. Esses termos estão alinhados com a Missão de RAG e servem para o aluno construir um modelo mental único entre missões:",
+      "- 'documento anexado' (ou 'documento de referência'). NUNCA use 'arquivo', 'upload', 'PDF', 'attachment'.",
+      "- 'trecho' para um pedaço do documento. NUNCA use 'snippet', 'fragmento', 'parágrafo', 'chunk em português'.",
+      "- 'contexto' para o conjunto pergunta + conteúdo enviado ao modelo. NUNCA use 'input completo', 'prompt cheio'.",
+      "- 'janela de contexto' para o limite de texto que cabe na mensagem.",
+      "- 'resposta ancorada' (ou 'grounded') quando a resposta usa os trechos do documento.",
+      "- 'memória paramétrica' para o conhecimento que o modelo trouxe do treino (sem documento anexado, é a única fonte).",
+      "- 'alucinação' para resposta plausível sem fonte verificável.",
+      "- 'citação' para a indicação de origem (documento, trecho).",
+      "Se precisar introduzir um destes termos no glossário, use exatamente essas definições.",
+    ].join("\n"),
+    attachments.length
+      ? [
+          "Esta rodada teve documento anexado. Trate isto como um RAG simplificado e explique pedagogicamente:",
+          "- O documento foi extraído e inserido inteiro no contexto desta rodada, sem chunking nem busca seletiva.",
+          "- Isso é diferente do RAG completo (Missão 3): lá o sistema primeiro recupera apenas os top-k trechos mais relevantes e injeta só eles na janela de contexto.",
+          "- Se a resposta usou trechos do documento, classifique como 'resposta ancorada' e indique se a citação ficou explícita.",
+          "- Se a resposta extrapolou o documento, identifique no bloco 'outputEvaluation' que isso usou memória paramétrica e sinalize o risco de alucinação no 'executiveSummary.risk'.",
+          "- Em 'nextStep.howToReformulate', oriente o aluno a pedir explicitamente 'cite o trecho do documento' quando a citação não vier.",
+        ].join("\n")
+      : [
+          "Esta rodada NÃO teve documento anexado. Use isto para reforçar o contraste pedagógico:",
+          "- A resposta veio 100% da memória paramétrica do modelo (conhecimento do treino), sem fonte externa.",
+          "- Em 'outputEvaluation', avalie se a resposta soou plausível porém sem fonte — sinalize 'alucinação' como risco quando aplicável.",
+          "- Em 'nextStep.howToReformulate', oriente o aluno a anexar um documento de referência sempre que a resposta precisar de fato verificável da empresa, do contrato ou do material dele.",
+        ].join("\n"),
     `Missao: ${mission.name}`,
     `AI Mode: ${AI_MODE_LABELS[aiMode]}`,
     isFreeInstructionAction(acao)

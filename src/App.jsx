@@ -50,6 +50,7 @@ import {
   normalizeMission, buildHistorySignal, isMeaningfulAnalysisText, normalizeAnalysisItemArray,
   normalizeGlossaryEntries, mergeGlossaryEntries, buildTechnicalAnalysisFallbackBlocks,
   normalizeTechnicalAnalysis,
+  THREAD_SEP, DEFAULT_THREAD_ID, extractBaseMissionId, getThreadMissionId, deriveThreadTitle,
 } from "./utils.js";
 import { STUDENT_RESOURCE_SECTIONS, getStudentResourcePreviewUrl } from "./data/resources.js";
 import { TRAINING_MISSION, AI_MODE_LABELS, SYSTEM_PROMPTS, getSystemPrompt, FIXED_MISSION_TEMPLATE, FIXED_MISSIONS_CATALOG, MOCKS, EXPLICACOES, SIMULATION_STEPS, MISSION_CONCEPTS } from "./data/missions.js";
@@ -82,6 +83,7 @@ const TRAINING_MODE_EVENT = "training";
 const MISSIONS_MODE_EVENT = "missions";
 const CODING_AI_REASONING_EFFORT = "medium";
 const TECHNICAL_ANALYSIS_MODEL = "gpt-4o-mini";
+const THREAD_TITLE_MODEL = "gpt-4o-mini";
 const FACILITATOR_PASSWORD = "camila";
 const SURVIVAL_PASSWORD = "2805";
 const DEFAULT_TOKEN_GRANT_AMOUNT = 15000;
@@ -464,6 +466,7 @@ function makeEvent({ name, desc, rawTeams }) {
     teams,
     missions,
     execucoes: {},
+    threadsByMission: {},
     reflexoes: {},
     questionariosPendentes: {},
     conclusoes: {},
@@ -533,9 +536,28 @@ function getMissionResetAt(evento, teamIdx, missionId) {
 
 function getExecucoes(evento, teamIdx, missionId) {
   const execs = evento.execucoes?.[`${teamIdx}__${missionId}`] || [];
-  const resetAt = getMissionResetAt(evento, teamIdx, missionId);
+  const baseId = extractBaseMissionId(missionId);
+  const resetAt = getMissionResetAt(evento, teamIdx, baseId);
   if (!resetAt) return execs;
   return execs.filter((exec) => exec.ts && exec.ts >= resetAt);
+}
+
+function getThreadsForMission(evento, teamIdx, baseMissionId) {
+  const list = evento?.threadsByMission?.[`${teamIdx}__${baseMissionId}`];
+  return Array.isArray(list) ? list : [];
+}
+
+function countMissionExecsAcrossThreads(evento, teamIdx, baseMissionId) {
+  const prefix = `${teamIdx}__${baseMissionId}`;
+  const map = evento?.execucoes || {};
+  let total = 0;
+  for (const key in map) {
+    if (key === prefix || key.startsWith(`${prefix}${THREAD_SEP}`)) {
+      const list = map[key];
+      if (Array.isArray(list)) total += list.length;
+    }
+  }
+  return total;
 }
 
 function getTrainingRuns(evento, teamIdx) {
@@ -2797,6 +2819,9 @@ function App() {
   );
   const [missionInput, setMissionInput] = useState("");
   const [missionAttachments, setMissionAttachments] = useState([]);
+  // Threads ativas por missão de chat (apenas para missões não-guiadas).
+  // baseMissionId -> threadId; ausente = DEFAULT_THREAD_ID
+  const [activeThreadByMission, setActiveThreadByMission] = useState({});
   const [activePrompt, setActivePrompt] = useState("");
   const [activeAttachments, setActiveAttachments] = useState([]);
   const [running, setRunning] = useState(false);
@@ -3336,6 +3361,7 @@ function App() {
       questionariosPendentes: reKey(teamPayload.questionariosPendentes),
       missionGlossaries: reKey(teamPayload.missionGlossaries),
       preservedMissionUsage: reKey(teamPayload.preservedMissionUsage),
+      threadsByMission: reKey(teamPayload.threadsByMission),
       agentMissionParticipants: {
         ...reKey(teamPayload.agentMissionParticipants),
         ...(teamEvent.agentMissionParticipants || {}),
@@ -3443,10 +3469,27 @@ function App() {
     [currentGuidedMissionState, liveCurrentMission],
   );
   const currentMissionLocked = Boolean(!isTrainingEvent && liveCurrentMission && !liveCurrentMission.unlocked);
+  const currentMissionSupportsThreads = Boolean(
+    currentMission &&
+      !isTrainingEvent &&
+      !isGuidedMission(currentMission) &&
+      getMissionAiMode(currentMission) === CHAT_AI_MODE,
+  );
+  const currentThreadsList = currentMissionSupportsThreads && effectiveTeamEvent
+    ? getThreadsForMission(effectiveTeamEvent, timeTeamIdx, currentMission.id)
+    : [];
+  const currentThreadId = currentMissionSupportsThreads
+    ? activeThreadByMission[currentMission.id] || DEFAULT_THREAD_ID
+    : DEFAULT_THREAD_ID;
+  const currentExecMissionId = currentMission
+    ? currentMissionSupportsThreads
+      ? getThreadMissionId(currentMission.id, currentThreadId)
+      : currentMission.id
+    : null;
   const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
       ? getTrainingRuns(effectiveTeamEvent, timeTeamIdx)
-      : getExecucoes(effectiveTeamEvent, timeTeamIdx, currentMission.id)
+      : getExecucoes(effectiveTeamEvent, timeTeamIdx, currentExecMissionId)
     : [];
   const currentReflexao = currentMission && effectiveTeamEvent && !isTrainingEvent ? getReflexao(effectiveTeamEvent, timeTeamIdx, currentMission.id) : null;
   const currentQuestionarioPendente = currentMission && effectiveTeamEvent && !isTrainingEvent ? isQuestionarioPendente(effectiveTeamEvent, timeTeamIdx, currentMission.id) : false;
@@ -4129,7 +4172,7 @@ function App() {
         updateExecutionAnalysis(
           teamEvent.id,
           timeTeamIdx,
-          isTrainingEvent ? null : currentMission.id,
+          isTrainingEvent ? null : (currentExecMissionId || currentMission.id),
           execId,
           finalTechnicalAnalysis,
           guidedReasoning?.usage || {
@@ -6276,6 +6319,119 @@ function App() {
     showToast("Jornada da missão reiniciada");
   }
 
+  function updateMissionThreadsList(eventId, teamIdx, baseMissionId, updater) {
+    const key = `${teamIdx}__${baseMissionId}`;
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== eventId) return event;
+        const currentList = Array.isArray(event.threadsByMission?.[key]) ? event.threadsByMission[key] : [];
+        const nextList = updater(currentList);
+        return {
+          ...event,
+          threadsByMission: {
+            ...(event.threadsByMission || {}),
+            [key]: nextList,
+          },
+        };
+      }),
+    );
+    void patchTeamStatePerTeamWithFallback(eventId, teamIdx, (payload) => {
+      const existing = payload || {};
+      const currentList = Array.isArray(existing.threadsByMission?.[baseMissionId])
+        ? existing.threadsByMission[baseMissionId]
+        : [];
+      const nextList = updater(currentList);
+      return {
+        ...existing,
+        threadsByMission: {
+          ...(existing.threadsByMission || {}),
+          [baseMissionId]: nextList,
+        },
+      };
+    });
+  }
+
+  function handleNewThread() {
+    if (!currentMissionSupportsThreads || !teamEvent || timeTeamIdx === null || !currentMission) return;
+    const threadId = `th_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const newThread = { id: threadId, title: null, createdAt: new Date().toISOString() };
+    updateMissionThreadsList(teamEvent.id, timeTeamIdx, currentMission.id, (list) => [...list, newThread]);
+    setActiveThreadByMission((current) => ({ ...current, [currentMission.id]: threadId }));
+    setMissionInput("");
+    setMissionAttachments([]);
+    setRunning(false);
+    setRunError("");
+  }
+
+  function handleSelectThread(threadId) {
+    if (!currentMissionSupportsThreads || !currentMission) return;
+    const target = threadId || DEFAULT_THREAD_ID;
+    if (target === currentThreadId) return;
+    setActiveThreadByMission((current) => ({ ...current, [currentMission.id]: target }));
+    setMissionInput("");
+    setMissionAttachments([]);
+    setRunning(false);
+    setRunError("");
+  }
+
+  function handleDeleteThread(threadId) {
+    if (!currentMissionSupportsThreads || !teamEvent || timeTeamIdx === null || !currentMission) return;
+    if (!threadId || threadId === DEFAULT_THREAD_ID) {
+      showToast("A conversa padrão não pode ser apagada.");
+      return;
+    }
+    const composedMissionId = getThreadMissionId(currentMission.id, threadId);
+    const execsKey = `${timeTeamIdx}__${composedMissionId}`;
+    updateMissionThreadsList(teamEvent.id, timeTeamIdx, currentMission.id, (list) =>
+      list.filter((thread) => thread.id !== threadId),
+    );
+    updateEvents((current) =>
+      current.map((event) => {
+        if (event.id !== teamEvent.id) return event;
+        const nextExecs = { ...(event.execucoes || {}) };
+        delete nextExecs[execsKey];
+        return { ...event, execucoes: nextExecs };
+      }),
+    );
+    setActiveThreadByMission((current) => {
+      if (current[currentMission.id] !== threadId) return current;
+      const { [currentMission.id]: _removed, ...rest } = current;
+      return rest;
+    });
+    showToast("Conversa apagada");
+  }
+
+  async function generateThreadTitle({ eventId, teamIdx, baseMissionId, threadId, firstInput }) {
+    if (!firstInput || !threadId || threadId === DEFAULT_THREAD_ID) return;
+    if (!apiConfigured) return;
+    try {
+      const result = await fetchChatCompletion({
+        model: THREAD_TITLE_MODEL,
+        reasoningEffort: undefined,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Você nomeia conversas. Responda com UMA única palavra (um substantivo), em português, sem pontuação, sem aspas e capitalizada.",
+          },
+          {
+            role: "user",
+            content: `Dê um título de uma palavra para o tema desta mensagem:\n"${`${firstInput}`.slice(0, 500)}"`,
+          },
+        ],
+      });
+      const raw = `${result?.output || ""}`.trim();
+      const word = raw.split(/\s+/)[0]?.replace(/[^\p{L}\p{N}]/gu, "") || "";
+      if (!word) return;
+      const titled = word.charAt(0).toUpperCase() + word.slice(1);
+      updateMissionThreadsList(eventId, teamIdx, baseMissionId, (list) =>
+        list.map((thread) => (thread.id === threadId ? { ...thread, title: titled } : thread)),
+      );
+    } catch (err) {
+      console.warn("generateThreadTitle:", err?.message || err);
+    }
+  }
+
   function handleGoToGeneralChat() {
     const missions = effectiveTeamEvent?.missions;
     if (!Array.isArray(missions) || !missions.length) {
@@ -6360,7 +6516,8 @@ function App() {
 
   function updateExecutionAnalysis(eventId, teamIdx, missionId, execId, technicalAnalysis, technicalAnalysisUsage) {
     const isTraining = !missionId;
-    const glossaryMissionId = getAnalysisMissionId(missionId, { isTraining });
+    const baseMissionId = missionId ? extractBaseMissionId(missionId) : null;
+    const glossaryMissionId = getAnalysisMissionId(baseMissionId, { isTraining });
     const baseEvent = events.find((event) => event.id === eventId) || null;
     const currentGlossary = baseEvent ? getMissionGlossary(baseEvent, teamIdx, glossaryMissionId, { isTraining }) : [];
     const normalizedAnalysis = normalizeTechnicalAnalysis(technicalAnalysis, {
@@ -7394,6 +7551,29 @@ function App() {
       return;
     }
 
+    // Title da thread (estilo ChatGPT): primeira mensagem em thread não-default
+    // sem título ganha um título instantâneo local + chamada IA async não-bloqueante.
+    if (
+      currentMissionSupportsThreads &&
+      currentThreadId !== DEFAULT_THREAD_ID &&
+      currentExecs.length === 0
+    ) {
+      const threadObj = currentThreadsList.find((t) => t.id === currentThreadId);
+      if (threadObj && !threadObj.title) {
+        const instantTitle = deriveThreadTitle(input);
+        updateMissionThreadsList(teamEvent.id, timeTeamIdx, currentMission.id, (list) =>
+          list.map((t) => (t.id === currentThreadId ? { ...t, title: instantTitle } : t)),
+        );
+        void generateThreadTitle({
+          eventId: teamEvent.id,
+          teamIdx: timeTeamIdx,
+          baseMissionId: currentMission.id,
+          threadId: currentThreadId,
+          firstInput: input,
+        });
+      }
+    }
+
     setActivePrompt(input);
     setActiveAttachments(attachments);
     setMissionInput("");
@@ -7612,7 +7792,7 @@ function App() {
       if (isTrainingEvent) {
         saveTrainingExecution(teamEvent.id, timeTeamIdx, execRecord);
       } else {
-        saveExecution(teamEvent.id, timeTeamIdx, currentMission.id, execRecord);
+        saveExecution(teamEvent.id, timeTeamIdx, currentExecMissionId || currentMission.id, execRecord);
       }
       const nextTokenUsageTotal = (currentTokenBudget?.usage.totalTokens || 0) + (execRecord.tokens || 0);
       if (currentTokenBudget && !currentTokenBudget.unlimited && currentTokenBudget.effectiveLimit !== null && nextTokenUsageTotal >= currentTokenBudget.effectiveLimit) {
@@ -7672,7 +7852,7 @@ function App() {
             updateExecutionAnalysis(
               teamEvent.id,
               timeTeamIdx,
-              isTrainingEvent ? null : currentMission.id,
+              isTrainingEvent ? null : (currentExecMissionId || currentMission.id),
               execRecord.id,
               finalTechnicalAnalysis,
               guidedReasoning?.usage || {
@@ -7688,7 +7868,7 @@ function App() {
             updateExecutionAnalysis(
               teamEvent.id,
               timeTeamIdx,
-              isTrainingEvent ? null : currentMission.id,
+              isTrainingEvent ? null : (currentExecMissionId || currentMission.id),
               execRecord.id,
               buildTechnicalAnalysisUnavailable({
                 apiConfigured,
@@ -8672,14 +8852,14 @@ function App() {
                       const missionStatus = getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const concluida = missionStatus === "concluida";
                       const aguardandoQuestionario = missionStatus === "aguardando_questionario";
-                      const execs = getExecucoes(effectiveTeamEvent, timeTeamIdx, mission.id);
+                      const execsCount = countMissionExecsAcrossThreads(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const meta = concluida
                         ? "feito"
                         : aguardandoQuestionario
                           ? "questionário"
                           : locked
                             ? "bloqueada"
-                            : execs.length
+                            : execsCount
                               ? "em andamento"
                               : "liberada";
                       const isCurrentMission = timeMissionIdx === index;
@@ -8821,6 +9001,59 @@ function App() {
                       />
                     ) : (!currentConcluida && !currentQuestionarioPendente) ? (
                       <div className="input-card input-card-chat">
+                        {currentMissionSupportsThreads ? (
+                          <div className="thread-bar" role="tablist" aria-label="Conversas desta missão">
+                            <button
+                              type="button"
+                              className={`thread-tab${currentThreadId === DEFAULT_THREAD_ID ? " is-active" : ""}`}
+                              role="tab"
+                              aria-selected={currentThreadId === DEFAULT_THREAD_ID}
+                              onClick={() => handleSelectThread(DEFAULT_THREAD_ID)}
+                            >
+                              Padrão
+                            </button>
+                            {currentThreadsList.map((thread) => (
+                              <div
+                                key={thread.id}
+                                className={`thread-tab-wrap${currentThreadId === thread.id ? " is-active" : ""}`}
+                              >
+                                <button
+                                  type="button"
+                                  className="thread-tab"
+                                  role="tab"
+                                  aria-selected={currentThreadId === thread.id}
+                                  title={thread.title || "Sem título"}
+                                  onClick={() => handleSelectThread(thread.id)}
+                                >
+                                  {thread.title || "Sem título"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="thread-tab-delete"
+                                  aria-label={`Apagar conversa ${thread.title || thread.id}`}
+                                  title="Apagar conversa"
+                                  onClick={() =>
+                                    openConfirm(
+                                      "Apagar conversa",
+                                      `Deseja apagar esta conversa? O histórico desta thread será perdido. As outras conversas e o histórico da Padrão permanecem.`,
+                                      () => handleDeleteThread(thread.id),
+                                    )
+                                  }
+                                >
+                                  <X size={11} strokeWidth={2.1} />
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              type="button"
+                              className="thread-tab-new"
+                              onClick={handleNewThread}
+                              title="Nova conversa"
+                            >
+                              + Nova
+                            </button>
+                          </div>
+                        ) : null}
                         <div className="prompt-composer">
                           <PromptConversation
                             execs={currentExecs}

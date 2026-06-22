@@ -1,5 +1,76 @@
 // Shared constants and helper functions used across components
 
+// ----- Threads (conversas por missão, estilo ChatGPT) -----
+export const THREAD_SEP = "::t::";
+export const DEFAULT_THREAD_ID = "default";
+export const CONVERSATION_MAX_TURNS = 10;
+
+export function extractBaseMissionId(missionId) {
+  const id = `${missionId || ""}`;
+  const idx = id.indexOf(THREAD_SEP);
+  return idx === -1 ? id : id.slice(0, idx);
+}
+
+export function getThreadMissionId(baseMissionId, threadId) {
+  return !threadId || threadId === DEFAULT_THREAD_ID
+    ? `${baseMissionId}`
+    : `${baseMissionId}${THREAD_SEP}${threadId}`;
+}
+
+const THREAD_TITLE_STOPWORDS = new Set([
+  "para", "como", "isso", "esse", "essa", "esses", "essas", "uma", "umas", "uns",
+  "que", "com", "sem", "quer", "quero", "queria", "preciso", "precisamos", "podemos",
+  "pode", "você", "voce", "favor", "explicar", "criar", "gerar", "vamos", "vou",
+  "estou", "está", "esta", "estão", "estao", "tem", "têm", "tinha", "tinham",
+  "fazer", "feito", "feita", "feitos", "feitas", "fica", "ficar", "depois",
+  "antes", "agora", "hoje", "ontem", "amanhã", "amanha", "aqui", "ali", "tudo",
+  "nada", "muito", "mais", "menos", "também", "tambem", "sobre", "porque",
+  "quando", "onde", "qual", "quais", "quem", "tipo", "coisa", "coisas",
+  "deve", "devem", "ter", "tendo", "estes", "estas", "outra", "outro",
+  "outras", "outros", "meu", "minha", "meus", "minhas", "seu", "sua",
+  "seus", "suas", "nosso", "nossa", "nossos", "nossas", "qualquer",
+]);
+
+export function deriveThreadTitle(text, fallback = "Nova conversa") {
+  const tokens = `${text || ""}`.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  const content = tokens.filter((word) => word.length >= 4 && !THREAD_TITLE_STOPWORDS.has(word));
+  const chosen = content[0] || tokens.find((word) => word.length >= 3) || tokens[0];
+  if (!chosen) return fallback;
+  return chosen.charAt(0).toUpperCase() + chosen.slice(1);
+}
+
+export function buildConversationMessages(
+  execs = [],
+  input = "",
+  attachments = [],
+  { maxTurns = CONVERSATION_MAX_TURNS } = {},
+) {
+  const safeExecs = Array.isArray(execs) ? execs.slice(-Math.max(0, maxTurns)) : [];
+  const messages = [];
+  safeExecs.forEach((exec) => {
+    const userText = `${exec?.input || ""}`.trim();
+    if (userText) messages.push({ role: "user", content: userText });
+    const assistantText = `${exec?.output || ""}`.trim();
+    if (assistantText) messages.push({ role: "assistant", content: assistantText });
+  });
+  const attachmentNote = Array.isArray(attachments) && attachments.length
+    ? `\n\n[anexos: ${attachments.map((a) => a?.name || "arquivo").join(", ")}]`
+    : "";
+  const currentInput = `${input || ""}`.trim();
+  if (currentInput || attachmentNote) {
+    messages.push({ role: "user", content: `${currentInput}${attachmentNote}`.trim() });
+  }
+  return messages;
+}
+
+export function estimateHistoryChars(execs = [], { maxTurns = CONVERSATION_MAX_TURNS } = {}) {
+  const safeExecs = Array.isArray(execs) ? execs.slice(-Math.max(0, maxTurns)) : [];
+  return safeExecs.reduce(
+    (sum, exec) => sum + `${exec?.input || ""}`.length + `${exec?.output || ""}`.length,
+    0,
+  );
+}
+
 export const FREE_ACTION_KEY = "__free_instruction__";
 export const FREE_ACTION_LABEL = "Escrever minha própria instrução";
 export const TRAINING_THREAD_ID = "__training__";

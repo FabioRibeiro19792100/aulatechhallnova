@@ -238,6 +238,42 @@
   .term{font-family:var(--display); font-size:30px; margin-bottom:6px;}
   .definition{font-size:18px; line-height:1.55; color:var(--ink); max-width:540px;}
   .definition strong{color:var(--responder); font-weight:600;}
+
+  /* how-to slide (como fazer a missão) */
+  .howto-grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:14px;
+    margin-top:24px;
+  }
+  .howto-step{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:18px 18px 16px; position:relative;
+  }
+  .howto-step-num{
+    font-family:var(--display); font-size:34px; line-height:1;
+    color:var(--responder); margin-bottom:8px;
+  }
+  .howto-step-title{
+    font-family:var(--display); font-size:18px; line-height:1.2;
+    color:var(--ink); margin-bottom:6px;
+  }
+  .howto-step-desc{
+    font-size:13.5px; line-height:1.55; color:var(--ink-soft);
+  }
+  .howto-tag{
+    display:inline-block; padding:1px 7px; border-radius:99px;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+    text-transform:uppercase; font-weight:600;
+  }
+  .howto-tag.is-ai{color:#0c4a6e; background:rgba(56,189,248,.15); border:1px solid #7dd3fc;}
+  .howto-tag.is-you{color:#14532d; background:rgba(34,197,94,.12); border:1px solid #86efac;}
+  .howto-foot{
+    margin-top:22px; padding:14px 18px; border-radius:10px;
+    background:var(--ink); color:#fff; font-size:14px; line-height:1.55;
+    max-width:980px;
+  }
+  .howto-foot b{color:var(--neon);}
 </style>
 </head>
 <body>
@@ -249,8 +285,8 @@
       <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Missão de RAG</span></div>
       <div class="cover-acronym">R<span>A</span>G</div>
       <div class="cover-sub">Retrieval · Augmented · Generation</div>
-      <div class="cover-line">RAG faz a IA <em>ler documentos</em> antes de responder.</div>
-      <div class="lead">Em 15 slides você vai entender, sem jargão, o pipeline completo do RAG — base de conhecimento, indexação, busca por significado, citação. Depois passa para a prática.</div>
+      <div class="cover-line">RAG conecta a IA a uma <em>base externa</em>: ela <em>busca o trecho certo</em>, monta o contexto e responde <em>citando a fonte</em>.</div>
+      <div class="lead">Não é só "ler documentos" — é um pipeline que dá ao modelo acesso a uma base controlada, recupera só o que importa e gera a resposta com citação, <strong>sem retreinar o modelo</strong>. Aqui você vê o conceito e em seguida pratica.</div>
       <div class="nav">
         <div class="progress"></div>
         <div class="pages"><span class="cur">01</span> / <span class="tot">15</span></div>
@@ -274,8 +310,8 @@
         </div>
         <div class="dcard hot">
           <div class="dlabel">IA com RAG · Consulta</div>
-          <div class="dtitle">Lê antes de responder</div>
-          <div class="ddesc">Busca nos documentos certos, traz os trechos mais relevantes e responde citando a origem.</div>
+          <div class="dtitle">Busca antes de responder</div>
+          <div class="ddesc">Recupera os trechos relevantes da base externa, ancora a resposta neles e cita a origem.</div>
           <div class="dquote">"O teto de endividamento para galpões no Nordeste é 35% do EBITDA da subsidiária local."</div>
           <div class="dnote">fonte: governanca-limites-regionais.md · trecho 3</div>
         </div>
@@ -642,8 +678,54 @@
       </div>
     </section>
 
-    <!-- 14. SUA VEZ -->
+    <!-- 14. COMO FAZER A MISSÃO -->
     <section class="slide" data-slide="14">
+      <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Como fazer a missão</span></div>
+      <div class="kicker"><span class="tick"></span><span>Antes de começar</span></div>
+      <h2>Como você vai fazer esta missão.</h2>
+      <div class="lead">A missão é guiada: a IA conduz <strong>11 etapas</strong> (E0 → E10) sobre a base da NexaLog já indexada. Os passos abaixo te orientam.</div>
+      <div class="howto-grid">
+        <div class="howto-step">
+          <div class="howto-step-num">01</div>
+          <div class="howto-step-title">Abra a Base de conhecimento</div>
+          <div class="howto-step-desc">Faixa no topo do chat com os 3 documentos NexaLog + o dataset de fine-tuning. Clique em cada chip pra ler o conteúdo antes (e durante) a missão.</div>
+        </div>
+        <div class="howto-step">
+          <div class="howto-step-num">02</div>
+          <div class="howto-step-title">Siga as respostas sugeridas</div>
+          <div class="howto-step-desc">O composer já vem pré-preenchido com a resposta que faz a missão avançar. Pode editar antes de enviar — a IA conduz uma etapa por vez.</div>
+        </div>
+        <div class="howto-step">
+          <div class="howto-step-num">03</div>
+          <div class="howto-step-title">Leia as duas vozes da lateral</div>
+          <div class="howto-step-desc"><span class="howto-tag is-ai">O que a IA faz</span> mostra o mecanismo automático; <span class="howto-tag is-you">Boa prática</span> mostra o que você deve observar/fazer.</div>
+        </div>
+        <div class="howto-step">
+          <div class="howto-step-num">04</div>
+          <div class="howto-step-title">Sua pergunta na etapa 4</div>
+          <div class="howto-step-desc">Escreva uma pergunta específica que os documentos respondam (limites por região, CAPEX, rito de exceções). Todo o pipeline gira em torno dela daqui em diante.</div>
+        </div>
+        <div class="howto-step">
+          <div class="howto-step-num">05</div>
+          <div class="howto-step-title">Compare com e sem RAG</div>
+          <div class="howto-step-desc">Etapas 7 e 8 mostram a mesma pergunta lado a lado: resposta ancorada com fonte vs. resposta plausível sem fonte (memória paramétrica).</div>
+        </div>
+        <div class="howto-step">
+          <div class="howto-step-num">06</div>
+          <div class="howto-step-title">Teste o limite (etapa 9)</div>
+          <div class="howto-step-desc">Pergunta fora da base: veja o RAG bem configurado se <strong>abster</strong> em vez de inventar. É o comportamento correto.</div>
+        </div>
+      </div>
+      <div class="howto-foot">No fim, um painel mostra <b>quando o RAG não basta</b> e o fine-tuning entra — caso da NexaLog em uma frase: <b>RAG quando falta o fato; fine-tuning quando falta o jeito de responder</b>.</div>
+      <div class="nav">
+        <div class="progress"></div>
+        <div class="pages"><span class="cur">15</span> / <span class="tot">16</span></div>
+        <div class="hint">Use <kbd>→</kbd> para avançar</div>
+      </div>
+    </section>
+
+    <!-- 15. SUA VEZ -->
+    <section class="slide" data-slide="15">
       <div class="brand"><span class="dot"></span><b>MASTERTECH AI LAB</b><span>· Sua vez</span></div>
       <div class="kicker"><span class="tick"></span><span>Hora de praticar</span></div>
       <h1>Agora você vê tudo isso rodar — passo a passo, com a NexaLog.</h1>
@@ -654,7 +736,7 @@
       </div>
       <div class="nav">
         <div class="progress"></div>
-        <div class="pages"><span class="cur">15</span> / <span class="tot">15</span></div>
+        <div class="pages"><span class="cur">16</span> / <span class="tot">16</span></div>
         <div class="hint">Pressione <kbd>Começar</kbd></div>
       </div>
     </section>
@@ -678,15 +760,21 @@
 
   function renderProgress(){
     const total = slides.length;
+    const totLabel = String(total).padStart(2, '0');
     slides.forEach((slide, i) => {
       const prog = slide.querySelector('.nav .progress');
-      if (!prog) return;
-      prog.innerHTML = '';
-      for (let k = 0; k < total; k++){
-        const step = document.createElement('span');
-        step.className = 'step' + (k < i ? ' done' : k === i ? ' now' : '');
-        prog.appendChild(step);
+      if (prog){
+        prog.innerHTML = '';
+        for (let k = 0; k < total; k++){
+          const step = document.createElement('span');
+          step.className = 'step' + (k < i ? ' done' : k === i ? ' now' : '');
+          prog.appendChild(step);
+        }
       }
+      const cur = slide.querySelector('.nav .pages .cur');
+      const tot = slide.querySelector('.nav .pages .tot');
+      if (cur) cur.textContent = String(i + 1).padStart(2, '0');
+      if (tot) tot.textContent = totLabel;
     });
   }
 

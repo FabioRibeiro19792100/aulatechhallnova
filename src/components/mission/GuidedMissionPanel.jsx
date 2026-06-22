@@ -1,11 +1,25 @@
-import { useEffect, useMemo, useRef } from "react";
-import { Copy, Maximize2, Minus, Paperclip, Presentation, RotateCcw, Send, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Copy,
+  ExternalLink,
+  FileText,
+  Maximize2,
+  Minus,
+  Paperclip,
+  Presentation,
+  RotateCcw,
+  Send,
+  X,
+} from "lucide-react";
 import ragDeckHtml from "../../assets/mission-decks/rag-onboarding.html?raw";
 import agentDeckHtml from "../../assets/mission-decks/agentes-onboarding.html?raw";
 import {
   AGENT_MISSION_ID,
+  CORPORATE_DOC_URL,
+  FINE_TUNING_CASE,
   GUIDED_DECK_STATUS,
   RAG_MISSION_ID,
+  RAG_READABLE_DOCUMENTS,
   getGuidedMissionScript,
   getGuidedMissionStepContent,
 } from "../../data/guidedMissions.js";
@@ -100,9 +114,11 @@ export function GuidedMissionPanel({
   onPersistExecution,
   onCopyReport,
   onResetMission,
+  onGoToGeneralChat,
 }) {
   const threadRef = useRef(null);
   const fileInputRef = useRef(null);
+  const [openDoc, setOpenDoc] = useState(null);
   const script = useMemo(() => getGuidedMissionScript(mission.id), [mission.id]);
   const scriptIndex = Math.max(0, Math.min(Number(missionState?.scriptIndex || 0), script.length - 1));
   const currentStep = getGuidedMissionStepContent(mission.id, scriptIndex, missionState, attachments) || script[scriptIndex] || script[0];
@@ -301,26 +317,92 @@ export function GuidedMissionPanel({
       ) : null}
 
       {!deckVisible && missionState?.deckStatus !== GUIDED_DECK_STATUS.NOT_STARTED ? (
-        <button
-          type="button"
-          className="guided-deck-launcher"
-          onClick={() => {
-            patch((currentMissionState = {}) => ({
-              ...currentMissionState,
-              deckVisible: true,
-              deckMode: "pip",
-            }));
-          }}
-        >
-          <span className="guided-deck-launcher-icon" aria-hidden="true">
-            <Presentation size={16} strokeWidth={1.9} />
-          </span>
-          <small>{isRag ? "RAG" : "Agente"}</small>
-        </button>
+        <div className="guided-corner-actions">
+          {isRag ? (
+            <a
+              className="guided-corner-link"
+              href={CORPORATE_DOC_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink size={14} strokeWidth={1.8} />
+              <span>Documento corporativo · Manual de Governança · NexaLog</span>
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="guided-deck-launcher"
+            onClick={() => {
+              patch((currentMissionState = {}) => ({
+                ...currentMissionState,
+                deckVisible: true,
+                deckMode: "pip",
+              }));
+            }}
+          >
+            <span className="guided-deck-launcher-icon" aria-hidden="true">
+              <Presentation size={16} strokeWidth={1.9} />
+            </span>
+            <small>{isRag ? "RAG" : "Agente"}</small>
+          </button>
+        </div>
+      ) : null}
+
+      {isRag && openDoc ? (
+        <div className="doc-viewer-modal" role="dialog" aria-modal="true" aria-label={`Documento ${openDoc.name}`}>
+          <div className="doc-viewer-backdrop" onClick={() => setOpenDoc(null)} />
+          <div className="doc-viewer-shell">
+            <div className="doc-viewer-head">
+              <h3>{openDoc.name}</h3>
+              <button type="button" className="doc-viewer-close" onClick={() => setOpenDoc(null)} aria-label="Fechar">
+                <X size={16} strokeWidth={1.9} />
+              </button>
+            </div>
+            <pre className={openDoc.kind === "jsonl" ? "doc-viewer-body is-mono" : "doc-viewer-body"}>{openDoc.text}</pre>
+          </div>
+        </div>
       ) : null}
 
       <div className="input-card input-card-chat">
         <div className="prompt-composer">
+          {isRag ? (
+            <div className="guided-docs-strip">
+              <span className="guided-docs-strip-label">Base de conhecimento</span>
+              {RAG_READABLE_DOCUMENTS.map((doc) => {
+                const chipKind = doc.kind === "jsonl" ? "is-jsonl" : "is-md";
+                return (
+                  <button
+                    type="button"
+                    key={`pack-${doc.name}`}
+                    className={`guided-doc-chip ${chipKind}`}
+                    onClick={() => setOpenDoc({ name: doc.name, text: doc.text, kind: doc.kind || "md" })}
+                  >
+                    <FileText size={12} strokeWidth={1.9} />
+                    <span>{doc.name}</span>
+                  </button>
+                );
+              })}
+              {attachments
+                .filter((attachment) => attachment?.extractedText)
+                .map((attachment) => (
+                  <button
+                    type="button"
+                    key={`anexo-${attachment.id}`}
+                    className="guided-doc-chip is-anexo"
+                    onClick={() =>
+                      setOpenDoc({
+                        name: attachment.name,
+                        text: attachment.extractedText,
+                        kind: "anexo",
+                      })
+                    }
+                  >
+                    <Paperclip size={12} strokeWidth={1.9} />
+                    <span>{attachment.name}</span>
+                  </button>
+                ))}
+            </div>
+          ) : null}
           <div className="prompt-thread" ref={threadRef}>
             {transcript.map((entry, entryIndex) =>
               entry.type === "assistant" ? (
@@ -345,6 +427,42 @@ export function GuidedMissionPanel({
                 </div>
               ),
             )}
+            {isRag && isCompleted ? (
+              <section className="finetuning-panel">
+                <div className="finetuning-panel-kicker">Conclusão da experiência</div>
+                <h3 className="finetuning-panel-title">{FINE_TUNING_CASE.title}</h3>
+                <p className="finetuning-panel-lead">{FINE_TUNING_CASE.intro}</p>
+                <p className="finetuning-panel-when">{FINE_TUNING_CASE.whenToUse}</p>
+                <div className="finetuning-case">
+                  {FINE_TUNING_CASE.caseBlocks.map((block) => (
+                    <div className="finetuning-case-block" key={block.label}>
+                      <div className="finetuning-case-block-label">{block.label}</div>
+                      <p>{block.text}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="finetuning-metrics">
+                  {FINE_TUNING_CASE.metrics.map((metric) => (
+                    <div className="finetuning-metric" key={metric.label}>
+                      <div className="finetuning-metric-value">{metric.value}</div>
+                      <div className="finetuning-metric-label">{metric.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="finetuning-cta">
+                  <p>
+                    Pense num caso do seu dia a dia — um documento, um contrato, um relatório, uma decisão — e teste na missão <b>Análise geral</b>.
+                  </p>
+                  <button
+                    type="button"
+                    className="finetuning-cta-btn"
+                    onClick={() => onGoToGeneralChat?.()}
+                  >
+                    Ir para Análise geral →
+                  </button>
+                </div>
+              </section>
+            ) : null}
           </div>
 
           <div className="prompt-entry-shell">

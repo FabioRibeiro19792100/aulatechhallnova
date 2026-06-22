@@ -11,41 +11,129 @@ export const GUIDED_DECK_STATUS = {
 
 export const GUIDED_MISSION_TEMPLATE_VERSION = 2;
 
+export const CORPORATE_DOC_URL =
+  "https://docs.google.com/document/d/1XxUZga70wPNhIoVEpEtvebZrd9jcFdyDT82LBDmgik0/edit?usp=sharing";
+
 export const RAG_PACK_DOCUMENTS = [
   {
-    name: "politica-de-ferias.md",
+    name: "governanca-limites-regionais.md",
     text: [
-      "As férias devem ser solicitadas com 30 dias de antecedência pelo sistema de RH.",
-      "As férias podem ser emendadas com feriados nacionais, desde que a solicitação respeite o prazo do item 1.",
-      "O período mínimo de gozo é de 5 dias corridos e o máximo é de 30 dias.",
-      "A venda de até 10 dias de férias é permitida uma vez por ano.",
-      "Gestores devem aprovar ou recusar solicitações em até 5 dias úteis.",
-      "Férias coletivas, quando decretadas, são comunicadas com 60 dias de antecedência.",
+      "Regiões Sul e Sudeste: o endividamento máximo para aquisições não pode ultrapassar 50% do EBITDA da subsidiária local.",
+      "Regiões Norte e Centro-Oeste: o endividamento máximo para expansão imobiliária está limitado a 40% do EBITDA local.",
+      "Região Nordeste: para aquisições de ativos imobiliários (galpões), o endividamento máximo da subsidiária local está limitado a 35% do seu EBITDA.",
+      "Qualquer exceção ao limite do Nordeste exige, obrigatoriamente, a assinatura conjunta de 3 diretores executivos e a validação formal do comitê de riscos.",
+      "Os tetos de alavancagem mitigam a exposição ao risco de crédito e garantem a liquidez da operação.",
     ].join("\n"),
   },
   {
-    name: "manual-de-reembolso.md",
+    name: "governanca-capex.md",
     text: [
-      "Despesas reembolsáveis: transporte a trabalho, hospedagem, alimentação em viagem e material aprovado previamente.",
-      "O limite diário de alimentação em viagem é de R$ 120 por pessoa.",
-      "Notas fiscais devem ser enviadas em até 15 dias após a despesa.",
-      "Reembolsos aprovados são pagos na folha do mês seguinte.",
-      "Despesas com bebida alcoólica não são reembolsáveis.",
-      "Viagens internacionais exigem aprovação prévia da diretoria.",
+      "Todas as aquisições de ativos imobilizados devem estar alinhadas ao Planejamento Estratégico 2026-2030 da companhia.",
+      "O orçamento de CAPEX aprovado pelo Conselho de Administração deve ser respeitado por todas as diretorias subsidiárias regionais.",
+      "Desvios de CAPEX acima de 5% do orçamento aprovado exigem a convocação de Assembleia Extraordinária do Conselho de Administração.",
+      "Desvios de até 5% acima do guidance anual enquadram-se na alçada da Diretoria Colegiada, com validação da Controladoria Central.",
     ].join("\n"),
   },
   {
-    name: "codigo-de-conduta.md",
+    name: "governanca-rito-excecoes.md",
     text: [
-      "Informações de clientes são confidenciais e seu compartilhamento externo é proibido.",
-      "Presentes de fornecedores acima de R$ 200 devem ser recusados ou reportados ao comitê de ética.",
-      "O uso de equipamentos da empresa para trabalhos pessoais remunerados é proibido.",
-      "Conflitos de interesse devem ser declarados ao gestor imediato.",
-      "Denúncias podem ser feitas de forma anônima pelo canal de ética.",
-      "Assédio de qualquer natureza resulta em apuração imediata pelo comitê.",
+      "A flexibilização dos limites de alavancagem é classificada como Exceção Estatutária de Nível 1.",
+      "Passo 1: emissão e submissão do Estudo de Viabilidade Econômica (EVE) assinado pelo Controller Regional.",
+      "Passo 2: emissão de parecer técnico impeditivo ou liberatório pela Diretoria de Governança e Compliance.",
+      "Passo 3: homologação em ata pelo Comitê de Riscos.",
+      "Passo 4: coleta de assinaturas dos diretores requeridos conforme a região impactada, antes de qualquer contrato ou Due Diligence.",
     ].join("\n"),
   },
 ];
+
+const FINE_TUNING_SYSTEM_PROMPT =
+  "Você é o Auditor Digital de Compliance da NexaLog S.A. Suas respostas devem ser estritamente formais, baseadas em jargão IFRS/CVM, e sempre destacar os níveis de alçada de aprovação requeridos.";
+
+export const FINE_TUNING_DATASET_DOC = {
+  name: "dataset-fine-tuning.jsonl",
+  kind: "jsonl",
+  text: [
+    {
+      messages: [
+        { role: "system", content: FINE_TUNING_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content:
+            "Submetida proposta de Capex de R$ 45M para galpão em Recife, impactando alavancagem regional em 38% do EBITDA.",
+        },
+        {
+          role: "assistant",
+          content:
+            "ALERTA DE COMPLIANCE: Operação REJEITADA em primeira instância. Diretriz de Governança Q2/2026 fixa o teto regional Nordeste em 35% do EBITDA. Enquadramento atual: Exceção Estatutária. Ação Requerida: retornar a proposta para aprovação formal com assinatura conjunta de três (3) Diretores Executivos e parecer favorável do Comitê de Riscos antes da submissão ao Board.",
+        },
+      ],
+    },
+    {
+      messages: [
+        { role: "system", content: FINE_TUNING_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content:
+            "Podemos avançar com due diligence de M&A sem aprovação do comitê de riscos se houver NDA assinado?",
+        },
+        {
+          role: "assistant",
+          content:
+            "PARECER TÉCNICO: Negativo. Conforme o Artigo 14 do Regimento Interno, a assinatura de NDA autoriza apenas o intercâmbio de dados preliminares. O início formal da Due Diligence de M&A exige, obrigatoriamente, a homologação prévia do Comitê de Riscos. Avançar sem este rito configura infração de governança de Nível 2.",
+        },
+      ],
+    },
+    {
+      messages: [
+        { role: "system", content: FINE_TUNING_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content:
+            "Qual o rito de aprovação para investimento de capital que exceda o orçamento anual em até 5%?",
+        },
+        {
+          role: "assistant",
+          content:
+            "DIRETRIZ ORÇAMENTÁRIA: Desvios de Capex de até 5% acima do guidance anual enquadram-se na alçada da Diretoria Colegiada, com justificativa fundamentada e validação da Controladoria Central. Desvios superiores a 5% demandam, mandatoriamente, convocação de Assembleia Extraordinária do Conselho de Administração.",
+        },
+      ],
+    },
+  ]
+    .map((entry) => JSON.stringify(entry))
+    .join("\n"),
+};
+
+export const RAG_READABLE_DOCUMENTS = [...RAG_PACK_DOCUMENTS, FINE_TUNING_DATASET_DOC];
+
+export const FINE_TUNING_CASE = {
+  title: "Conclusão da experiência: do RAG ao Fine-tuning",
+  intro:
+    "Você viu o RAG do início ao fim. Quando ele não basta, vem o fine-tuning: em vez de só consultar documentos, ele re-treina o próprio modelo com muitos exemplos de pergunta-e-resposta no jeito certo (um conjunto de treino — cada exemplo traz a instrução, a pergunta e a resposta ideal). Diferente do RAG, que injeta fatos no contexto, o fine-tuning ensina habilidade, estilo e jargão — e muda o modelo de forma permanente, por isso exige curadoria humana cuidadosa.",
+  whenToUse:
+    "Em uma frase: use RAG quando falta o fato; use fine-tuning quando falta o jeito de responder. O RAG entregou o fato certo (35% do EBITDA, com a fonte), mas não dá o tom de um auditor sênior nem o domínio do jargão técnico do setor (as normas contábeis e da CVM) — é nesse gargalo que o fine-tuning se justifica.",
+  caseBlocks: [
+    {
+      label: "Contexto",
+      text:
+        "A auditoria interna da NexaLog gastava mais de 1.200 horas/mês revisando contratos, com exposição anual de R$ 2,4 milhões em multas por cláusulas perdidas.",
+    },
+    {
+      label: "Insuficiência do RAG",
+      text:
+        "O RAG achava as regras certas, mas os pareceres saíam longos, genéricos e sem foco em quem precisa assinar/aprovar cada decisão.",
+    },
+    {
+      label: "Solução via fine-tuning",
+      text:
+        "Re-treino de um modelo próprio com 350 pareceres antigos de compliance, limpos de dados sensíveis e organizados como exemplos de treino.",
+    },
+  ],
+  metrics: [
+    { value: "3 min", label: "tempo de resposta (vs 48h)" },
+    { value: "92%", label: "redução em multas de compliance" },
+    { value: "4,0x", label: "aumento na capacidade analítica" },
+  ],
+};
 
 export const AGENT_EMAIL_TRAINING_ITEMS = [
   { subject: "Banco Azul: Sua fatura vence em 3 dias", tag: "financeiro" },
@@ -69,11 +157,11 @@ export const RAG_MISSION_DEFINITION = {
   aiMode: CHAT_AI_MODE,
   name: "RAG",
   category: "guided-rag",
-  desc: "Missão guiada para ver o pipeline de RAG funcionando por dentro, com base própria ou pack de exemplo.",
+  desc: "Missão guiada para ver o pipeline de RAG funcionando por dentro, com base própria ou o caso de governança da NexaLog S.A.",
   situacao:
-    "Use esta missão para ver o RAG funcionando por dentro, com documentos seus ou com o pack de exemplo. Você acompanha trechos, busca, contexto, resposta citada e teste de limite.",
+    "Use esta missão para ver o RAG funcionando por dentro, com documentos seus ou com a base de governança da NexaLog S.A. Você acompanha trechos, busca, contexto, resposta citada e teste de limite.",
   instrucao:
-    "Anexe até 5 arquivos de texto ou use o pack de exemplo. A IA conduz uma etapa por vez, com opções numeradas, até você testar pergunta, recuperação, contraste e limite.",
+    "Anexe até 5 arquivos de texto ou use a base de exemplo (governança corporativa). A IA conduz uma etapa por vez, com opções numeradas, até você testar pergunta, recuperação, contraste e limite.",
   placeholder: "A missão conduz a conversa. Se precisar escrever, a própria IA vai pedir uma pergunta sobre a base.",
   acoes: [],
 };
@@ -522,16 +610,6 @@ function summarizePermissions(missionState, selectedTools) {
   return response;
 }
 
-function getRagDocs(attachments = []) {
-  if (attachments.length) {
-    return attachments.map((attachment, index) => ({
-      name: attachment?.name || `arquivo-${index + 1}.txt`,
-      text: normalizeText(attachment?.extractedText || attachment?.text || ""),
-    }));
-  }
-  return RAG_PACK_DOCUMENTS;
-}
-
 export function renderGuidedMissionStepContent(missionId, stepIndex = 0, missionState = {}, attachments = []) {
   const script = getGuidedMissionScript(missionId);
   const boundedIndex = Math.max(0, Math.min(stepIndex, script.length - 1));
@@ -625,58 +703,7 @@ variáveis finais: ${profile.variableA} = 1 · ${profile.variableB} = 1</pre><pr
     }
   }
 
-  const ragBaseChoice = extractChoiceNumber(missionState?.responses?.[0] || "");
-  const useOwnAttachments = ragBaseChoice === 1 && attachments.length > 0;
-  const docs = useOwnAttachments ? getRagDocs(attachments) : RAG_PACK_DOCUMENTS;
-  const usingPack = !useOwnAttachments;
-  const docNames = docs.map((doc) => doc.name);
-  const question = normalizeText(missionState?.responses?.[4] || "Posso emendar o descanso com o feriado?");
-  const firstDoc = docNames[0] || "documento-1.md";
-  const secondDoc = docNames[1] || firstDoc;
-  const baseLabel = usingPack ? `${docs.length} arquivos (pack de exemplo)` : `${docs.length} arquivo(s) anexado(s)`;
-  const sourceLine = `${firstDoc}${docNames[1] ? ` · ${secondDoc}` : ""}`;
-
-  switch (stepIndex) {
-    case 1:
-      return {
-        ...baseStep,
-        ai: `<p>Etapa 1. A base de conhecimento são os documentos que a IA pode consultar. Base carregada:</p><pre>${docNames.join("\n")}</pre><p>A IA só responde sobre o que está nessa base. Seguir para o fatiamento?</p>`,
-      };
-    case 2:
-      return {
-        ...baseStep,
-        ai: `<p>Etapa 2. O trecho é um pedaço pequeno de documento, em inglês chunk. A base foi dividida em <b>${Math.max(3, docs.length * 6)} trechos</b>. Dois exemplos:</p><pre>${firstDoc} · trecho 1\n"${escapeHtml((docs[0]?.text || "Trecho da base").split("\n")[0] || "Trecho da base")}"\n\n${secondDoc} · trecho 1\n"${escapeHtml((docs[1]?.text || docs[0]?.text || "Outro trecho da base").split("\n")[0] || "Outro trecho da base")}"</pre>`,
-      };
-    case 5:
-      return {
-        ...baseStep,
-        ai: `<p>Etapa 5. A recuperação seleciona os trechos mais parecidos com a pergunta. Top 3, com k igual a 3:</p><pre>0.89 · ${firstDoc} · trecho 1\n"${escapeHtml((docs[0]?.text || "Trecho relevante da base").split("\n")[0] || "Trecho relevante da base")}"\n\n0.81 · ${secondDoc} · trecho 1\n"${escapeHtml((docs[1]?.text || docs[0]?.text || "Segundo trecho da base").split("\n")[0] || "Segundo trecho da base")}"\n\n0.72 · ${firstDoc} · trecho 2\n"(scores ilustrativos)"</pre><p>A sua pergunta foi: <b>${escapeHtml(question)}</b>. A busca semântica tenta aproximar a pergunta dos trechos mais úteis.</p>`,
-      };
-    case 6:
-      return {
-        ...baseStep,
-        ai: `<p>Etapa 6. O contexto é a mensagem final enviada ao modelo, a pergunta junto com os trechos. Este é o prompt montado, literalmente:</p><pre>Responda usando apenas os trechos abaixo.\n\nTrecho 1 (${firstDoc}): "${escapeHtml((docs[0]?.text || "Trecho relevante da base").split("\n")[0] || "Trecho relevante da base")}"\nTrecho 2 (${secondDoc}): "${escapeHtml((docs[1]?.text || docs[0]?.text || "Segundo trecho da base").split("\n")[0] || "Segundo trecho da base")}"\n\nPergunta: ${escapeHtml(question)}</pre><p>Os documentos entram dentro da mensagem. Gerar a resposta?</p>`,
-      };
-    case 7:
-      return {
-        ...baseStep,
-        ai: `<p>Etapa 7. Resposta gerada com base nos trechos:</p><p><b>A resposta deve se apoiar apenas nos documentos carregados, citando a origem para conferência.</b></p><pre>fonte: ${sourceLine}</pre><p>A citação permite conferir a origem em vez de confiar só no tom da resposta.</p>`,
-      };
-    case 10:
-      return {
-        ...baseStep,
-        ai: `<p>Etapa 10. Você viu o caminho completo, do documento à resposta citada, e o sistema recusando o que está fora da base. Este relatório é seu, copie e guarde.</p><pre>RELATORIO DA MISSAO · RAG NA PRATICA
-base: ${baseLabel}
-trechos: ${Math.max(3, docs.length * 6)}
-pergunta testada: ${question}
-resposta citada: construída com base na recuperação atual
-  fonte: ${sourceLine}
-contraste sem RAG: resposta sem fonte confiável
-teste de limite: pergunta fora da base deve ser recusada</pre><pre>STATUS: MISSAO CONCLUIDA</pre>`,
-      };
-    default:
-      return baseStep;
-  }
+  return baseStep;
 }
 
 export function getGuidedMissionScript(missionId) {
@@ -822,90 +849,120 @@ variáveis finais: emails_processados = 1 · pendencias_abertas = 1</pre><pre>ST
 
   return [
     {
-      ai: "<p>Bem-vindo à missão. Você vai ver o RAG por dentro, do documento à resposta citada, e no final vai testar os limites do sistema.</p><div class=\"ops\"><div>1. Anexar meus arquivos (até 5, de texto)</div><div>2. Usar o pack de exemplo (3 documentos de uma empresa fictícia)</div></div>",
+      ai: "<p>Bem-vindo à missão. A base de conhecimento da NexaLog S.A. já está indexada (3 documentos de governança, que você pode abrir e ler na faixa <b>Base de conhecimento</b>). Vamos ver o RAG por dentro, do documento confidencial à resposta citada, e no final testar os limites do sistema.</p>",
       tech: {
         s: "etapa 0 de 10 · abertura",
-        b: "<b>Mecanismo:</b> turno inicial automático. A pessoa escolhe entre arquivos próprios, extraídos pelo sistema e injetados no contexto, ou o pack embutido no prompt condutor.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Na <b>indexação</b> (a preparação, feita uma vez): lê cada documento (Word, PDF…), <b>extrai o texto</b>, corta em trechos e guarda tudo num <b>banco vetorial</b>. O modelo não \"decora\" os arquivos — eles ficam nesse banco à parte, consultado só na hora da pergunta.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Abra e leia os documentos na faixa <b>Base de conhecimento</b> para saber o que dá para perguntar.</p></div>",
       },
-      user: "2",
+      user: "vamos começar",
     },
     {
-      ai: "<p>Etapa 1. A base de conhecimento são os documentos que a IA pode consultar. Base carregada:</p><pre>politica-de-ferias.md\nmanual-de-reembolso.md\ncodigo-de-conduta.md</pre><p>A IA só responde sobre o que está nesses três arquivos. Seguir para o fatiamento?</p>",
+      ai: "<p>A base de conhecimento é o universo que a IA pode consultar — e ele está fechado nestes três arquivos (Manual de Governança · CONFIDENCIAL):</p><pre>governanca-limites-regionais.md\ngovernanca-capex.md\ngovernanca-rito-excecoes.md</pre><p>Tudo o que vier a seguir vai se apoiar só neles. Vamos fatiar a base?</p>",
       tech: {
         s: "etapa 1 de 10 · base",
-        b: "<b>Mecanismo:</b> os textos entram no contexto do condutor com cabeçalho por arquivo. <b>Limite:</b> assunto fora da base fica fora do alcance, e isso será demonstrado na etapa 9.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Define o <b>escopo</b>: só os documentos indexados podem ser consultados. Esses textos não fazem parte do que o modelo aprendeu no treino — ficam numa base externa, à parte da IA.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Garanta que a base tem os documentos certos e atualizados — o RAG só é tão bom quanto a base.</p></div>",
       },
       user: "pode seguir",
     },
     {
-      ai: "<p>Etapa 2. O trecho é um pedaço pequeno de documento, em inglês chunk. A base foi dividida em <b>18 trechos</b>. Dois exemplos:</p><pre>politica-de-ferias.md · trecho 2\n\"As férias podem ser emendadas com feriados nacionais,\ndesde que a solicitação respeite o prazo do item 1.\"\n\nmanual-de-reembolso.md · trecho 2\n\"O limite diário de alimentação em viagem é de\nR$ 120 por pessoa.\"</pre>",
+      ai: "<p>Para buscar melhor, a base é quebrada em pedaços pequenos — os <b>trechos</b> (em inglês, chunks). Os 3 documentos viraram <b>14 trechos</b>. Dois exemplos:</p><pre>governanca-limites-regionais.md · trecho 3\n\"Região Nordeste: para aquisições de ativos\nimobiliários (galpões), o endividamento máximo\nda subsidiária local está limitado a 35% do seu\nEBITDA.\"\n\ngovernanca-capex.md · trecho 3\n\"Desvios de CAPEX acima de 5% do orçamento\naprovado exigem a convocação de Assembleia\nExtraordinária do Conselho de Administração.\"</pre>",
       tech: {
         s: "etapa 2 de 10 · trechos",
-        b: "<b>Mecanismo:</b> citações sempre literais, com arquivo e número, regra inviolável 4 do condutor. No backend v2, o fatiamento real usa 500 a 800 caracteres com sobreposição de 100.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Faz o <b>chunking</b>: divide o texto em pedaços (chunks), em geral de algumas centenas de palavras, com leve <b>sobreposição</b> entre eles, e guarda a origem de cada um (arquivo e número) para citar depois.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Você não fatia nada — é automático. Só lembre: documentos bem escritos e organizados geram trechos melhores.</p></div>",
       },
       user: "entendi, próxima",
     },
     {
-      ai: "<p>Etapa 3. O embedding é uma lista de números que representa o significado de um trecho. Trechos parecidos ganham números parecidos.</p><pre>trecho 2 → [ 0.012, -0.348, 0.901, 0.077, ... ]\n(valores ilustrativos, o cálculo real acontece\nno servidor de embeddings)</pre><p>Seguir para a busca?</p>",
+      ai: "<p>Cada trecho vira uma lista de números que representa o seu <b>significado</b> — o embedding. Pense num <b>mapa de significados</b>: cada trecho ganha uma coordenada, e trechos parecidos ficam pertinho. Todas essas coordenadas ficam guardadas no <b>banco vetorial</b>.</p><pre>trecho 3 (Nordeste) → [ 0.182, -0.041, 0.733, -0.298, ... ]\n(valores ilustrativos · centenas de números por trecho)</pre><p>É esse banco que vai permitir buscar por significado. Seguir para a busca?</p>",
       tech: {
         s: "etapa 3 de 10 · embedding",
-        b: "<b>Mecanismo:</b> regra de honestidade, o condutor declara que os números são ilustrativos no Modo A. Com o backend v2 ligado, os valores passam a ser reais e o aviso some.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Um <b>modelo de embeddings</b> transforma cada chunk num <b>vetor</b> — como uma coordenada num mapa de significados (trechos parecidos ficam perto). Esses vetores ficam no <b>banco vetorial</b>, a memória externa do RAG.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Nada a fazer aqui — é interno. Só confie que a busca compara <b>significado</b> (posição no mapa), não palavra exata.</p></div>",
       },
       user: "seguir",
     },
     {
-      ai: "<p>Etapa 4. Agora é com você. Escreva uma pergunta que esses documentos conseguem responder. Por exemplo, algo sobre férias, reembolso ou conduta.</p>",
+      ai: "<p>Agora é com você. Escreva uma pergunta que esses documentos conseguem responder — algo sobre limites de endividamento, CAPEX ou o rito de exceções.</p>",
       tech: {
         s: "etapa 4 de 10 · pergunta",
-        b: "<b>Critério:</b> pergunta respondível pela base. Se vier algo claramente fora, o condutor guarda para o teste de limite da etapa 9 e pede outra.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Coloca a sua pergunta no mesmo <b>mapa de significados</b>: gera o <b>embedding da pergunta</b> (o mesmo tipo de vetor dos trechos) para comparar a posição dela com a dos trechos.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Faça UMA pergunta clara e específica sobre a base (cite o tema ou a região). Pergunta vaga gera recuperação fraca.</p></div>",
       },
-      user: "Posso emendar o descanso com o feriado?",
+      user: "Qual é o teto de endividamento para a NexaLog comprar galpões no Nordeste?",
     },
     {
-      ai: "<p>Etapa 5. A recuperação seleciona os trechos mais parecidos com a pergunta. Top 3, com k igual a 3:</p><pre>0.89 · politica-de-ferias.md · trecho 2\n\"As férias podem ser emendadas com feriados nacionais...\"\n\n0.81 · politica-de-ferias.md · trecho 1\n\"As férias devem ser solicitadas com 30 dias de antecedência...\"\n\n0.72 · politica-de-ferias.md · trecho 3\n\"O período mínimo de gozo é de 5 dias corridos...\"\n\n(scores ilustrativos)</pre><p>Repare: a sua pergunta diz <b>descanso</b> e o documento diz <b>férias</b>. A busca semântica encontrou mesmo assim, porque compara significados.</p>",
+      ai: "<p>A busca trouxe os trechos mais parecidos com a sua pergunta — os 3 melhores (top 3):</p><pre>0.91 · governanca-limites-regionais.md · trecho 3\n\"Região Nordeste: para aquisições de ativos\nimobiliários (galpões), o endividamento máximo\nda subsidiária local está limitado a 35% do seu\nEBITDA.\"\n\n0.84 · governanca-limites-regionais.md · trecho 4\n\"Qualquer exceção ao limite do Nordeste exige\nassinatura conjunta de 3 diretores executivos e\nvalidação formal do comitê de riscos.\"\n\n0.71 · governanca-limites-regionais.md · trecho 2\n\"Regiões Norte e Centro-Oeste: o endividamento\nmáximo para expansão imobiliária está limitado\na 40% do EBITDA local.\"\n\n(scores ilustrativos)</pre><p>Repare: você disse <b>comprar galpões</b> e o documento diz <b>aquisições de ativos imobiliários</b>. A busca encontrou mesmo assim, porque compara significados, não palavras iguais.</p>",
       tech: {
         s: "etapa 5 de 10 · recuperação",
-        b: "<b>Mecanismo:</b> o condutor aponta ativamente o caso de sinônimo quando ele ocorre, demonstrando busca semântica com o exemplo da própria pessoa. Telemetria: pergunta_registrada.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Mede quão <b>perto</b> a pergunta está de cada trecho no mapa e traz os mais próximos — os <b>top-k</b> (aqui, k = 3, ou seja, os 3 melhores; quem monta o sistema escolhe esse número). O score mostra o quanto cada um se parece.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Olhe os trechos recuperados: se não tiverem a ver com a pergunta, reformule de forma mais específica.</p></div>",
       },
       user: "continuar",
     },
     {
-      ai: "<p>Etapa 6. O contexto é a mensagem final enviada ao modelo, a pergunta junto com os trechos. Este é o prompt montado, literalmente:</p><pre>Responda usando apenas os trechos abaixo.\n\nTrecho 1: \"As férias podem ser emendadas com\nferiados nacionais, desde que a solicitação\nrespeite o prazo do item 1.\"\nTrecho 2: \"As férias devem ser solicitadas com\n30 dias de antecedência pelo sistema de RH.\"\n\nPergunta: Posso emendar o descanso com o feriado?</pre><p>Os documentos entram dentro da mensagem. Gerar a resposta?</p>",
+      ai: "<p>Aqui está o segredo do RAG: a IA junta os trechos recuperados com a sua pergunta numa única mensagem — o <b>contexto</b>. É exatamente isto que o modelo recebe:</p><pre>Responda usando apenas os trechos abaixo.\n\nTrecho 1 (governanca-limites-regionais.md): \"Região\nNordeste: para aquisições de ativos imobiliários\n(galpões), o endividamento máximo da subsidiária\nlocal está limitado a 35% do seu EBITDA.\"\nTrecho 2 (governanca-limites-regionais.md): \"Qualquer\nexceção ao limite do Nordeste exige assinatura\nconjunta de 3 diretores executivos e validação\nformal do comitê de riscos.\"\n\nPergunta: Qual é o teto de endividamento para a\nNexaLog comprar galpões no Nordeste?</pre><p>No fundo, RAG é isto: os documentos entram dentro da mensagem. Gerar a resposta?</p>",
       tech: {
         s: "etapa 6 de 10 · contexto",
-        b: "<b>Mecanismo:</b> exibir o prompt montado é a revelação central da missão, desfaz a caixa-preta. O participante vê que RAG é, no fim, texto dentro da mensagem.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Cola os trechos recuperados junto da pergunta numa só mensagem — dentro da <b>janela de contexto</b> (o espaço de texto que cabe de uma vez numa mensagem). Como esse espaço é <b>limitado</b>, o RAG manda só os melhores trechos (o top-k), não o documento inteiro. É o \"Augmented\" do RAG: o conhecimento entra como texto, <b>sem alterar o modelo</b>.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Entenda que \"RAG é texto na mensagem\": quanto melhor a pergunta e os trechos, melhor o contexto montado.</p></div>",
       },
       user: "gerar",
     },
     {
-      ai: "<p>Etapa 7. Resposta gerada com base nos trechos:</p><p><b>Sim. As férias podem ser emendadas com feriados nacionais, desde que solicitadas com 30 dias de antecedência pelo sistema de RH.</b></p><pre>fonte: politica-de-ferias.md · trechos 1 e 2</pre><p>A citação permite conferir a origem.</p>",
+      ai: "<p>E a resposta, construída a partir dos trechos:</p><p><b>O teto de endividamento para aquisições de galpões na Região Nordeste é de 35% do EBITDA da subsidiária local. Qualquer exceção exige a assinatura conjunta de 3 diretores executivos e a validação do comitê de riscos.</b></p><pre>fonte: governanca-limites-regionais.md · trechos 3 e 4</pre><p>Veja: a resposta vem com <b>fonte</b>, então dá para conferir de onde saiu.</p>",
       tech: {
         s: "etapa 7 de 10 · geração e citação",
-        b: "<b>Limite:</b> regra inviolável 6, a resposta usa somente os trechos recuperados. Se forem insuficientes, o condutor declara em vez de completar com conhecimento geral.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>O LLM gera a resposta <b>condicionada (grounded)</b> apenas nos trechos recuperados e cita a fonte. Se os trechos não sustentam a resposta, declara em vez de completar com conhecimento geral.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Sempre confira a citação antes de confiar — abra a fonte e leia o trecho original.</p></div>",
       },
       user: "e sem RAG, como ficaria?",
     },
     {
-      ai: "<p>Etapa 8. A mesma pergunta, sem os documentos:</p><p>\"Sim, a legislação trabalhista costuma permitir a emenda, em geral até 5 dias, dependendo da política da empresa.\"</p><pre>sem RAG · sem fonte</pre><p>Compare. A resposta sem RAG soa razoável, cita uma regra que está em lugar nenhum dos seus documentos e zero fonte para conferir. Esse é o risco da alucinação. Testar os limites?</p>",
+      ai: "<p>Agora a mesma pergunta, mas <b>sem</b> os documentos:</p><p>\"Em geral, operações de aquisição admitem alavancagem de 2 a 3 vezes o EBITDA, conforme a prática de mercado…\"</p><pre>sem RAG · sem fonte</pre><p>Soa razoável, né? Só que cita uma regra de mercado que <b>não está em nenhum documento da NexaLog</b> e não tem fonte. É a amnésia corporativa: o modelo público não conhece a governança interna — e esse é o risco da alucinação. Vamos testar os limites?</p>",
       tech: {
         s: "etapa 8 de 10 · contraste",
-        b: "<b>Mecanismo:</b> o contraste usa a mesma pergunta da pessoa, o que torna a alucinação pessoal e memorável. A resposta sem RAG é rotulada para nunca ser confundida com a citada.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Sem recuperação, a IA responde \"de cabeça\", só com o que ficou da fase de treino (a chamada <b>memória paramétrica</b>). Daí respostas plausíveis, porém sem fonte e sujeitas a <b>alucinação</b>.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Desconfie de resposta sem fonte. Para temas internos da empresa, exija RAG (base + citação).</p></div>",
       },
-      user: "sim. Qual é o salário do CEO?",
+      user: "sim. Qual é o salário do CEO da NexaLog?",
     },
     {
-      ai: "<p>Etapa 9. Busquei nos 18 trechos e nenhum trata de salários. <b>Essa informação está fora da base, então eu fico sem resposta.</b></p><p>Diagnóstico: o assunto não existe nos três documentos carregados. Para o RAG responder isso, a base precisaria de um documento de remuneração. Essa recusa é a proteção do RAG contra a alucinação.</p>",
+      ai: "<p>Procurei nos 14 trechos e nenhum trata de remuneração de executivos. <b>Essa informação está fora da base, então eu fico sem resposta.</b></p><p>O assunto simplesmente não existe nos três documentos de governança. Para o RAG responder isso, a base precisaria de um documento de remuneração. Essa recusa não é uma falha — é a proteção do RAG contra a alucinação.</p>",
       tech: {
         s: "etapa 9 de 10 · teste de limite",
-        b: "<b>Mecanismo:</b> a recusa diante de pergunta fora da base é o comportamento correto e vira aprendizado. Telemetria: fora_da_base_detectada. O condutor mantém a recusa mesmo sob insistência.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>Quando a busca não traz trechos relevantes, um RAG bem configurado se <b>abstém</b> em vez de inventar. A \"falha\" é a base não cobrir o assunto, não o modelo.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Se a IA recusar, o problema é a base (falta o documento), não a sua pergunta — adicione a fonte certa.</p></div>",
       },
       user: "fechou, pode encerrar",
     },
     {
-      ai: "<p>Etapa 10. Você viu o caminho completo, do documento à resposta citada, e o sistema recusando o que está fora da base. Este relatório é seu, copie e guarde.</p><pre>RELATORIO DA MISSAO · RAG NA PRATICA\nbase: 3 arquivos (pack de exemplo)\ntrechos: 18\npergunta testada: posso emendar o descanso com o feriado?\nresposta citada: sim, com 30 dias de antecedência\n  fonte: politica-de-ferias.md · trechos 1 e 2\ncontraste sem RAG: inventou regra de CLT, sem fonte\nteste de limite: \"qual o salário do CEO?\" · diagnóstico:\n  assunto ausente da base, exigiria documento de remuneração</pre><pre>STATUS: MISSAO CONCLUIDA</pre>",
+      ai:
+        "<p>Você percorreu o caminho completo do RAG. Antes de fechar, vamos amarrar o que você aprendeu:</p>" +
+        "<p><b>O pipeline, em uma linha:</b> base de conhecimento → trechos (chunks) → embeddings no banco vetorial → busca por significado → melhores trechos na janela de contexto → resposta gerada e citada.</p>" +
+        "<p><b>Os limites que ficaram claros:</b> a IA só sabe o que está na base; sem RAG ela inventa sem fonte (alucinação); o RAG entrega o <b>fato</b>, mas <b>não muda o modelo</b> (não ensina tom nem estilo).</p>" +
+        "<p><b>As boas práticas para levar:</b> pergunte de forma específica; <b>sempre confira a citação</b>; lembre que a resposta só é tão boa quanto a base.</p>" +
+        "<p><b>Pense no seu dia a dia:</b> que base (um manual, um contrato, uma apostila) você colocaria num RAG? Que pergunta ela responderia — e qual ela <b>não</b> conseguiria?</p>" +
+        "<pre>RELATORIO DA MISSAO · RAG NA PRATICA\nempresa: NexaLog S.A.\nbase: 3 arquivos (governanca-limites-regionais.md, governanca-capex.md, governanca-rito-excecoes.md)\ntrechos: 14\npergunta testada: Qual é o teto de endividamento para a NexaLog comprar galpões no Nordeste?\nresposta citada: 35% do EBITDA da subsidiária local\n  excecao: assinatura conjunta de 3 diretores executivos + validacao do comite de riscos\n  fonte: governanca-limites-regionais.md · trechos 3 e 4\ncontraste sem RAG: regra de mercado generica (2 a 3x EBITDA) sem fonte\nteste de limite: \"salario do CEO\" · diagnostico: assunto ausente da base, exigiria documento de remuneracao</pre>" +
+        "<p>E quando o RAG não basta? Quando o gargalo deixa de ser o <b>fato</b> e passa a ser o <b>tom</b> — a forma de responder, o jargão certo, o estilo de um especialista. O próximo salto é o <b>fine-tuning</b>. Veja a conclusão abaixo ↓</p>" +
+        "<pre>STATUS: MISSAO CONCLUIDA</pre>",
       tech: {
         s: "concluída",
-        b: "<b>Critério de conclusão:</b> 1 resposta com fonte, 1 contraste sem RAG, 1 recusa fora da base com diagnóstico. Sentinela detectada, telemetria final: missao_concluida.",
+        b:
+          "<div class=\"explain-row\"><span class=\"explain-tag is-ai\">O que a IA faz</span><p>O RAG injeta <b>conhecimento factual</b> no contexto, em tempo de consulta, <b>sem mudar o modelo</b>. O que ele não altera é o comportamento, o estilo e o jargão do LLM — isso é território do <b>fine-tuning</b>.</p></div>" +
+          "<div class=\"explain-row\"><span class=\"explain-tag is-you\">Boa prática</span><p>Saiba escolher: RAG quando o que falta é o <b>fato</b>; fine-tuning quando o que falta é o <b>jeito de responder</b>.</p></div>",
       },
       user: null,
       done: true,

@@ -6144,6 +6144,24 @@ function App() {
     showToast("Jornada da missão reiniciada");
   }
 
+  function handleGoToGeneralChat() {
+    const missions = effectiveTeamEvent?.missions;
+    if (!Array.isArray(missions) || !missions.length) {
+      showToast("A missão Análise geral ainda não foi liberada pelo facilitador.");
+      return;
+    }
+    const idx = missions.findIndex((entry) => entry?.id === "mission_general_chat");
+    if (idx < 0) {
+      showToast("A missão Análise geral ainda não foi liberada pelo facilitador.");
+      return;
+    }
+    setTimeMissionIdx(idx);
+    setMissionInput("");
+    setMissionAttachments([]);
+    setRunning(false);
+    setRunError("");
+  }
+
   function saveExecution(eventId, teamIdx, missionId, execData) {
     const executionId = `${execData.id || `${teamIdx}_${missionId}_${execData.ts || Date.now()}`}`;
     void perTeamExecutionsHook.append({
@@ -8654,6 +8672,7 @@ function App() {
                         onPersistExecution={handlePersistCurrentGuidedMissionExecution}
                         onCopyReport={() => void handleCopyResponse(currentGuidedMissionState.report || "")}
                         onResetMission={handleResetGuidedMission}
+                        onGoToGeneralChat={handleGoToGeneralChat}
                       />
                     ) : (!currentConcluida && !currentQuestionarioPendente) ? (
                       <div className="input-card input-card-chat">

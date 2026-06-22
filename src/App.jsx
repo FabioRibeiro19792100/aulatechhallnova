@@ -8863,7 +8863,9 @@ function App() {
                               ? "em andamento"
                               : "liberada";
                       const isCurrentMission = timeMissionIdx === index;
-                      const canResetMission = getMissionHasAnyHistory(effectiveTeamEvent, timeTeamIdx, mission.id);
+                      const canResetMission =
+                        mission.id !== "mission_general_chat" &&
+                        getMissionHasAnyHistory(effectiveTeamEvent, timeTeamIdx, mission.id);
                       return (
                         <div className="mission-item-wrap" key={`${mission.id}-${index}`}>
                           <button

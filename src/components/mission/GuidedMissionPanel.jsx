@@ -505,7 +505,6 @@ export function GuidedMissionPanel({
                     <span>Anexar</span>
                   </button>
                 ) : null}
-                <span className="input-hint">{isRag ? "Missão 3 · RAG" : "Missão 4 · Agente"}</span>
               </div>
               <div className="mission-inline-actions">
                 <button

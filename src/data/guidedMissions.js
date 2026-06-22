@@ -17,6 +17,7 @@ export const CORPORATE_DOC_URL =
 export const RAG_PACK_DOCUMENTS = [
   {
     name: "governanca-limites-regionais.md",
+    label: "Limites regionais",
     text: [
       "Regiões Sul e Sudeste: o endividamento máximo para aquisições não pode ultrapassar 50% do EBITDA da subsidiária local.",
       "Regiões Norte e Centro-Oeste: o endividamento máximo para expansão imobiliária está limitado a 40% do EBITDA local.",
@@ -27,6 +28,7 @@ export const RAG_PACK_DOCUMENTS = [
   },
   {
     name: "governanca-capex.md",
+    label: "CAPEX",
     text: [
       "Todas as aquisições de ativos imobilizados devem estar alinhadas ao Planejamento Estratégico 2026-2030 da companhia.",
       "O orçamento de CAPEX aprovado pelo Conselho de Administração deve ser respeitado por todas as diretorias subsidiárias regionais.",
@@ -36,6 +38,7 @@ export const RAG_PACK_DOCUMENTS = [
   },
   {
     name: "governanca-rito-excecoes.md",
+    label: "Rito de exceções",
     text: [
       "A flexibilização dos limites de alavancagem é classificada como Exceção Estatutária de Nível 1.",
       "Passo 1: emissão e submissão do Estudo de Viabilidade Econômica (EVE) assinado pelo Controller Regional.",
@@ -51,6 +54,7 @@ const FINE_TUNING_SYSTEM_PROMPT =
 
 export const FINE_TUNING_DATASET_DOC = {
   name: "dataset-fine-tuning.jsonl",
+  label: "Dataset (.jsonl)",
   kind: "jsonl",
   text: [
     {

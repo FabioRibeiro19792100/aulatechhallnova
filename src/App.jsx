@@ -8662,10 +8662,13 @@ function App() {
                   </div>
                 ) : !effectiveTeamEvent.missions.length ? (
                   <div className="empty-list-text">Nenhuma missão disponível.</div>
+                ) : !effectiveTeamEvent.missions.some((mission) => mission.unlocked) ? (
+                  <div className="empty-list-text">Nenhuma missão liberada pelo facilitador ainda.</div>
                 ) : (
                   <div className="ws-mission-list">
                     {effectiveTeamEvent.missions.map((mission, index) => {
-                      const locked = !mission.unlocked;
+                      if (!mission.unlocked) return null;
+                      const locked = false;
                       const missionStatus = getMissionClosureStatus(effectiveTeamEvent, timeTeamIdx, mission.id);
                       const concluida = missionStatus === "concluida";
                       const aguardandoQuestionario = missionStatus === "aguardando_questionario";

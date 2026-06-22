@@ -7387,3 +7387,87 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
   .guided-corner-actions{right:14px; bottom:14px}
   .guided-corner-link{max-width:none}
 }
+
+/* Threads por missão de chat (estilo ChatGPT, barra horizontal acima do composer) */
+.thread-bar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:6px;
+  padding:8px 12px;
+  border-bottom:1px solid var(--border);
+  background:#f8fafc;
+}
+.thread-tab{
+  display:inline-flex;
+  align-items:center;
+  max-width:180px;
+  padding:5px 11px;
+  border:1px solid #cbd5e1;
+  background:#ffffff;
+  color:#334155;
+  border-radius:999px;
+  font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:12px;
+  font-weight:500;
+  cursor:pointer;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  transition:background .12s ease,border-color .12s ease,color .12s ease;
+}
+.thread-tab:hover{background:#f1f5f9;border-color:#94a3b8}
+.thread-tab.is-active,
+.thread-tab-wrap.is-active .thread-tab{
+  background:#0f172a;
+  color:#f8fafc;
+  border-color:#0f172a;
+}
+.thread-tab-wrap{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+}
+.thread-tab-wrap .thread-tab{padding-right:24px}
+.thread-tab-delete{
+  position:absolute;
+  right:4px;
+  top:50%;
+  transform:translateY(-50%);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:16px;
+  height:16px;
+  background:transparent;
+  border:0;
+  border-radius:50%;
+  color:inherit;
+  opacity:0;
+  cursor:pointer;
+  transition:opacity .14s ease,background .14s ease;
+}
+.thread-tab-wrap:hover .thread-tab-delete,
+.thread-tab-wrap.is-active .thread-tab-delete{opacity:.8}
+.thread-tab-delete:hover{opacity:1;background:rgba(148,163,184,.28)}
+.thread-tab-new{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  padding:5px 12px;
+  border:1px dashed #94a3b8;
+  background:transparent;
+  color:#475569;
+  border-radius:999px;
+  font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+  transition:background .12s ease,border-color .12s ease,color .12s ease;
+}
+.thread-tab-new:hover{
+  background:#ecfdf5;
+  border-color:#22c55e;
+  color:#166534;
+  border-style:solid;
+}

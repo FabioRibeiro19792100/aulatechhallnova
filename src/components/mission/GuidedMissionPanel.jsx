@@ -364,46 +364,46 @@ export function GuidedMissionPanel({
       ) : null}
 
       <div className="input-card input-card-chat">
+        {isRag ? (
+          <div className="guided-docs-strip">
+            <span className="guided-docs-strip-label">Base de conhecimento</span>
+            {RAG_READABLE_DOCUMENTS.map((doc) => {
+              const chipKind = doc.kind === "jsonl" ? "is-jsonl" : "is-md";
+              return (
+                <button
+                  type="button"
+                  key={`pack-${doc.name}`}
+                  className={`guided-doc-chip ${chipKind}`}
+                  title={doc.name}
+                  onClick={() => setOpenDoc({ name: doc.name, text: doc.text, kind: doc.kind || "md" })}
+                >
+                  <FileText size={12} strokeWidth={1.9} />
+                  <span>{doc.label || doc.name}</span>
+                </button>
+              );
+            })}
+            {attachments
+              .filter((attachment) => attachment?.extractedText)
+              .map((attachment) => (
+                <button
+                  type="button"
+                  key={`anexo-${attachment.id}`}
+                  className="guided-doc-chip is-anexo"
+                  onClick={() =>
+                    setOpenDoc({
+                      name: attachment.name,
+                      text: attachment.extractedText,
+                      kind: "anexo",
+                    })
+                  }
+                >
+                  <Paperclip size={12} strokeWidth={1.9} />
+                  <span>{attachment.name}</span>
+                </button>
+              ))}
+          </div>
+        ) : null}
         <div className="prompt-composer">
-          {isRag ? (
-            <div className="guided-docs-strip">
-              <span className="guided-docs-strip-label">Base de conhecimento</span>
-              {RAG_READABLE_DOCUMENTS.map((doc) => {
-                const chipKind = doc.kind === "jsonl" ? "is-jsonl" : "is-md";
-                return (
-                  <button
-                    type="button"
-                    key={`pack-${doc.name}`}
-                    className={`guided-doc-chip ${chipKind}`}
-                    title={doc.name}
-                    onClick={() => setOpenDoc({ name: doc.name, text: doc.text, kind: doc.kind || "md" })}
-                  >
-                    <FileText size={12} strokeWidth={1.9} />
-                    <span>{doc.label || doc.name}</span>
-                  </button>
-                );
-              })}
-              {attachments
-                .filter((attachment) => attachment?.extractedText)
-                .map((attachment) => (
-                  <button
-                    type="button"
-                    key={`anexo-${attachment.id}`}
-                    className="guided-doc-chip is-anexo"
-                    onClick={() =>
-                      setOpenDoc({
-                        name: attachment.name,
-                        text: attachment.extractedText,
-                        kind: "anexo",
-                      })
-                    }
-                  >
-                    <Paperclip size={12} strokeWidth={1.9} />
-                    <span>{attachment.name}</span>
-                  </button>
-                ))}
-            </div>
-          ) : null}
           <div className="prompt-thread" ref={threadRef}>
             {transcript.map((entry, entryIndex) =>
               entry.type === "assistant" ? (

@@ -7095,6 +7095,7 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
 .guided-docs-strip{
   display:flex;
   flex-wrap:wrap;
+  align-items:center;
   gap:8px;
   padding:10px 14px;
   margin:0 0 12px 0;

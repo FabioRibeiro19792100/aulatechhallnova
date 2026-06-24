@@ -3303,6 +3303,20 @@ function App() {
     }
   }, [events, facSelectedId, screen, storeHydrated, timeEventId]);
   const currentMission = isTrainingEvent ? TRAINING_MISSION : teamEvent && timeMissionIdx !== null ? normalizeMission(teamEvent.missions[timeMissionIdx]) : null;
+  const workspaceMissionSupportsThreads = Boolean(
+    currentMission &&
+      !isTrainingEvent &&
+      !isGuidedMission(currentMission) &&
+      getMissionAiMode(currentMission) === CHAT_AI_MODE,
+  );
+  const workspaceThreadId = workspaceMissionSupportsThreads
+    ? activeThreadByMission[currentMission.id] || DEFAULT_THREAD_ID
+    : DEFAULT_THREAD_ID;
+  const workspaceMissionScopeId = currentMission
+    ? workspaceMissionSupportsThreads
+      ? getThreadMissionId(currentMission.id, workspaceThreadId)
+      : currentMission.id
+    : null;
   const currentAgentParticipantKey = useMemo(
     () => getActiveAgentParticipantKey(activeStudentName, team?.name || ""),
     [activeStudentName, team?.name],
@@ -3311,7 +3325,7 @@ function App() {
   const workspaceActive = screen === "workspace";
   const perTeamEventId = workspaceActive ? timeEventId : null;
   const perTeamTeamIdx = workspaceActive ? timeTeamIdx : null;
-  const perTeamMissionId = workspaceActive ? currentMission?.id ?? null : null;
+  const perTeamMissionId = workspaceActive ? workspaceMissionScopeId : null;
 
   const perTeamEventStateHook = useEventState(perTeamEventId, { realtimeClient: supabaseRealtimeClient });
   const perTeamTeamStateHook = useTeamState(perTeamEventId, perTeamTeamIdx, { realtimeClient: supabaseRealtimeClient });
@@ -3403,11 +3417,6 @@ function App() {
     realtimeClient: supabaseRealtimeClient,
     refreshMs: 5000,
   });
-  const workspaceDashboardHook = useDashboard(screen === "workspace" ? teamEvent?.id || null : null, {
-    realtimeClient: supabaseRealtimeClient,
-    refreshMs: 5000,
-  });
-
   const facilitadorBaseEvent = useMemo(
     () => store.events?.find((event) => event.id === facSelectedId) || null,
     [store.events, facSelectedId],
@@ -3417,10 +3426,7 @@ function App() {
     return buildDashboardEnrichedEvent(facilitadorBaseEvent, perTeamDashboardHook.data);
   }, [facilitadorBaseEvent, perTeamDashboardHook.data]);
 
-  const effectiveTeamAnalysisEvent = useMemo(
-    () => buildDashboardEnrichedEvent(effectiveTeamEvent || teamEvent, workspaceDashboardHook.data),
-    [effectiveTeamEvent, teamEvent, workspaceDashboardHook.data],
-  );
+  const effectiveTeamAnalysisEvent = effectiveTeamEvent || teamEvent || null;
 
   const selectedEventForRead = effectiveFacilitadorEvent || selectedEvent;
   const teamEventForRead = effectiveTeamEvent || teamEvent;
@@ -3469,23 +3475,12 @@ function App() {
     [currentGuidedMissionState, liveCurrentMission],
   );
   const currentMissionLocked = Boolean(!isTrainingEvent && liveCurrentMission && !liveCurrentMission.unlocked);
-  const currentMissionSupportsThreads = Boolean(
-    currentMission &&
-      !isTrainingEvent &&
-      !isGuidedMission(currentMission) &&
-      getMissionAiMode(currentMission) === CHAT_AI_MODE,
-  );
+  const currentMissionSupportsThreads = workspaceMissionSupportsThreads;
   const currentThreadsList = currentMissionSupportsThreads && effectiveTeamEvent
     ? getThreadsForMission(effectiveTeamEvent, timeTeamIdx, currentMission.id)
     : [];
-  const currentThreadId = currentMissionSupportsThreads
-    ? activeThreadByMission[currentMission.id] || DEFAULT_THREAD_ID
-    : DEFAULT_THREAD_ID;
-  const currentExecMissionId = currentMission
-    ? currentMissionSupportsThreads
-      ? getThreadMissionId(currentMission.id, currentThreadId)
-      : currentMission.id
-    : null;
+  const currentThreadId = workspaceThreadId;
+  const currentExecMissionId = workspaceMissionScopeId;
   const currentExecs = currentMission && effectiveTeamEvent
     ? isTrainingEvent
       ? getTrainingRuns(effectiveTeamEvent, timeTeamIdx)
@@ -4270,6 +4265,7 @@ function App() {
       tokenOperationalLogs: _tokenOperationalLogs,
       presenceMap: _presenceMap,
       trainingHelpRequests: _trainingHelpRequests,
+      threadsByMission: _threadsByMission,
       ...eventWide
     } = event;
     return eventWide;

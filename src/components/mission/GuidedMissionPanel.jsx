@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
-  ExternalLink,
   FileText,
   Maximize2,
   Minus,
@@ -324,9 +323,10 @@ export function GuidedMissionPanel({
               href={CORPORATE_DOC_URL}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="Abrir documento corporativo de referência"
+              title="Documento corporativo de referência"
             >
-              <ExternalLink size={14} strokeWidth={1.8} />
-              <span>Documento corporativo · Manual de Governança · NexaLog</span>
+              <FileText size={18} strokeWidth={1.9} />
             </a>
           ) : null}
           <button

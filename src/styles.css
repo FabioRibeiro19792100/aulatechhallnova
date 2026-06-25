@@ -2821,7 +2821,7 @@ textarea.event-desc-input:focus{background:transparent;border:none !important;bo
   .entry-event-grid,
   .student-card-grid{grid-template-columns:1fr}
 }
-.workspace{flex:1;display:grid;grid-template-columns:minmax(190px,18%) minmax(0,52%) minmax(0,30%);min-height:0}
+.workspace{flex:1;display:grid;grid-template-columns:336px minmax(0,1fr) minmax(360px,30%);min-height:0}
 .workspace.workspace-agent-onboarding{grid-template-columns:minmax(0,1fr)}
 .workspace-live-focus{grid-template-columns:minmax(0,1fr)}
 .demo-banner{background:#fff7ed;border-bottom:1px solid var(--amber-border);padding:8px 24px;font-size:12px;color:var(--amber);font-weight:600;display:flex;align-items:center;gap:6px;flex-shrink:0}
@@ -7363,19 +7363,17 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
 .guided-corner-link{
   display:inline-flex;
   align-items:center;
+  justify-content:center;
   gap:8px;
-  padding:10px 14px;
-  border-radius:14px;
+  width:82px;
+  height:56px;
+  padding:0;
+  border-radius:18px;
   background:#1d4ed8;
   color:#eff6ff;
   border:1px solid rgba(255,255,255,.16);
   box-shadow:0 14px 30px rgba(15,23,42,.18);
-  font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  font-size:12px;
-  font-weight:500;
   text-decoration:none;
-  max-width:260px;
-  line-height:1.3;
   transition:transform .12s ease, box-shadow .12s ease;
 }
 .guided-corner-link:hover{transform:translateY(-1px); box-shadow:0 18px 36px rgba(15,23,42,.24)}
@@ -7385,7 +7383,6 @@ linear-gradient(180deg,#fbfdff 0%,#f7f9fc 100%)}
   .finetuning-case,
   .finetuning-metrics{grid-template-columns:1fr}
   .guided-corner-actions{right:14px; bottom:14px}
-  .guided-corner-link{max-width:none}
 }
 
 /* Threads por missão de chat (estilo ChatGPT, barra horizontal acima do composer) */
